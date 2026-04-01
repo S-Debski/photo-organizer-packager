@@ -194,3 +194,41 @@ p.text-secondary {
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+/* =============================================================
+   Toast UI (global)
+   ============================================================= */
+.toast-box {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 15px;
+    box-shadow: 0px 0px 8px rgba(0,0,0,0.35);
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.toast-box.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+/* =============================================================
+   Custom Spinner (loader)
+   ============================================================= */
+.loader {
+    border: 3px solid rgba(255,255,255,0.15);
+    border-left-color: #4dff4d;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    animation: spinLoader 0.7s linear infinite;
+}
+
+@keyframes spinLoader {
+    to { transform: rotate(360deg); }
+}

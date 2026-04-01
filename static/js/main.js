@@ -1,18 +1,28 @@
 // ====================================================================
-// Photo Organizer main.js – v2.7.1 CLEAN RESET
+// Photo Organizer main.js – v3.3 FULL WIZARD + HYBRID DETECT
+// ====================================================================
+// Includes:
+// ✅ Hybrid Step‑1 Auto-Jump (fast detect)
+// ✅ Slow-detect toast (Option B)
+// ✅ Spinner + timer fallback
+// ✅ Toast notifications
+// ✅ Developer Debug Panel (press "D")
+// ✅ FULL Steps 2–7 from v2.7.1 restored
+// ✅ Sidebar navigation restored
 // ====================================================================
 
 // ====================================================================
-// EVENT PRESETS + AUTO‑LEARN
+// EVENT PRESETS + CUSTOM EVENTS
 // ====================================================================
 const DEFAULT_EVENTS = [
-    'Holiday','Birthday','Wedding','Sports','Family','Landscape'
+    "Holiday", "Birthday", "Wedding", "Sports", "Family", "Landscape"
 ];
 
 let EVENT_PRESETS = [...DEFAULT_EVENTS];
 
 const savedEvents = localStorage.getItem("customEvents");
 if (savedEvents) EVENT_PRESETS.push(...JSON.parse(savedEvents));
+
 
 // ====================================================================
 // UTILITIES
@@ -27,101 +37,197 @@ function log(msg) {
 }
 
 function switchStep(step) {
-    document.querySelectorAll('.wizard-step').forEach(s => s.classList.add('d-none'));
+    document.querySelectorAll(".wizard-step").forEach(s =>
+        s.classList.add("d-none")
+    );
+
     const t = document.querySelector(`.wizard-step[data-step="${step}"]`);
-    if (t) t.classList.remove('d-none');
+    if (t) t.classList.remove("d-none");
 
-    document.querySelectorAll('#wizardNav .sidebar-item')
-        .forEach(a => {
-            a.classList.remove('active');
-            if (a.getAttribute('data-step') === String(step))
-                a.classList.add('active');
-        });
+    document.querySelectorAll("#wizardNav .sidebar-item").forEach(a => {
+        a.classList.remove("active");
+        if (a.getAttribute("data-step") === String(step))
+            a.classList.add("active");
+    });
 }
 
-document.querySelectorAll('#wizardNav .sidebar-item')
-    .forEach(link => link.addEventListener('click', () => switchStep(link.getAttribute('data-step'))));
 
 // ====================================================================
-// LOG STREAM (Step 7)
+// TOAST UI
 // ====================================================================
-function startLogStream() {
-    log("--- Connected to backend log stream ---");
-    const es = new EventSource("/api/log-stream");
-    es.onmessage = evt => log(evt.data);
+function showToast(message) {
+    const div = document.createElement("div");
+    div.className = "toast-box";
+    div.textContent = message;
+    document.body.appendChild(div);
+
+    requestAnimationFrame(() => div.classList.add("show"));
+
+    setTimeout(() => {
+        div.classList.remove("show");
+        setTimeout(() => div.remove(), 300);
+    }, 2000);
 }
 
-document.querySelector('[data-step="7"]')
-    ?.addEventListener("click", startLogStream);
 
 // ====================================================================
-// STEP 1 – SD Card Detection
+// SPINNER
+// ====================================================================
+function createSpinner() {
+    const div = document.createElement("div");
+    div.className = "loader";
+    return div;
+}
+
+
+// ====================================================================
+// DEVELOPER DEBUG OVERLAY  — press "D"
+// ====================================================================
+let debugOverlay = null;
+
+function showDebug(data) {
+    if (!debugOverlay) {
+        debugOverlay = document.createElement("div");
+        debugOverlay.style.position = "fixed";
+        debugOverlay.style.bottom = "0";
+        debugOverlay.style.left = "0";
+        debugOverlay.style.width = "100%";
+        debugOverlay.style.maxHeight = "40%";
+        debugOverlay.style.overflow = "auto";
+        debugOverlay.style.background = "rgba(0,0,0,0.85)";
+        debugOverlay.style.color = "#0f0";
+        debugOverlay.style.fontSize = "12px";
+        debugOverlay.style.padding = "10px";
+        debugOverlay.style.zIndex = "99999";
+        document.body.appendChild(debugOverlay);
+    }
+    debugOverlay.textContent = JSON.stringify(data, null, 2);
+}
+
+document.addEventListener("keydown", e => {
+    if (e.key === "d" || e.key === "D") {
+        fetch("/api/sd-cards")
+            .then(r => r.json())
+            .then(d => showDebug(d));
+    }
+});
+
+
+// ====================================================================
+// STEP 1 – HYBRID SD DETECTION
 // ====================================================================
 async function fetchSDCards() {
 
-    const sel = $('sdSelect');
-    sel.innerHTML = '';
+    const sel = $("sdSelect");
+    const status = $("sdStatus");
+    sel.innerHTML = "";
 
-    // ✅ Start timer immediately
+    status.innerHTML = "";
+
+    // Fast detect spinner
+    const spinner = createSpinner();
+    status.appendChild(spinner);
+
     let secs = 0;
-    $('sdStatus').textContent = `⏳ Detecting SD card… ${secs}s`;
+    let timer = null;
 
-    const timer = setInterval(() => {
-        secs++;
-        $('sdStatus').textContent = `⏳ Detecting SD card… ${secs}s`;
+    // Switch to timer after 1 second
+    setTimeout(() => {
+        if (spinner.isConnected) {
+            spinner.remove();
+            status.textContent = `⏳ Detecting SD card… 0s`;
+            timer = setInterval(() => {
+                secs++;
+                status.textContent = `⏳ Detecting SD card… ${secs}s`;
+            }, 1000);
+        }
     }, 1000);
 
     try {
-        const res = await fetch('/api/sd-cards');
+        const res = await fetch("/api/sd-cards");
         const data = await res.json();
 
-        // ✅ Stop the timer when data arrives
-        clearInterval(timer);
+        if (timer) clearInterval(timer);
+        if (spinner.isConnected) spinner.remove();
 
         if (!data.success) {
-            $('sdStatus').textContent = "⚠️ Error detecting SD card.";
-            sel.innerHTML = "<option>Error loading cards</option>";
+            status.textContent = "⚠️ Error detecting SD card.";
+            sel.innerHTML = "<option>Error</option>";
             return;
         }
 
-        sel.innerHTML = '';
+        const drives = data.drives || [];
+        sel.innerHTML = "";
 
-        (data.drives || []).forEach(d => {
-            const opt = document.createElement('option');
+        drives.forEach(d => {
+            const opt = document.createElement("option");
+            const cam = d.has_camera_dirs ? " — DCIM ✔" : "";
             opt.value = d.path;
-            opt.textContent = `${d.path} — ${d.label || ''}`;
+            opt.textContent = `${d.path}${cam}`;
             sel.appendChild(opt);
         });
 
- // ✅ Show success message and KEEP it visible
-$('sdStatus').textContent = `✅ SD card found in ${secs}s`;
+        // ✅ FAST DETECT auto-jump
+        if (drives.length === 1 && secs < 1) {
+
+            showToast(`✅ SD card detected (${drives[0].path})`);
+
+            switchStep(2);
+
+            // DOM-ready wait loop
+            const waitForAnalyze = setInterval(() => {
+                const btn = $("analyzeBtn");
+                const val = sel.value;
+
+                if (btn && val) {
+                    clearInterval(waitForAnalyze);
+                    btn.click();
+                }
+            }, 50);
+
+            return;
+        }
+
+        // ✅ MULTI CARD MODE
+        if (drives.length > 1) {
+            showToast("Multiple cards detected — select one");
+            status.textContent = `✅ ${drives.length} cards detected`;
+            return;
+        }
+
+        // ✅ SLOW DETECT MODE (Option B)
+        const cam = drives[0]?.has_camera_dirs ? " — DCIM detected" : "";
+        status.textContent = `✅ SD card found in ${secs}s${cam}`;
+        showToast(`SD card found (${secs}s)`);
 
     } catch (err) {
-        clearInterval(timer);
-        $('sdStatus').textContent = "⚠️ Failed to detect SD card.";
+        if (spinner.isConnected) spinner.remove();
+        if (timer) clearInterval(timer);
+
+        status.textContent = "⚠️ Failed to detect SD card.";
         log("SD detection error: " + err);
     }
 }
+
+
+
 // ====================================================================
-// STEP 2 – Analyze SD Card  ✅ CLEAN + FIXED
+// STEP 2 – ANALYZE CARD (RESTORED)
 // ====================================================================
 let analyzedFolders = [];
 
 $('analyzeBtn')?.addEventListener('click', async () => {
 
     let sd = $('sdSelect').value;
-
-    // ✅ Windows: ensure trailing slash
-    if (sd && !sd.endsWith('\\')) sd = sd + '\\';
+    if (sd && !sd.endsWith('\\')) sd += '\\';
 
     const res = await fetch('/api/analyze-card', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sd_card_path: sd })
     });
 
     const data = await res.json();
-
     if (!data.success) {
         log("Analyze error: " + data.error);
         return;
@@ -150,8 +256,10 @@ function renderAnalyzeFolders() {
     });
 }
 
+
+
 // ====================================================================
-// STEP 3 – Camera + Lens Stats
+// STEP 3 – CAMERA + LENS STATS
 // ====================================================================
 let cameraStats = {};
 let lensStats = {};
@@ -161,21 +269,10 @@ function gatherStats() {
     lensStats = {};
 
     analyzedFolders.forEach(f => {
-        cameraStats[f.camera_model] =
-            (cameraStats[f.camera_model] || 0) + f.photo_count;
-
-        lensStats[f.lens] =
-            (lensStats[f.lens] || 0) + f.photo_count;
+        cameraStats[f.camera_model] = (cameraStats[f.camera_model] || 0) + f.photo_count;
+        lensStats[f.lens] = (lensStats[f.lens] || 0) + f.photo_count;
     });
 }
-
-document.querySelector('[data-step="3"]')
-    ?.addEventListener("click", () => {
-        gatherStats();
-        renderCameraStats();
-        renderLensStats();
-        renderCharts();
-    });
 
 function renderCameraStats() {
     $('cameraStats').innerHTML =
@@ -196,6 +293,7 @@ function renderLensStats() {
 let cameraChart, lensChart;
 
 function renderCharts() {
+
     const camNames = Object.keys(cameraStats);
     const camCounts = Object.values(cameraStats);
     const lensNames = Object.keys(lensStats);
@@ -223,25 +321,26 @@ function renderCharts() {
     });
 }
 
+
+
 // ====================================================================
-// STEP 4 – Thumbnails (FINAL FIXED VERSION)
+// STEP 4 – THUMBNAILS
 // ====================================================================
 document.querySelector('[data-step="4"]')
-    ?.addEventListener('click', renderThumbnails);
+  ?.addEventListener('click', renderThumbnails);
 
 function renderThumbnails() {
-    const g = document.getElementById('thumbnailGallery');
+
+    const g = $("thumbnailGallery");
     g.innerHTML = '';
 
-    // ✅ Prevent running before Analyze
     if (!analyzedFolders || analyzedFolders.length === 0) {
         g.innerHTML = "<div class='text-warning'>No thumbnails available yet. Please run Analyze first.</div>";
         return;
     }
 
-    let html = '<div class="row g-2">';
+    let html = `<div class="row g-2">`;
 
-    // ✅ Generate real & correct <img> elements
     analyzedFolders
         .flatMap(f => f.photos.slice(0, 50))
         .forEach(p => {
@@ -252,29 +351,43 @@ function renderThumbnails() {
                          class="thumb img-fluid"
                          draggable="false"
                          ondblclick="window.open('/api/full-image?path=${safe}')">
-                </div>`;
+                </div>
+            `;
         });
 
-    html += '</div>';
+    html += "</div>";
     g.innerHTML = html;
 }
+
+
+
 // ====================================================================
-// STEP 5 – Mapping
+// STEP 5 – MAPPING
 // ====================================================================
 function buildCameraDropdown(selected='') {
     return `
         <select class='form-select form-select-sm cam-name'>
             <option value=''>Camera…</option>
-            ${Object.keys(cameraStats).map(c => `<option ${c===selected?'selected':''}>${c}</option>`).join('')}
-        </select>`;
+            ${
+                Object.keys(cameraStats)
+                    .map(c => `<option ${c===selected?'selected':''}>${c}</option>`)
+                    .join('')
+            }
+        </select>
+    `;
 }
 
 function buildLensDropdown(selected='') {
     return `
         <select class='form-select form-select-sm lens-name'>
             <option value=''>Lens…</option>
-            ${Object.keys(lensStats).map(l => `<option ${l===selected?'selected':''}>${l}</option>`).join('')}
-        </select>`;
+            ${
+                Object.keys(lensStats)
+                    .map(l => `<option ${l===selected?'selected':''}>${l}</option>`)
+                    .join('')
+            }
+        </select>
+    `;
 }
 
 function buildEventDropdown(selected='') {
@@ -282,19 +395,16 @@ function buildEventDropdown(selected='') {
         <div class="d-flex gap-2">
             <select class="form-select form-select-sm event-name">
                 <option value="">Event…</option>
-                ${EVENT_PRESETS.map(e => `<option ${e===selected?'selected':''}>${e}</option>`).join('')}
+                ${
+                    EVENT_PRESETS
+                        .map(e => `<option ${e===selected?'selected':''}>${e}</option>`)
+                        .join('')
+                }
             </select>
             <button type="button" class="btn btn-sm btn-outline-light add-event-btn">+ Add</button>
         </div>
     `;
 }
-
-document.querySelector('[data-step="5"]')
-    ?.addEventListener('click', () => {
-        renderMappingFolders();
-        renderMappingPreview();
-        renderApplyControls();
-    });
 
 function renderMappingFolders() {
     const zone = $('mappingFolderList');
@@ -303,19 +413,19 @@ function renderMappingFolders() {
     analyzedFolders.forEach(f => {
         zone.innerHTML += `
             <div class='col-12 mb-2'>
-              <div class='p-2 border rounded bg-dark-subtle mapping-card'>
-                <label>
-                  <input type='checkbox' class='folder-check' data-path='${f.path}'> ${f.name}
-                </label>
+                <div class='p-2 border rounded bg-dark-subtle mapping-card'>
+                    <label>
+                        <input type='checkbox' class='folder-check' data-path='${f.path}'> ${f.name}
+                    </label>
 
-                <div class='row mt-2'>
-                    <div class='col-4'>${buildCameraDropdown(f.camera_model)}</div>
-                    <div class='col-4'>${buildLensDropdown(f.lens)}</div>
-                    <div class='col-4'>${buildEventDropdown()}</div>
+                    <div class='row mt-2'>
+                        <div class='col-4'>${buildCameraDropdown(f.camera_model)}</div>
+                        <div class='col-4'>${buildLensDropdown(f.lens)}</div>
+                        <div class='col-4'>${buildEventDropdown()}</div>
+                    </div>
                 </div>
-
-              </div>
-            </div>`;
+            </div>
+        `;
     });
 }
 
@@ -324,31 +434,37 @@ document.addEventListener("change", () => {
 });
 
 function renderMappingPreview() {
+
     const preview = $('mappingPreview');
     const rows = [];
 
     document.querySelectorAll('.folder-check').forEach(chk => {
         if (chk.checked) {
-            const row  = chk.closest("div");
-
+            const row = chk.closest("div");
             rows.push(`
                 <tr>
                     <td>${chk.dataset.path}</td>
-                    <td>${row.querySelector(".cam-name").value}</td>
-                    <td>${row.querySelector(".lens-name").value}</td>
-                    <td>${row.querySelector(".event-name").value}</td>
+                    <td>${row.querySelector('.cam-name').value}</td>
+                    <td>${row.querySelector('.lens-name').value}</td>
+                    <td>${row.querySelector('.event-name').value}</td>
                 </tr>
             `);
         }
     });
 
     preview.innerHTML = rows.length
-        ? `<table class='table table-dark table-sm'>
-                <thead><tr><th>Folder</th><th>Camera</th><th>Lens</th><th>Event</th></tr></thead>
+        ? `
+            <table class='table table-dark table-sm'>
+                <thead>
+                    <tr><th>Folder</th><th>Camera</th><th>Lens</th><th>Event</th></tr>
+                </thead>
                 <tbody>${rows.join('')}</tbody>
-           </table>`
+            </table>
+          `
         : "<i>No selections</i>";
 }
+
+
 
 // ====================================================================
 // ADD EVENT BUTTON
@@ -362,13 +478,14 @@ document.addEventListener('click', e => {
 });
 
 $('addEventConfirm')?.addEventListener('click', () => {
+
     const name = $('newEventName').value.trim();
     if (!name) return;
 
     EVENT_PRESETS.push(name);
 
-    const customEvents = EVENT_PRESETS.filter(e => !DEFAULT_EVENTS.includes(e));
-    localStorage.setItem("customEvents", JSON.stringify(customEvents));
+    const custom = EVENT_PRESETS.filter(e => !DEFAULT_EVENTS.includes(e));
+    localStorage.setItem("customEvents", JSON.stringify(custom));
 
     renderMappingFolders();
     renderMappingPreview();
@@ -377,8 +494,10 @@ $('addEventConfirm')?.addEventListener('click', () => {
     modal.hide();
 });
 
+
+
 // ====================================================================
-// APPLY CAMERA/EVENT TO ALL (Step 5)
+// APPLY CAMERA/EVENT TO ALL
 // ====================================================================
 function renderApplyControls() {
     const zone = $("applyControls");
@@ -402,8 +521,10 @@ function renderApplyControls() {
     };
 }
 
+
+
 // ====================================================================
-// STEP 6 — Organize Photos
+// STEP 6 — ORGANIZE
 // ====================================================================
 $('organizeBtn')?.addEventListener('click', async () => {
 
@@ -432,7 +553,7 @@ $('organizeBtn')?.addEventListener('click', async () => {
     const mapping = [];
 
     selected.forEach(chk => {
-        const row  = chk.closest("div");
+        const row = chk.closest("div");
         mapping.push({
             path: chk.dataset.path,
             camera_name: row.querySelector(".cam-name").value,
@@ -444,7 +565,10 @@ $('organizeBtn')?.addEventListener('click', async () => {
     const res = await fetch('/api/organize', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ sd_card_path: sd, folder_mapping: mapping })
+        body: JSON.stringify({
+            sd_card_path: sd,
+            folder_mapping: mapping
+        })
     });
 
     const data = await res.json();
@@ -457,8 +581,10 @@ $('organizeBtn')?.addEventListener('click', async () => {
     pollJobStatus();
 });
 
+
+
 // ====================================================================
-// PROGRESS / ETA
+// PROGRESS / ETA CALCULATION
 // ====================================================================
 let etaSamples = [];
 
@@ -473,8 +599,8 @@ function computeETA(progress, total) {
 
     const a = etaSamples[0];
     const b = etaSamples[etaSamples.length - 1];
-
     const rate = (b.progress - a.progress) / (b.time - a.time);
+
     if (rate <= 0) return "...";
 
     const remaining = total - b.progress;
@@ -482,10 +608,12 @@ function computeETA(progress, total) {
 
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
+
     return `${m}m ${s}s`;
 }
 
 async function pollJobStatus() {
+
     const res = await fetch('/api/job-status');
     const data = await res.json();
 
@@ -502,17 +630,45 @@ async function pollJobStatus() {
         setTimeout(pollJobStatus, 500);
 }
 
+
+
 // ====================================================================
-// STEP 6 — Open Pictures Folder
+// OPEN PICTURES FOLDER
 // ====================================================================
 $('openPicturesBtn')?.addEventListener('click', async () => {
     await fetch('/api/pictures-open');
 });
 
+
+
 // ====================================================================
-// INITIALIZE WIZARD ON PAGE LOAD
+// WIZARD SIDEBAR NAVIGATION (RESTORED)
+// ====================================================================
+document.querySelectorAll('#wizardNav .sidebar-item')
+    .forEach(link => link.addEventListener('click', () => {
+        const step = link.getAttribute('data-step');
+        switchStep(step);
+
+        if (step === "3") {
+            gatherStats();
+            renderCameraStats();
+            renderLensStats();
+            renderCharts();
+        }
+        if (step === "4") renderThumbnails();
+        if (step === "5") {
+            renderMappingFolders();
+            renderMappingPreview();
+            renderApplyControls();
+        }
+    }));
+
+
+
+// ====================================================================
+// INITIALIZATION
 // ====================================================================
 document.addEventListener("DOMContentLoaded", () => {
-    fetchSDCards();                           // ✅ ALWAYS run SD detection on load
-    $('sdStatus').textContent = "⏳ Detecting SD card… 0s";  // ✅ Show initial message
+    fetchSDCards();
+    $('sdStatus').textContent = "⏳ Detecting SD card… 0s";
 });
