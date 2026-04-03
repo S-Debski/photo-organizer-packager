@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
 """
 Photo Organizer Backend – v2.7 Advanced EXIF Edition
-Includes:
-✅ SD/CFexpress detection
-✅ RAW + JPG thumbnail preview
-✅ Full-size RAW/JPG preview
-✅ EXIF camera + lens extraction (via photo_core)
-✅ SSE Log Streaming
-✅ Organize workflow w/ progress + percent + ETA support
-✅ Open Pictures Folder support
-✅ Idle shutdown timer
-✅ DEBUG route to inspect template paths
 """
 
 import os
@@ -42,23 +32,35 @@ from photo_core.photo_organizer import PhotoOrganizer
 from sdcard import detect_sd_cards, auto_select_sd_card
 
 # ---------------------------------------------------------
-# PyInstaller-safe base directory
+# Debugging Options
+# ---------------------------------------------------------
+ENABLE_SD_DEBUG = True   # Set False for production
+
+def timed(label):
+    """Simple timing utility for SD debug timing logs."""
+    t = time.time()
+    backend_log(f"[SD DEBUG] {label}: {t:.3f}")
+    return t
+
+# ---------------------------------------------------------
+# PyInstaller-safe Base Directory
 # ---------------------------------------------------------
 if getattr(sys, "frozen", False):
-    APP_DIR = Path(sys._MEIPASS)
+    BASE_DIR = Path(sys._MEIPASS)
 else:
-    APP_DIR = Path(__file__).resolve().parent
+    BASE_DIR = Path(__file__).resolve().parent
 
+TEMPLATE_DIR = BASE_DIR / "templates"
+STATIC_DIR   = BASE_DIR / "static"
 
 # ---------------------------------------------------------
-# Logging (Python + SSE)
+# Logging
 # ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("PhotoOrganizerBackend")
-
 log_queue = Queue()
 
 def backend_log(msg: str):
@@ -66,39 +68,38 @@ def backend_log(msg: str):
     logger.info(msg)
     log_queue.put(msg)
 
-
 # ---------------------------------------------------------
 # Flask App
 # ---------------------------------------------------------
 app = Flask(
     __name__,
-    template_folder="templates",
-    static_folder="static",
+    template_folder=str(TEMPLATE_DIR),
+    static_folder=str(STATIC_DIR),
     static_url_path="/static"
 )
+
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
-# ✅ ✅ DEBUG ROUTE — CRITICAL FOR DEBUGGING YOUR PROBLEM
+# Debug route for confirming template paths
 @app.route("/debug-index-path")
 def debug_index_path():
-    import os
-    path = os.path.abspath(os.path.join(app.template_folder, "index.html"))
-    stat = os.stat(path)
-    return f"""
-    <b>INDEX PATH:</b> {path}<br>
-    <b>SIZE:</b> {stat.st_size} bytes<br>
-    <b>MODIFIED:</b> {stat.st_mtime}<br>
-    """
-    
+    try:
+        path = os.path.abspath(os.path.join(app.template_folder, "index.html"))
+        stat = os.stat(path)
+        return f"""
+        <b>INDEX PATH:</b> {path}<br>
+        <b>SIZE:</b> {stat.st_size} bytes<br>
+        <b>MODIFIED:</b> {stat.st_mtime}<br>
+        """
+    except Exception as e:
+        return f"<b>Exception:</b> {e}", 500
 
 CORS(app)
-
 organizer = PhotoOrganizer()
 
-
 # ---------------------------------------------------------
-# Job progress state
+# Job state
 # ---------------------------------------------------------
 current_job = {
     "status": "idle",
@@ -110,12 +111,7 @@ current_job = {
 }
 job_lock = threading.Lock()
 
-
-# ---------------------------------------------------------
-# Progress callback (used by copy engine)
-# ---------------------------------------------------------
 def update_progress(current, total):
-    global current_job
     with job_lock:
         current_job["progress"] = current
         current_job["total"] = total
@@ -123,7 +119,6 @@ def update_progress(current, total):
             current_job["percent"] = round((current / total) * 100, 1)
         else:
             current_job["percent"] = 0
-
 
 # ---------------------------------------------------------
 # Idle shutdown timer
@@ -148,16 +143,14 @@ def force_shutdown():
     backend_log("Inactivity timeout reached — shutting down.")
     os._exit(0)
 
-
 # ---------------------------------------------------------
-# Root (index.html)
+# Index / Root
 # ---------------------------------------------------------
 @app.route("/")
 def index():
     update_last_activity()
     reset_shutdown()
     return render_template("index.html")
-
 
 # ---------------------------------------------------------
 # SD Card Detection API
@@ -171,13 +164,24 @@ def api_sd_cards():
     backend_log("Scanning for SD/CFexpress cards…")
 
     try:
+        if ENABLE_SD_DEBUG:
+            t0 = timed("Detection start")
+
         cards = detect_sd_cards()
+
+        if ENABLE_SD_DEBUG:
+            t1 = timed("Detection finished")
+            backend_log(f"[SD DEBUG] TOTAL detection time → {t1 - t0:.3f}s")
+
         return jsonify({"success": True, "drives": cards})
+
     except Exception as e:
         backend_log(f"SD detection error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-
+# ---------------------------------------------------------
+# SD Card Details
+# ---------------------------------------------------------
 @app.route("/api/sd-card-details", methods=["POST"])
 def api_sd_details():
     pythoncom.CoInitialize()
@@ -198,9 +202,8 @@ def api_sd_details():
     backend_log(f"Selected card: {path}")
     return jsonify({"success": True, "info": info})
 
-
 # ---------------------------------------------------------
-# RAW + JPG Thumbnail Proxy
+# RAW/JPG Thumbnails
 # ---------------------------------------------------------
 @app.route("/api/photo-proxy")
 def api_photo_proxy():
@@ -217,7 +220,7 @@ def api_photo_proxy():
 
     ext = fp.suffix.lower()
 
-    # ✅ RAW Thumbnail Extraction
+    # RAW thumbnails
     if ext in {".arw", ".nef", ".cr2", ".cr3", ".raf", ".rw2", ".orf"}:
         try:
             import rawpy
@@ -226,11 +229,9 @@ def api_photo_proxy():
             with rawpy.imread(str(fp)) as raw:
                 thumb = raw.extract_thumb()
 
-                # JPEG preview embedded in RAW
                 if thumb.format == rawpy.ThumbFormat.JPEG:
                     return Response(thumb.data, mimetype="image/jpeg")
 
-                # Bitmap preview → convert to JPG
                 if thumb.format == rawpy.ThumbFormat.BITMAP:
                     import PIL.Image as Image
                     img = Image.fromarray(thumb.data)
@@ -239,15 +240,14 @@ def api_photo_proxy():
                     return Response(buf.getvalue(), mimetype="image/jpeg")
 
         except Exception as e:
-            backend_log(f"RAW thumbnail error for {fp}: {e}")
+            backend_log(f"RAW thumbnail error: {e}")
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # ✅ JPG pass-through
+    # JPG passthrough
     return send_file(fp, mimetype="image/jpeg")
 
-
 # ---------------------------------------------------------
-# RAW + JPG Full Image Preview
+# Full RAW/JPG Preview
 # ---------------------------------------------------------
 @app.route("/api/full-image")
 def api_full_image():
@@ -264,7 +264,7 @@ def api_full_image():
 
     ext = fp.suffix.lower()
 
-    # ✅ RAW → JPEG (full decode)
+    # RAW → JPEG decode
     if ext in {".arw", ".nef", ".cr2", ".cr3", ".raf", ".rw2", ".orf"}:
         try:
             import rawpy
@@ -279,14 +279,13 @@ def api_full_image():
                 return Response(buf.getvalue(), mimetype="image/jpeg")
 
         except Exception as e:
-            backend_log(f"RAW full-image error for {fp}: {e}")
+            backend_log(f"RAW full-image error: {e}")
             return jsonify({"success": False, "error": str(e)}), 500
 
     return send_file(fp, mimetype="image/jpeg")
 
-
 # ---------------------------------------------------------
-# Analyze SD Card
+# Analyze Card
 # ---------------------------------------------------------
 @app.route("/api/analyze-card", methods=["POST"])
 def api_analyze_card():
@@ -294,21 +293,14 @@ def api_analyze_card():
     update_last_activity()
     reset_shutdown()
 
-    # ✅ Read sd_card_path from JSON FIRST
     sd = request.json.get("sd_card_path")
-
-    # ✅ Validate
     if not sd:
         return jsonify({"success": False, "error": "sd_card_path required"}), 400
 
-    # ✅ Windows normalization (add trailing backslash)
-    if sd and not sd.endswith("\\"):
+    if not sd.endswith("\\"):
         sd = sd + "\\"
 
-    # (Optional cross‑platform)
-    # sd = os.path.abspath(sd)
-
-    backend_log(f"Analyzing SD card {sd} …")
+    backend_log(f"Analyzing SD card {sd}…")
 
     try:
         analysis = organizer.analyze_card(sd)
@@ -318,7 +310,7 @@ def api_analyze_card():
     except Exception as e:
         backend_log(f"Analyze error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-        
+
 # ---------------------------------------------------------
 # Organize / Copy Photos
 # ---------------------------------------------------------
@@ -329,8 +321,7 @@ def api_organize():
     reset_shutdown()
 
     data = request.json
-
-    sd_path    = data.get("sd_card_path")
+    sd_path = data.get("sd_card_path")
     folder_map = data.get("folder_mapping")
     camera_name = data.get("camera_name")
     event_name = data.get("event_name")
@@ -343,8 +334,6 @@ def api_organize():
 
     def worker():
         pythoncom.CoInitialize()
-        global current_job
-
         try:
             backend_log("Starting organize process…")
 
@@ -369,8 +358,6 @@ def api_organize():
                     dest = organizer.create_camera_folder(cam, evt)
                     photos = organizer.find_photo_files(src)
 
-                    backend_log(f"Copying {len(photos)} photos…")
-
                     with job_lock:
                         current_job["total"] += len(photos)
 
@@ -383,8 +370,6 @@ def api_organize():
             else:
                 dest = organizer.create_camera_folder(camera_name, event_name)
                 photos = organizer.find_photo_files(sd_path)
-
-                backend_log(f"Copying {len(photos)} photos…")
 
                 with job_lock:
                     current_job["total"] = len(photos)
@@ -408,9 +393,8 @@ def api_organize():
     threading.Thread(target=worker, daemon=True).start()
     return jsonify({"success": True, "message": "Job started"})
 
-
 # ---------------------------------------------------------
-# Job Status Polling
+# Job Status
 # ---------------------------------------------------------
 @app.route("/api/job-status", methods=["GET"])
 def api_job_status():
@@ -420,7 +404,6 @@ def api_job_status():
 
     with job_lock:
         return jsonify(current_job)
-
 
 # ---------------------------------------------------------
 # SSE Log Stream
@@ -434,7 +417,6 @@ def api_log_stream():
 
     return Response(event_stream(), mimetype="text/event-stream")
 
-
 # ---------------------------------------------------------
 # Open Pictures Folder
 # ---------------------------------------------------------
@@ -447,12 +429,19 @@ def api_pictures_open():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+# ---------------------------------------------------------
+# Server Startup + Browser Auto-open
+# ---------------------------------------------------------
+import webbrowser
 
-# ---------------------------------------------------------
-# Server Startup
-# ---------------------------------------------------------
+def open_browser():
+    url = "http://127.0.0.1:5000"
+    webbrowser.open_new(url)
+
 if __name__ == "__main__":
+    threading.Timer(1.0, open_browser).start()
     backend_log("Starting Photo Organizer v2.7 server…")
+
     app.run(
         host="127.0.0.1",
         port=5000,
@@ -460,7 +449,7 @@ if __name__ == "__main__":
         use_reloader=False
     )
 
-from flask import request
+# Disable caching
 @app.after_request
 def no_cache(response):
     response.headers["Cache-Control"] = "no-store"

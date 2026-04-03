@@ -1,0 +1,107 @@
+# ===============================
+# Python
+# ===============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.cover
+*.coverage
+.coverage.*
+.cache/
+pytest_cache/
+*.mo
+*.pot
+
+# ===============================
+# Virtual Environments
+# ===============================
+venv/
+.env/
+.env*/ 
+.venv/
+.venv*/
+
+# ===============================
+# PyCharm / JetBrains
+# ===============================
+.idea/
+*.iml
+out/
+
+# ===============================
+# Build / Packaging
+# ===============================
+build/
+dist/
+*.spec
+*.egg-info/
+*.egg
+*.log
+
+# ===============================
+# Flask / Temp Files
+# ===============================
+instance/
+*.sqlite
+*.db
+*.sqlite3
+*.bak
+logs/
+*.log
+log.txt
+
+# ===============================
+# OS Junk
+# ===============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ===============================
+# Generated Assets
+# ===============================
+static/generated/
+static/cache/
+static/thumbnails/
+static/tmp/
+temp/
+tmp/
+
+# ===============================
+# Photo Core (temporary outputs)
+# ===============================
+photo_core/__pycache__/
+photo_core/tmp/
+photo_core/cache/
+photo_core/*.tmp
+
+# ===============================
+# Raw images / test imports
+# ===============================
+*.CR2
+*.CR3
+*.ARW
+*.NEF
+*.RAF
+*.RW2
+*.ORF
+*.DNG
+*.JPG
+*.JPEG
+*.PNG
+*.HEIC
+
+# ===============================
+# Windows executables
+# ===============================
+*.exe
+*.dll
+
+# ===============================
+# VSCode (if ever used)
+# ===============================
+.vscode/
