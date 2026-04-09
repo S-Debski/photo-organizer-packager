@@ -354,8 +354,17 @@ function openPreview(i) {
 }
 
 function updatePreviewImage() {
-    $("previewImage").src =
-        `/api/full-image?path=${encodeURIComponent(thumbnails[currentPreviewIndex])}`;
+    const img = $("previewImage");
+
+    // Force full-size preview
+    img.src = `/api/full-image?path=${encodeURIComponent(
+        thumbnails[currentPreviewIndex]
+    )}`;
+
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "85vh";
+    img.style.width = "auto";
+    img.style.height = "auto";
 }
 
 /* ============================================================
