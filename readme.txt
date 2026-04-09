@@ -186,3 +186,20 @@ VERSION
 Photo Organizer v2.7  
 Advanced EXIF Edition  
 March 2026
+
+## Codebase Responsibilities
+
+The project follows a clear separation of concerns. Each major file or folder has a single, well-defined responsibility:
+
+| File / Directory              | Responsibility |
+|------------------------------|----------------|
+| `app.py`                     | Application bootstrap, version definition, and logging setup |
+| `backend/api_server.py`      | Single Flask application instance and route registration |
+| `backend/routes/`            | Feature-specific API endpoints (SD detection, analyze, EXIF, thumbnails, GPS, organize) |
+| `workers/`                   | Background processing (EXIF scanning, thumbnailing, folder watching) |
+| `templates/index.html`       | UI markup (served by Flask via `render_template`) |
+| `ui/static/js/main.js`       | Frontend behaviour and UI logic |
+| `ui/static/css/styles.css`   | UI styling and layout |
+``
+
+

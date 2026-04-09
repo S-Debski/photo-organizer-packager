@@ -1,39 +1,99 @@
 # backend/api_server.py
+
 import os
-import json
-from flask import Flask, send_file, jsonify, request, Response, stream_with_context
+import threading
+import webbrowser
+from pathlib import Path
+
+from flask import (
+    Flask,
+    jsonify,
+    request,
+    render_template,
+    Response,
+)
 from flask_cors import CORS
 
-# ------------------------------------------------------------
-# UI PATHS
-# ------------------------------------------------------------
-BASE_DIR = os.getcwd()
-UI_DIR = os.path.join(BASE_DIR, "ui")
-UI_INDEX_PATH = os.path.join(UI_DIR, "index.html")
+import pythoncom
 
+# ------------------------------------------------------------
+# Version info (imported from app.py – single source of truth)
+# ------------------------------------------------------------
+from app import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
+
+# ------------------------------------------------------------
+# Backend context + workers
+# ------------------------------------------------------------
+from context import AppContext
+
+# Routes
+from backend.routes.analyze_card import api_analyze_card
+from backend.routes.set_active_folder import api_set_active_folder
+from backend.routes.exif_stats import api_exif_stats
+from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
+from backend.routes.gps_data import api_gps_data
+from backend.routes.organize import api_organize, api_job_status, api_open_pictures
+
+# SD card detection
+from sdcard import detect_sd_cards_hybrid, auto_select_sd_card
+
+# ------------------------------------------------------------
+# Flask app (single instance)
+# ------------------------------------------------------------
 app = Flask(
     __name__,
-    static_folder=os.path.join(UI_DIR, "static"),
+    template_folder="templates",
+    static_folder="ui/static",
     static_url_path="/static"
 )
+
+# Dev-friendly: disable aggressive caching
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
 CORS(app)
+
+# Context is injected at runtime
+ctx: AppContext | None = None
 
 
 # ------------------------------------------------------------
-# INDEX (RAW HTML SERVE)
+# Helper: activity tracking (optional future use)
+# ------------------------------------------------------------
+def touch_activity():
+    if ctx:
+        ctx.state["last_activity"] = ctx.state.get("last_activity", 0) + 1
+
+
+# ------------------------------------------------------------
+# Index
 # ------------------------------------------------------------
 @app.route("/")
 def index():
-    return send_file(UI_INDEX_PATH)
+    touch_activity()
+    return render_template("index.html")
 
 
 # ------------------------------------------------------------
-# ✅ SD CARD DETECTION (HYBRID)
+# Version API
 # ------------------------------------------------------------
-from sdcard import detect_sd_cards_hybrid, auto_select_sd_card
+@app.route("/api/version")
+def api_version():
+    return jsonify({
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "stage": APP_STAGE,
+        "build": APP_BUILD
+    })
 
+
+# ------------------------------------------------------------
+# SD card detection
+# ------------------------------------------------------------
 @app.route("/api/sd-cards")
 def api_sd_cards():
+    pythoncom.CoInitialize()
+    touch_activity()
+
     try:
         drives, timings = detect_sd_cards_hybrid()
         return jsonify({
@@ -43,102 +103,118 @@ def api_sd_cards():
             "timings": timings
         })
     except Exception as e:
-        print("SD detection error:", e)
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ------------------------------------------------------------
-# ✅ ANALYZE CARD
+# Analyze card
 # ------------------------------------------------------------
-from backend.routes.analyze_card import api_analyze_card
-
 @app.route("/api/analyze-card", methods=["POST"])
-def api_analyze():
-    return api_analyze_card(app.ctx, request.json)
+def analyze_card():
+    touch_activity()
+    return api_analyze_card(ctx, request.json)
 
 
 # ------------------------------------------------------------
-# ✅ SET ACTIVE FOLDER
+# Active folder
 # ------------------------------------------------------------
-from backend.routes.set_active_folder import api_set_active_folder
-
 @app.route("/api/set-active-folder", methods=["POST"])
-def api_set_folder():
-    return api_set_active_folder(app.ctx, request.json)
+def set_active_folder():
+    touch_activity()
+    return api_set_active_folder(ctx, request.json)
 
 
 # ------------------------------------------------------------
-# ✅ EXIF STATS
+# EXIF statistics
 # ------------------------------------------------------------
-from backend.routes.exif_stats import api_exif_stats
-
 @app.route("/api/exif-stats")
-def api_exif():
-    return api_exif_stats(app.ctx)
+def exif_stats():
+    touch_activity()
+    return api_exif_stats(ctx)
 
 
 # ------------------------------------------------------------
-# ✅ THUMBNAILS
+# Thumbnails & images
 # ------------------------------------------------------------
-from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
-
 @app.route("/api/thumbs")
-def api_thumbs_route():
-    return api_thumbs(app.ctx)
+def thumbs():
+    touch_activity()
+    return api_thumbs(ctx)
+
 
 @app.route("/api/photo-proxy")
-def api_photo_proxy_route():
+def photo_proxy():
+    touch_activity()
     path = request.args.get("path")
-    return api_photo_proxy(app.ctx, path)
+    return api_photo_proxy(ctx, path)
+
 
 @app.route("/api/full-image")
-def api_full_image_route():
+def full_image():
+    touch_activity()
     path = request.args.get("path")
-    return api_full_image(app.ctx, path)
+    return api_full_image(ctx, path)
 
 
 # ------------------------------------------------------------
-# ✅ GPS DATA
+# GPS data
 # ------------------------------------------------------------
-from backend.routes.gps_data import api_gps_data
-
 @app.route("/api/gps-data")
-def api_gps_route():
-    return api_gps_data(app.ctx)
+def gps_data():
+    touch_activity()
+    return api_gps_data(ctx)
 
 
 # ------------------------------------------------------------
-# ✅ ORGANIZE JOB
+# Organize / copy job
 # ------------------------------------------------------------
-from backend.routes.organize import api_organize, api_job_status, api_open_pictures
-
 @app.route("/api/organize", methods=["POST"])
-def api_organize_route():
-    return api_organize(app.ctx)
+def organize():
+    touch_activity()
+    return api_organize(ctx)
+
 
 @app.route("/api/job-status")
-def api_job_status_route():
-    return api_job_status(app.ctx)
+def job_status():
+    touch_activity()
+    return api_job_status(ctx)
+
 
 @app.route("/api/pictures-open")
-def api_pictures_open_route():
-    return api_open_pictures(app.ctx)
+def pictures_open():
+    return api_open_pictures(ctx)
 
 
 # ------------------------------------------------------------
-# ✅ LOG STREAM (SSE) — WINDOWS‑SAFE, BYTE‑ONLY, NEVER CRASHES
+# Log stream (disabled – Windows safe)
 # ------------------------------------------------------------
 @app.route("/api/log-stream")
-def api_log_stream_route():
-    # Temporarily disabled – avoids Werkzeug SSE lockups on Windows
+def log_stream():
     return ("", 204)
 
 
 # ------------------------------------------------------------
-# ✅ THREAD MANAGER ENTRYPOINT
+# After-request: disable caching
 # ------------------------------------------------------------
-def run_api_server(ctx):
-    app.ctx = ctx
+@app.after_request
+def no_cache(response):
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# ------------------------------------------------------------
+# Server runner (called from app.py)
+# ------------------------------------------------------------
+def run_api_server(app_ctx: AppContext):
+    global ctx
+    ctx = app_ctx
+
+    # Optional: auto-open browser
+    def open_browser():
+        webbrowser.open_new("http://127.0.0.1:5000")
+
+    threading.Timer(1.0, open_browser).start()
+
     app.run(
         host="127.0.0.1",
         port=5000,
