@@ -1,0 +1,20 @@
+[tool.ruff]
+# Enable Ruff's key rule sets:
+# E, F  → pycodestyle + pyflakes
+# W     → warnings
+# B     → bugbear (common bug prevention)
+select = ["E", "F", "W", "B"]
+
+# Ignore line-length warnings (E501) because Black handles wrapping.
+ignore = ["E501"]
+
+# Match Black's standard line length
+line-length = 88
+
+# Target your project's Python version
+target-version = "py311"
+
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
