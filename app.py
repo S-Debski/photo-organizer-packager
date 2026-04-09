@@ -1,456 +1,482 @@
 #!/usr/bin/env python3
 """
-Photo Organizer Backend – v2.7 Advanced EXIF Edition
+Photo Organizer Flask App - Clean Version
 """
 
+import photo_core.photo_organizer as _po  # noqa: F401
+from photo_core import PhotoOrganizer
+
+import logging
 import os
 import sys
-import time
 import threading
-import logging
-from pathlib import Path
-import pythoncom
-from queue import Queue
+import time
 
-import flask
-flask.templating._default_template_ctx_processor = lambda: {}
-
-from flask import (
-    Flask,
-    request,
-    jsonify,
-    send_file,
-    render_template,
-    Response,
-)
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# Core logic
-from photo_core.photo_organizer import PhotoOrganizer
-
-# SD card detection
-from sdcard import detect_sd_cards, auto_select_sd_card
-
-# ---------------------------------------------------------
-# Debugging Options
-# ---------------------------------------------------------
-ENABLE_SD_DEBUG = True   # Set False for production
-
-def timed(label):
-    """Simple timing utility for SD debug timing logs."""
-    t = time.time()
-    backend_log(f"[SD DEBUG] {label}: {t:.3f}")
-    return t
-
-# ---------------------------------------------------------
-# PyInstaller-safe Base Directory
-# ---------------------------------------------------------
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys._MEIPASS)
+# Works anywhere (external disk, etc)
+if getattr(sys, 'frozen', False):
+    APP_DIR = sys._MEIPASS
 else:
-    BASE_DIR = Path(__file__).resolve().parent
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-TEMPLATE_DIR = BASE_DIR / "templates"
-STATIC_DIR   = BASE_DIR / "static"
-
-# ---------------------------------------------------------
-# Logging
-# ---------------------------------------------------------
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("PhotoOrganizerBackend")
-log_queue = Queue()
+logger = logging.getLogger(__name__)
 
-def backend_log(msg: str):
-    """Send logs to browser + Python logger."""
-    logger.info(msg)
-    log_queue.put(msg)
-
-# ---------------------------------------------------------
-# Flask App
-# ---------------------------------------------------------
-app = Flask(
-    __name__,
-    template_folder=str(TEMPLATE_DIR),
-    static_folder=str(STATIC_DIR),
-    static_url_path="/static"
-)
-
-app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-
-# Debug route for confirming template paths
-@app.route("/debug-index-path")
-def debug_index_path():
-    try:
-        path = os.path.abspath(os.path.join(app.template_folder, "index.html"))
-        stat = os.stat(path)
-        return f"""
-        <b>INDEX PATH:</b> {path}<br>
-        <b>SIZE:</b> {stat.st_size} bytes<br>
-        <b>MODIFIED:</b> {stat.st_mtime}<br>
-        """
-    except Exception as e:
-        return f"<b>Exception:</b> {e}", 500
-
+app = Flask(__name__)
 CORS(app)
-organizer = PhotoOrganizer()
 
-# ---------------------------------------------------------
-# Job state
-# ---------------------------------------------------------
+# Global state
+organizer = PhotoOrganizer()
 current_job = {
-    "status": "idle",
-    "progress": 0,
-    "total": 0,
-    "percent": 0,
-    "message": "",
-    "errors": []
+    'status': 'idle',
+    'progress': 0,
+    'total': 0,
+    'message': '',
+    'errors': []
 }
 job_lock = threading.Lock()
 
-def update_progress(current, total):
-    with job_lock:
-        current_job["progress"] = current
-        current_job["total"] = total
-        if total > 0:
-            current_job["percent"] = round((current / total) * 100, 1)
-        else:
-            current_job["percent"] = 0
-
-# ---------------------------------------------------------
-# Idle shutdown timer
-# ---------------------------------------------------------
+# Timeout settings
 INACTIVITY_TIMEOUT = 1800
-last_activity = time.time()
+last_activity_time = time.time()
 shutdown_timer = None
 
-def update_last_activity():
-    global last_activity
-    last_activity = time.time()
 
-def reset_shutdown():
+def update_last_activity():
+    global last_activity_time
+    last_activity_time = time.time()
+
+
+def reset_shutdown_timer():
     global shutdown_timer
     if shutdown_timer:
         shutdown_timer.cancel()
-    shutdown_timer = threading.Timer(INACTIVITY_TIMEOUT, force_shutdown)
+    shutdown_timer = threading.Timer(INACTIVITY_TIMEOUT, shutdown_due_to_inactivity)
     shutdown_timer.daemon = True
     shutdown_timer.start()
 
-def force_shutdown():
-    backend_log("Inactivity timeout reached — shutting down.")
+
+def shutdown_due_to_inactivity():
+    logger.info(f"No activity for {INACTIVITY_TIMEOUT} seconds. Shutting down...")
+    print("\n" + "=" * 60)
+    print("INACTIVITY TIMEOUT - Shutting down server")
+    print("=" * 60)
     os._exit(0)
 
-# ---------------------------------------------------------
-# Index / Root
-# ---------------------------------------------------------
-@app.route("/")
+
+def update_progress(current, total):
+    global current_job
+    with job_lock:
+        current_job['progress'] = current
+        current_job['total'] = total
+
+
+# Routes
+
+from pathlib import Path
+from flask import Response
+
+# earlier in file APP_DIR is already set
+INDEX_PATH = Path(APP_DIR) / "index.html"
+
+@app.route('/', methods=['GET'])
 def index():
     update_last_activity()
-    reset_shutdown()
-    return render_template("index.html")
+    reset_shutdown_timer()
+    try:
+        with INDEX_PATH.open('r', encoding='utf-8') as f:
+            return Response(f.read(), mimetype='text/html; charset=utf-8')
+    except Exception as e:
+        logger.error(f"Error serving index.html from {INDEX_PATH}: {e}")
+        return f"<h1>Error loading UI</h1><p>{str(e)}</p>", 500
 
-# ---------------------------------------------------------
-# SD Card Detection API
-# ---------------------------------------------------------
-@app.route("/api/sd-cards", methods=["GET"])
-def api_sd_cards():
-    pythoncom.CoInitialize()
+
+@app.route('/api/health', methods=['GET'])
+def health():
     update_last_activity()
-    reset_shutdown()
+    reset_shutdown_timer()
+    return jsonify({'status': 'ok'})
 
-    backend_log("Scanning for SD/CFexpress cards…")
+
+@app.route('/api/sd-cards', methods=['GET'])
+def get_sd_cards():
+    update_last_activity()
+    reset_shutdown_timer()
+    try:
+        drives = organizer.list_sd_cards()
+        return jsonify({'success': True, 'drives': drives})
+    except Exception as e:
+        logger.error(f"Error listing SD cards: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/sd-card-info', methods=['POST'])
+def get_sd_card_info():
+    """Get SD card information including name and manufacturer"""
+    update_last_activity()
+    reset_shutdown_timer()
+
+    data = request.get_json()
+    sd_card_path = data.get('sd_card_path')
+
+    if not sd_card_path:
+        return jsonify({'success': False, 'error': 'sd_card_path required'}), 400
+
+    if not Path(sd_card_path).exists():
+        return jsonify({'success': False, 'error': 'SD card path does not exist'}), 400
 
     try:
-        if ENABLE_SD_DEBUG:
-            t0 = timed("Detection start")
-
-        cards = detect_sd_cards()
-
-        if ENABLE_SD_DEBUG:
-            t1 = timed("Detection finished")
-            backend_log(f"[SD DEBUG] TOTAL detection time → {t1 - t0:.3f}s")
-
-        return jsonify({"success": True, "drives": cards})
-
+        card_info = organizer.get_sd_card_info(sd_card_path)
+        return jsonify({
+            'success': True,
+            'info': card_info
+        })
     except Exception as e:
-        backend_log(f"SD detection error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"Error getting SD card info: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-# ---------------------------------------------------------
-# SD Card Details
-# ---------------------------------------------------------
-@app.route("/api/sd-card-details", methods=["POST"])
-def api_sd_details():
-    pythoncom.CoInitialize()
+
+@app.route('/api/analyze-card', methods=['POST'])
+def analyze_card():
+    """Analyze SD card structure to find photo folders"""
     update_last_activity()
-    reset_shutdown()
+    reset_shutdown_timer()
 
-    path = request.json.get("path")
-    if not path:
-        return jsonify({"success": False, "error": "path required"}), 400
+    data = request.get_json()
+    sd_card_path = data.get('sd_card_path')
 
-    cards = detect_sd_cards()
-    info = next((c for c in cards if c["path"] == path), None)
+    if not sd_card_path:
+        return jsonify({'success': False, 'error': 'sd_card_path required'}), 400
 
-    if not info:
-        backend_log(f"Card not found: {path}")
-        return jsonify({"success": False, "error": "Drive not found"}), 404
-
-    backend_log(f"Selected card: {path}")
-    return jsonify({"success": True, "info": info})
-
-# ---------------------------------------------------------
-# RAW/JPG Thumbnails
-# ---------------------------------------------------------
-@app.route("/api/photo-proxy")
-def api_photo_proxy():
-    pythoncom.CoInitialize()
-    update_last_activity()
-
-    file_path = request.args.get("path")
-    if not file_path:
-        return jsonify({"success": False, "error": "Missing path"}), 400
-
-    fp = Path(file_path)
-    if not fp.exists():
-        return jsonify({"success": False, "error": "File not found"}), 404
-
-    ext = fp.suffix.lower()
-
-    # RAW thumbnails
-    if ext in {".arw", ".nef", ".cr2", ".cr3", ".raf", ".rw2", ".orf"}:
-        try:
-            import rawpy
-            import io
-
-            with rawpy.imread(str(fp)) as raw:
-                thumb = raw.extract_thumb()
-
-                if thumb.format == rawpy.ThumbFormat.JPEG:
-                    return Response(thumb.data, mimetype="image/jpeg")
-
-                if thumb.format == rawpy.ThumbFormat.BITMAP:
-                    import PIL.Image as Image
-                    img = Image.fromarray(thumb.data)
-                    buf = io.BytesIO()
-                    img.save(buf, format="JPEG")
-                    return Response(buf.getvalue(), mimetype="image/jpeg")
-
-        except Exception as e:
-            backend_log(f"RAW thumbnail error: {e}")
-            return jsonify({"success": False, "error": str(e)}), 500
-
-    # JPG passthrough
-    return send_file(fp, mimetype="image/jpeg")
-
-# ---------------------------------------------------------
-# Full RAW/JPG Preview
-# ---------------------------------------------------------
-@app.route("/api/full-image")
-def api_full_image():
-    pythoncom.CoInitialize()
-    update_last_activity()
-
-    file_path = request.args.get("path")
-    if not file_path:
-        return jsonify({"success": False, "error": "Missing path"}), 400
-
-    fp = Path(file_path)
-    if not fp.exists():
-        return jsonify({"success": False, "error": "File not found"}), 404
-
-    ext = fp.suffix.lower()
-
-    # RAW → JPEG decode
-    if ext in {".arw", ".nef", ".cr2", ".cr3", ".raf", ".rw2", ".orf"}:
-        try:
-            import rawpy
-            import io
-            import PIL.Image as Image
-
-            with rawpy.imread(str(fp)) as raw:
-                rgb = raw.postprocess()
-                img = Image.fromarray(rgb)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=95)
-                return Response(buf.getvalue(), mimetype="image/jpeg")
-
-        except Exception as e:
-            backend_log(f"RAW full-image error: {e}")
-            return jsonify({"success": False, "error": str(e)}), 500
-
-    return send_file(fp, mimetype="image/jpeg")
-
-# ---------------------------------------------------------
-# Analyze Card
-# ---------------------------------------------------------
-@app.route("/api/analyze-card", methods=["POST"])
-def api_analyze_card():
-    pythoncom.CoInitialize()
-    update_last_activity()
-    reset_shutdown()
-
-    sd = request.json.get("sd_card_path")
-    if not sd:
-        return jsonify({"success": False, "error": "sd_card_path required"}), 400
-
-    if not sd.endswith("\\"):
-        sd = sd + "\\"
-
-    backend_log(f"Analyzing SD card {sd}…")
+    if not Path(sd_card_path).exists():
+        return jsonify({'success': False, 'error': 'SD card path does not exist'}), 400
 
     try:
-        analysis = organizer.analyze_card(sd)
-        backend_log(f"Analysis complete. {analysis['total_photos']} photos found.")
-        return jsonify({"success": True, "analysis": analysis})
-
+        analysis = organizer.analyze_card(sd_card_path)
+        return jsonify({
+            'success': True,
+            'analysis': analysis
+        })
     except Exception as e:
-        backend_log(f"Analyze error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error(f"Error analyzing card: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-# ---------------------------------------------------------
-# Organize / Copy Photos
-# ---------------------------------------------------------
-@app.route("/api/organize", methods=["POST"])
-def api_organize():
-    pythoncom.CoInitialize()
+
+@app.route('/api/photos', methods=['GET'])
+def get_photos():
     update_last_activity()
-    reset_shutdown()
+    reset_shutdown_timer()
+    directory = request.args.get('directory')
+    if not directory:
+        return jsonify({'success': False, 'error': 'directory parameter required'}), 400
+    try:
+        photos = organizer.find_photo_files(directory)
+        return jsonify({'success': True, 'photos': photos, 'count': len(photos)})
+    except Exception as e:
+        logger.error(f"Error listing photos: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-    data = request.json
-    sd_path = data.get("sd_card_path")
-    folder_map = data.get("folder_mapping")
-    camera_name = data.get("camera_name")
-    event_name = data.get("event_name")
 
-    if not sd_path:
-        return jsonify({"success": False, "error": "sd_card_path required"}), 400
+@app.route('/api/check-duplicates', methods=['POST'])
+def check_duplicates():
+    """Quick check for duplicate photos by filename"""
+    global organizer
+    update_last_activity()
+    reset_shutdown_timer()
 
-    if current_job["status"] == "copying":
-        return jsonify({"success": False, "error": "Job already running"}), 409
+    data = request.get_json()
+    folder_mapping = data.get('folder_mapping')
+    sd_card_folder_name = data.get('sd_card_folder_name')
 
-    def worker():
-        pythoncom.CoInitialize()
+    if not folder_mapping:
+        return jsonify({'success': False, 'error': 'folder_mapping required'}), 400
+
+    try:
+        # Reinitialize organizer with the SD card name so it can find existing photos
+        if sd_card_folder_name:
+            organizer = PhotoOrganizer(sd_card_name=sd_card_folder_name)
+            logger.info(f"Check-duplicates using SD card folder: {sd_card_folder_name}")
+
+        duplicates_found = []
+        total_checked = 0
+
+        # Get all existing photo filenames in destination
+        existing_files = set()
+        if organizer.sd_card_root and organizer.sd_card_root.exists():
+            for item in organizer.sd_card_root.rglob('*'):
+                if item.is_file() and organizer._is_photo(item):
+                    existing_files.add(item.name)
+
+        # Check each source photo filename against existing
+        for folder_info in folder_mapping:
+            source_path = folder_info.get('path')
+            if not source_path:
+                continue
+
+            photos = organizer.find_photo_files(source_path)
+            total_checked += len(photos)
+
+            for photo_file in photos:
+                filename = Path(photo_file).name
+                if filename in existing_files:
+                    duplicates_found.append(filename)
+
+        return jsonify({
+            'success': True,
+            'duplicates_found': len(duplicates_found),
+            'total_checked': total_checked,
+            'duplicates': list(set(duplicates_found))[:10]  # Unique, first 10
+        })
+    except Exception as e:
+        logger.error(f"Error checking duplicates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/organize', methods=['POST'])
+def organize_photos():
+    global current_job, organizer
+    update_last_activity()
+    reset_shutdown_timer()
+
+    data = request.get_json()
+    if not data.get('sd_card_path'):
+        return jsonify({'success': False, 'error': 'sd_card_path required'}), 400
+
+    # Get SD card folder name (e.g., "NO NAME (Panasonic)")
+    sd_card_folder_name = data.get('sd_card_folder_name')
+    if sd_card_folder_name:
+        # Reinitialize organizer with custom SD card name
+        organizer = PhotoOrganizer(sd_card_name=sd_card_folder_name)
+        logger.info(f"Using SD card folder: {sd_card_folder_name}")
+
+    # Support both old format (single folder) and new format (multiple folders)
+    folder_mapping = data.get('folder_mapping')  # New: list of {folder_path, camera_name, event_name}
+    camera_name = data.get('camera_name')  # Old: single camera for all
+    event_name = data.get('event_name')  # Old: single event for all
+
+    if not folder_mapping and not camera_name:
+        return jsonify({'success': False, 'error': 'camera_name or folder_mapping required'}), 400
+
+    if not Path(data['sd_card_path']).exists():
+        return jsonify({'success': False, 'error': 'SD card path does not exist'}), 400
+
+    def job_worker():
+        global current_job
         try:
-            backend_log("Starting organize process…")
-
             with job_lock:
-                current_job.update({
-                    "status": "copying",
-                    "progress": 0,
-                    "total": 0,
-                    "percent": 0,
-                    "message": "Copying photos…",
-                    "errors": []
-                })
+                current_job['status'] = 'copying'
+                current_job['message'] = 'Scanning photos...'
+                current_job['progress'] = 0
+                current_job['total'] = 0
+                current_job['errors'] = []
 
-            if folder_map:
-                for fmap in folder_map:
-                    src = fmap["path"]
-                    cam = fmap["camera_name"]
-                    evt = fmap["event_name"]
+            total_copied = 0
 
-                    backend_log(f"Processing folder: {src}")
+            # Handle folder mapping (new smart workflow)
+            if folder_mapping:
+                for folder_info in folder_mapping:
+                    folder_path = folder_info.get('path')  # Changed from 'folder_path' to 'path'
+                    cam_name = folder_info.get('camera_name')
+                    evt_name = folder_info.get('event_name')
 
-                    dest = organizer.create_camera_folder(cam, evt)
-                    photos = organizer.find_photo_files(src)
+                    if not folder_path or not cam_name:
+                        continue
+
+                    # Create folder
+                    camera_folder = organizer.create_camera_folder(cam_name, event_name=evt_name)
+
+                    # Copy photos from this folder
+                    photo_files = organizer.find_photo_files(folder_path)
+                    total_files = len(photo_files)
 
                     with job_lock:
-                        current_job["total"] += len(photos)
+                        current_job['total'] += total_files
 
                     copied, errors = organizer.copy_photos(
-                        src, dest, progress_callback=update_progress
+                        folder_path,
+                        camera_folder,
+                        progress_callback=update_progress
                     )
 
-                    current_job["errors"].extend(errors)
-
+                    total_copied += copied
+                    with job_lock:
+                        current_job['errors'].extend(errors)
             else:
-                dest = organizer.create_camera_folder(camera_name, event_name)
-                photos = organizer.find_photo_files(sd_path)
-
-                with job_lock:
-                    current_job["total"] = len(photos)
-
-                copied, errors = organizer.copy_photos(
-                    sd_path, dest, progress_callback=update_progress
+                # Handle old format (single camera/event)
+                camera_folder = organizer.create_camera_folder(
+                    camera_name,
+                    event_name=event_name
                 )
 
-                current_job["errors"].extend(errors)
+                # Count photos
+                photo_files = organizer.find_photo_files(data['sd_card_path'])
+                total_photos = len(photo_files)
 
-            backend_log("Copy complete.")
+                with job_lock:
+                    current_job['total'] = total_photos
+                    current_job['message'] = f'Copying {total_photos} photos...'
+                    current_job['progress'] = 0
+
+                # Copy photos
+                copied, errors = organizer.copy_photos(
+                    data['sd_card_path'],
+                    camera_folder,
+                    progress_callback=update_progress
+                )
+                total_copied = copied
+                with job_lock:
+                    current_job['errors'].extend(errors)
 
             with job_lock:
-                current_job["status"] = "complete" if not current_job["errors"] else "error"
+                current_job['status'] = 'complete' if not current_job['errors'] else 'error'
+                current_job['message'] = f"Copied {total_copied} photos"
+                current_job['progress'] = total_copied
 
         except Exception as e:
-            backend_log(f"Organize error: {e}")
+            logger.error(f"Job worker error: {e}")
             with job_lock:
-                current_job.update({"status": "error", "message": str(e)})
+                current_job['status'] = 'error'
+                current_job['message'] = str(e)
+                current_job['errors'].append(str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-    return jsonify({"success": True, "message": "Job started"})
+    if current_job['status'] not in ['idle', 'complete', 'error']:
+        return jsonify({'success': False, 'error': 'A job is already running'}), 409
 
-# ---------------------------------------------------------
-# Job Status
-# ---------------------------------------------------------
-@app.route("/api/job-status", methods=["GET"])
-def api_job_status():
-    pythoncom.CoInitialize()
+    thread = threading.Thread(target=job_worker, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'message': 'Job started'})
+
+
+@app.route('/api/job-status', methods=['GET'])
+def get_job_status():
     update_last_activity()
-    reset_shutdown()
-
+    reset_shutdown_timer()
     with job_lock:
-        return jsonify(current_job)
+        status = {
+            'status': current_job['status'],
+            'progress': current_job['progress'],
+            'total': current_job['total'],
+            'message': current_job['message'],
+            'errors': current_job['errors']
+        }
+    return jsonify(status)
 
-# ---------------------------------------------------------
-# SSE Log Stream
-# ---------------------------------------------------------
-@app.route("/api/log-stream")
-def api_log_stream():
-    def event_stream():
-        while True:
-            msg = log_queue.get()
-            yield f"data: {msg}\n\n"
 
-    return Response(event_stream(), mimetype="text/event-stream")
-
-# ---------------------------------------------------------
-# Open Pictures Folder
-# ---------------------------------------------------------
-@app.route("/api/pictures-open", methods=["GET"])
-def api_pictures_open():
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    update_last_activity()
+    reset_shutdown_timer()
     try:
-        path = organizer.pictures_base
-        os.startfile(path)
-        return jsonify({"success": True})
+        stats = organizer.get_stats()
+        return jsonify({'success': True, 'stats': stats})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.error(f"Error getting stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-# ---------------------------------------------------------
-# Server Startup + Browser Auto-open
-# ---------------------------------------------------------
-import webbrowser
 
-def open_browser():
-    url = "http://127.0.0.1:5000"
-    webbrowser.open_new(url)
+@app.route('/api/eject-card', methods=['POST'])
+def eject_card():
+    """Eject an SD card safely"""
+    update_last_activity()
+    reset_shutdown_timer()
 
-if __name__ == "__main__":
-    threading.Timer(1.0, open_browser).start()
-    backend_log("Starting Photo Organizer v2.7 server…")
+    data = request.get_json()
+    card_path = data.get('card_path')
+
+    if not card_path:
+        return jsonify({'success': False, 'error': 'card_path required'}), 400
+
+    try:
+        import subprocess
+
+        if sys.platform == 'darwin':  # Mac
+            # Try unmount first (more reliable than eject)
+            try:
+                result = subprocess.run(['diskutil', 'unmount', card_path],
+                                        capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logger.info(f"Unmounted card: {card_path}")
+                    return jsonify({'success': True, 'message': f'Card ejected: {card_path}'})
+                else:
+                    # If unmount fails, try eject
+                    result = subprocess.run(['diskutil', 'eject', card_path],
+                                            capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        logger.info(f"Ejected card: {card_path}")
+                        return jsonify({'success': True, 'message': f'Card ejected: {card_path}'})
+                    else:
+                        logger.error(f"Eject failed: {result.stderr}")
+                        return jsonify(
+                            {'success': False, 'error': 'Card may be in use. Close all files and try again.'}), 400
+            except subprocess.TimeoutExpired:
+                return jsonify({'success': False, 'error': 'Eject command timed out'}), 500
+
+        elif os.name == 'nt':  # Windows
+            try:
+                subprocess.run(['eject', card_path], check=True, capture_output=True, timeout=5)
+                logger.info(f"Ejected card: {card_path}")
+                return jsonify({'success': True, 'message': f'Card ejected: {card_path}'})
+            except subprocess.TimeoutExpired:
+                return jsonify({'success': False, 'error': 'Eject command timed out'}), 500
+        else:  # Linux
+            try:
+                subprocess.run(['eject', card_path], check=True, capture_output=True, timeout=5)
+                logger.info(f"Ejected card: {card_path}")
+                return jsonify({'success': True, 'message': f'Card ejected: {card_path}'})
+            except subprocess.TimeoutExpired:
+                return jsonify({'success': False, 'error': 'Eject command timed out'}), 500
+
+    except Exception as e:
+        logger.error(f"Error ejecting card: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/pictures-path', methods=['GET'])
+def get_pictures_path():
+    update_last_activity()
+    reset_shutdown_timer()
+    path = str(organizer.pictures_base)
+
+    try:
+        if sys.platform == 'darwin':
+            os.system(f'open "{path}"')
+        elif sys.platform == 'win32':
+            os.startfile(path)
+        else:
+            os.system(f'xdg-open "{path}"')
+    except Exception as e:
+        logger.warning(f"Could not open folder: {e}")
+
+    return jsonify({'success': True, 'path': path})
+
+
+if __name__ == '__main__':
+    import webbrowser
+    import threading
+    import time
+
+    debug_mode = not getattr(sys, 'frozen', False)
+
+
+    def open_browser():
+        time.sleep(2)
+        webbrowser.open('http://127.0.0.1:5000')
+
+
+    if not debug_mode:
+        browser_thread = threading.Thread(target=open_browser, daemon=True)
+        browser_thread.start()
 
     app.run(
-        host="127.0.0.1",
+        host='127.0.0.1',
         port=5000,
         debug=False,
-        use_reloader=False
+        use_reloader=False,
+        use_debugger=False
     )
-
-# Disable caching
-@app.after_request
-def no_cache(response):
-    response.headers["Cache-Control"] = "no-store"
-    return response

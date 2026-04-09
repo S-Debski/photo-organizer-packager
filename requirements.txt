@@ -1,0 +1,9 @@
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+python-dotenv>=1.0.0
+piexif>=1.1.3
+pillow>=10.0.0
+
+# Optional packages (comment out if having issues):
+# smbclient>=1.4.0  # Only needed for NAS backup feature
+# pywin32>=306  # Only for Windows drive detection enhancement

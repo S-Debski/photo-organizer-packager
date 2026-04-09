@@ -1,0 +1,1 @@
+# Thumbnail + EXIF caching logic goes here

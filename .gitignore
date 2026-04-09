@@ -1,107 +1,139 @@
-# ===============================
-# Python
-# ===============================
+###############################################################################
+# PYTHON BUILD / CACHE / TEMP FILES
+###############################################################################
+
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
-*.pdb
-*.cover
-*.coverage
-.coverage.*
-.cache/
-pytest_cache/
-*.mo
-*.pot
+*.pkl
+*.log
+*.tmp
+*.bak
+*.swp
 
-# ===============================
-# Virtual Environments
-# ===============================
-venv/
-.env/
-.env*/ 
-.venv/
-.venv*/
+# Compiled extensions
+*.so
+*.dll
+*.dylib
 
-# ===============================
-# PyCharm / JetBrains
-# ===============================
-.idea/
-*.iml
-out/
+###############################################################################
+# PYINSTALLER / PACKAGING OUTPUT
+###############################################################################
 
-# ===============================
-# Build / Packaging
-# ===============================
+# PyInstaller build directories
 build/
 dist/
+
+# PyInstaller spec files (keep only what you use)
 *.spec
-*.egg-info/
-*.egg
-*.log
 
-# ===============================
-# Flask / Temp Files
-# ===============================
-instance/
-*.sqlite
-*.db
-*.sqlite3
-*.bak
-logs/
-*.log
-log.txt
+# PyInstaller temp files
+*.toc
+*.manifest
+*.exe.build
 
-# ===============================
-# OS Junk
-# ===============================
+###############################################################################
+# ENVIRONMENTS
+###############################################################################
+
+# Virtual environments
+venv/
+.venv/
+env/
+_env/
+.python_env/
+
+# pyenv
+.python-version
+
+###############################################################################
+# EDITOR / IDE FILES
+###############################################################################
+
+# JetBrains / PyCharm
+.idea/
+.idea.backup/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+###############################################################################
+# OS-SPECIFIC JUNK
+###############################################################################
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
 Thumbs.db
 ehthumbs.db
-desktop.ini
-$RECYCLE.BIN/
+Desktop.ini
 
-# ===============================
-# Generated Assets
-# ===============================
-static/generated/
-static/cache/
-static/thumbnails/
-static/tmp/
-temp/
-tmp/
+# Linux
+*~
 
-# ===============================
-# Photo Core (temporary outputs)
-# ===============================
-photo_core/__pycache__/
-photo_core/tmp/
-photo_core/cache/
-photo_core/*.tmp
+###############################################################################
+# PROJECT-SPECIFIC (BASED ON YOUR FLIST.TXT)
+###############################################################################
 
-# ===============================
-# Raw images / test imports
-# ===============================
-*.CR2
-*.CR3
-*.ARW
-*.NEF
-*.RAF
-*.RW2
-*.ORF
-*.DNG
-*.JPG
-*.JPEG
-*.PNG
-*.HEIC
+# Auto-generated SD card debug files
+test_sd.py
+drive_debug.py
+debug_import.py
+on1.txt
+test.txt
+flist.txt
 
-# ===============================
-# Windows executables
-# ===============================
-*.exe
-*.dll
+# Old tray system
+tray_old.py
 
-# ===============================
-# VSCode (if ever used)
-# ===============================
-.vscode/
+# Backup of older app versions
+app.py.bak
+
+# Old diagrams / layout concept notes
+Photo Organizer Layout v2.6.txt
+photo-organizer-win.txt
+photo-organizer-packager_structure.txt
+
+###############################################################################
+# BUILD SCRIPTS (IF NOT USED)
+###############################################################################
+
+# Remove Linux/Mac builds if you only ship Windows:
+build_linux.sh
+build_mac.sh
+photo-organizer-linux.spec
+photo-organizer-mac.spec
+
+###############################################################################
+# LOGGING + PIPE FILES
+###############################################################################
+
+*.sse
+*.pid
+
+###############################################################################
+# MISC
+###############################################################################
+
+# Bytecode metadata caches
+cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Test artifacts
+*.pytest_cache/
+pytestdebug.log
+
+# Reports
+*.html
+*.xml
