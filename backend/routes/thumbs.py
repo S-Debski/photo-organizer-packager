@@ -31,15 +31,68 @@ def api_thumbs(ctx, path=None):
 
 
 def api_photo_proxy(ctx, img_path):
-    if not os.path.isfile(img_path):
-        return jsonify({"success": False, "error": "Not found"}), 404
+    if not img_path:
+        return jsonify({"success": False, "error": "No path"}), 400
 
-    thumb = build_thumb(ctx.cache_dir, img_path)
-    return send_file(thumb, mimetype="image/jpeg", max_age=3600)
+    img_path = os.path.normpath(img_path)
+
+    if not os.path.isfile(img_path):
+        return jsonify({
+            "success": False,
+            "error": "File not found",
+            "path": img_path
+        }), 404
+
+    try:
+        thumb = build_thumb(ctx.cache_dir, img_path)
+
+        if not os.path.isfile(thumb):
+            return jsonify({
+                "success": False,
+                "error": "Thumbnail generation failed",
+                "path": img_path
+            }), 500
+
+        return send_file(
+            thumb,
+            mimetype="image/jpeg",
+            max_age=3600
+        )
+
+    except Exception as e:
+        log_info(ctx, f"Photo proxy error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Photo proxy failed",
+            "details": str(e),
+            "path": img_path
+        }), 500
 
 
 def api_full_image(ctx, img_path):
-    if not os.path.isfile(img_path):
-        return jsonify({"success": False, "error": "Not found"}), 404
+    if not img_path:
+        return jsonify({"success": False, "error": "No path"}), 400
 
-    return send_file(img_path, mimetype="image/jpeg", conditional=True)
+    img_path = os.path.normpath(img_path)
+
+    if not os.path.isfile(img_path):
+        return jsonify({
+            "success": False,
+            "error": "File not found",
+            "path": img_path
+        }), 404
+
+    try:
+        return send_file(
+            img_path,
+            mimetype="image/jpeg",
+            conditional=True
+        )
+    except Exception as e:
+        log_info(ctx, f"Full image error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to load image",
+            "details": str(e),
+            "path": img_path
+        }), 500

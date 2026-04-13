@@ -2,6 +2,12 @@
 """
 Photo Organizer Backend – v2.7 Advanced EXIF Edition
 """
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import logging
 from queue import Queue
@@ -9,14 +15,7 @@ from queue import Queue
 from backend.api_server import run_api_server
 from context import AppContext
 
-# ------------------------------------------------------------
-# Application Version (single source of truth)
-# ------------------------------------------------------------
-APP_NAME = "Photo Organizer"
-APP_VERSION = "2.7.1"
-APP_STAGE = "stable"   # stable | beta | dev
-APP_BUILD = "v2.7.1-stable"
-
+from version import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
 # ------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------

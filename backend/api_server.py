@@ -19,7 +19,8 @@ import pythoncom
 # ------------------------------------------------------------
 # Version info (imported from app.py – single source of truth)
 # ------------------------------------------------------------
-from app import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
+from version import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
+from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
 
 # ------------------------------------------------------------
 # Backend context + workers
@@ -34,16 +35,18 @@ from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
 from backend.routes.gps_data import api_gps_data
 from backend.routes.organize import api_organize, api_job_status, api_open_pictures
 
-# SD card detection
-from sdcard import detect_sd_cards_hybrid, auto_select_sd_card
-
 # ------------------------------------------------------------
 # Flask app (single instance)
 # ------------------------------------------------------------
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+print("auto_select_sd_card signature:", auto_select_sd_card.__code__.co_argcount)
+
 app = Flask(
     __name__,
-    template_folder="templates",
-    static_folder="ui/static",
+    template_folder=str(BASE_DIR / "templates"),
+    static_folder=str(BASE_DIR / "ui" / "static"),
     static_url_path="/static"
 )
 
@@ -95,13 +98,13 @@ def api_sd_cards():
     touch_activity()
 
     try:
-        drives, timings = detect_sd_cards_hybrid()
+        drives = detect_sd_cards()
         return jsonify({
             "success": True,
             "drives": drives,
-            "auto_select": auto_select_sd_card(drives),
-            "timings": timings
+            "auto_select": auto_select_sd_card(drives)
         })
+
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -144,10 +147,10 @@ def thumbs():
 
 @app.route("/api/photo-proxy")
 def photo_proxy():
-    touch_activity()
     path = request.args.get("path")
-    return api_photo_proxy(ctx, path)
 
+    # ✅ Use the module-level AppContext
+    return api_photo_proxy(ctx, path)
 
 @app.route("/api/full-image")
 def full_image():

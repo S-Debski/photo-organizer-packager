@@ -8,7 +8,6 @@ from utils.logging_bus import log_info
 
 
 def api_exif_stats(ctx, path=None):
-    # active folder selection logic
     root = (
         path
         or ctx.state.get("current_active_folder")
@@ -16,16 +15,24 @@ def api_exif_stats(ctx, path=None):
     )
 
     if not root or not os.path.isdir(root):
-        return jsonify({"cameras": [], "lenses": []})
+        return jsonify({
+            "ready": False,
+            "cameras": [],
+            "lenses": []
+        })
 
     cache_key = f"exif_stats::{os.path.abspath(root)}"
     cached = ctx.exif_cache.get(cache_key)
+
+    # ✅ If already computed, signal READY
     if cached:
-        return jsonify(cached)
+        return jsonify({
+            "ready": True,
+            **cached
+        })
 
     camera_counter = {}
     lens_counter = {}
-
     count = 0
 
     for img in iter_jpegs(root):
@@ -46,4 +53,9 @@ def api_exif_stats(ctx, path=None):
     }
 
     ctx.exif_cache[cache_key] = payload
-    return jsonify(payload)
+
+    # ✅ Signal READY on first completion
+    return jsonify({
+        "ready": True,
+        **payload
+    })

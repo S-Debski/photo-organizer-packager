@@ -42,3 +42,27 @@ def api_gps_data(ctx):
     # Store GPS cache
     ctx.state[cache_key] = gps_points
     return gps_points
+
+## Classify gps data quality ##
+def classify_gps_quality(exif: dict) -> str:
+    lat = exif.get("GPSLatitude")
+    lon = exif.get("GPSLongitude")
+    lat_ref = exif.get("GPSLatitudeRef")
+    lon_ref = exif.get("GPSLongitudeRef")
+
+    if lat is None or lon is None:
+        return "none"
+
+    if lat_ref not in ("N", "S") or lon_ref not in ("E", "W"):
+        return "coarse"
+
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return "coarse"
+
+    if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
+        return "coarse"
+
+    return "precise"

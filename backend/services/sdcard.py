@@ -1,3 +1,5 @@
+print("✅ LOADED sdcard FROM:", __file__)
+
 """
 Optimized universal SD/CFexpress detection for Windows, macOS, Linux.
 
@@ -36,6 +38,11 @@ def is_flash_fs(fs: str) -> bool:
 def has_camera_structure(path: Path) -> bool:
     try:
         root_items = {p.name.upper() for p in path.iterdir() if p.is_dir()}
+
+        # ✅ Allow empty cards (restores previous behaviour)
+        if not root_items:
+            return True
+
         return any(folder in root_items for folder in CAMERA_FOLDERS)
     except Exception:
         return False
@@ -163,23 +170,24 @@ def filter_windows_sd_cards():
         fs = v["filesystem"]
         size = v["size_bytes"]
 
-        # ✅ FAST SKIP: empty multi-reader slot (0–64 MB)
+        print("🔍 WINDOWS VOLUME:", path, "FS:", fs, "SIZE:", size)
+
         if not size or size < 64 * 1024 * 1024:
+            print("  ⛔ excluded: size")
             continue
 
-        # ✅ Must be a flash filesystem
         if not is_flash_fs(fs):
+            print("  ⛔ excluded: filesystem")
             continue
 
-        # ✅ Must be within SD/CFexpress realistic size
         if not size_within_sd_range(size):
+            print("  ⛔ excluded: size range")
             continue
 
-        # ✅ Optional DCIM check (kept loose for general-purpose cards)
         root = Path(path + "\\")
-        # keep card even if DCIM is missing
-        has_camera_structure(root)  # result unused on purpose
+        has_camera_structure(root)
 
+        print("  ✅ accepted")
         results.append(v)
 
     return results
@@ -320,10 +328,12 @@ def detect_sd_cards():
         return []
 
 
-def auto_select_sd_card():
-    cards = detect_sd_cards()
-    return cards[0] if len(cards) == 1 else None
-
+def auto_select_sd_card(cards):
+    """
+    Return the single SD card if exactly one is detected,
+    otherwise return None.
+    """
+    return cards[0] if cards and len(cards) == 1 else None
 
 # -------------------------------------------------------------
 # Standalone tester
@@ -475,12 +485,6 @@ def detect_sd_cards():
         return filter_linux_sd_cards()
     else:
         return []
-
-
-def auto_select_sd_card():
-    cards = detect_sd_cards()
-    return cards[0] if len(cards) == 1 else None
-
 
 # -------------------------------------------------------------
 # Standalone tester

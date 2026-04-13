@@ -1,3 +1,4 @@
+body { outline: 10px solid red !important; }
 /* ===================================================================
    Photo Organizer v2.7 – Dark Theme Styling
    - Sidebar
@@ -57,8 +58,10 @@ p.text-secondary {
     border-left: 1px solid #333;
 }
 
+/* Wizard steps must be able to contain real content */
 .wizard-step {
     margin-bottom: 40px;
+    min-height: 500px;        /* ✅ critical for map visibility */
 }
 
 /* ---------------------------------------------------------------
@@ -193,4 +196,287 @@ p.text-secondary {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
+}
+/* ===================================================================
+   Photo Organizer v2.7 – Dark Theme Styling
+   - Sidebar
+   - Content Panels
+   - Mapping UI
+   - Logs
+   - Thumbnails
+   - Buttons & Progress bars
+   =================================================================== */
+
+/* ---------------------------------------------------------------
+   GLOBAL
+---------------------------------------------------------------- */
+body {
+    background: #0f0f0f;
+    color: #e0e0e0;
+    font-family: "Segoe UI", sans-serif;
+}
+
+h2, h3, h4 {
+    color: #fff;
+    margin-bottom: 1rem;
+}
+
+p.text-secondary {
+    color: #aaaaaa !important;
+}
+
+/* ---------------------------------------------------------------
+   SIDEBAR
+---------------------------------------------------------------- */
+#sidebar {
+    width: 260px;
+    min-height: 100vh;
+    background: #000;
+}
+
+#sidebar .nav-link {
+    color: #cccccc;
+    padding: 10px 18px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+}
+
+#sidebar .nav-link:hover,
+#sidebar .nav-link.active {
+    background: #2b2b2b;
+    color: #ffffff;
+}
+
+/* ---------------------------------------------------------------
+   MAIN CONTENT AREA
+---------------------------------------------------------------- */
+#contentArea {
+    background: #181818;
+    border-left: 1px solid #333;
+}
+
+/* ---------------------------------------------------------------
+   THUMBNAILS
+---------------------------------------------------------------- */
+.thumb {
+    width: 100%;
+    height: 120px;       /* ⭐ FIXED HEIGHT ADDED ⭐ */
+    object-fit: cover;
+    border-radius: 5px;
+    border: 1px solid #333;
+    background: #000;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.thumb:hover {
+    transform: scale(1.05);
+}
+
+/* ---------------------------------------------------------------
+   MAPPING UI (Step 5)
+---------------------------------------------------------------- */
+.mapping-card {
+    background: #222;
+    border: 1px solid #444;
+    padding: 12px;
+    border-radius: 6px;
+}
+
+.mapping-card select {
+    background: #111;
+    color: #fff;
+    border: 1px solid #555;
+}
+
+.mapping-card select:focus {
+    border-color: #888;
+    box-shadow: none;
+}
+
+.table-dark {
+    background: #111;
+}
+
+.table-dark th,
+.table-dark td {
+    color: #ddd;
+    border-color: #444 !important;
+}
+
+/* ---------------------------------------------------------------
+   LOG PANEL (Step 7)
+---------------------------------------------------------------- */
+.log-area {
+    background: #111;
+    color: #00ff00;
+    font-family: Consolas, monospace;
+    padding: 15px;
+    height: 450px;
+    overflow-y: scroll;
+    white-space: pre-wrap;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------
+   PROGRESS BAR (Step 6)
+---------------------------------------------------------------- */
+.progress {
+    background-color: #272727;
+    border: 1px solid #333;
+    border-radius: 4px;
+}
+
+.progress-bar {
+    background-color: #008f00;
+}
+
+/* ---------------------------------------------------------------
+   BUTTONS
+---------------------------------------------------------------- */
+.btn-primary {
+    background-color: #0066ff;
+    border-color: #005ce6;
+}
+
+.btn-primary:hover {
+    background-color: #0055d9;
+}
+
+.btn-warning {
+    background-color: #ff9900;
+    border-color: #e68a00;
+    color: #000;
+}
+
+.btn-warning:hover {
+    background-color: #e68a00;
+}
+
+.btn-info {
+    background-color: #00bfff;
+    border-color: #00a3d9;
+}
+
+.btn-info:hover {
+
+    background-color: #009acd;
+}
+
+.btn-secondary {
+    background-color: #444;
+    border-color: #666;
+}
+
+.btn-secondary:hover {
+    background-color: #555;
+}
+
+/* ---------------------------------------------------------------
+   SCROLLING / FIXES
+---------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+/* ---------------------------------------------------------------
+   LEAFLET MAP (Step 5)
+---------------------------------------------------------------- */
+
+/* Main content must have height */
+#contentArea {
+    height: 100vh;
+    overflow: auto;
+}
+
+/* Force Mapping step to render */
+.wizard-step[data-step="5"] {
+    display: block !important;
+    min-height: 500px;
+}
+
+/* Leaflet map must have real height */
+.wizard-step[data-step="5"] #map {
+    height: 400px !important;
+    width: 100%;
+    background: #2a2a2a;
+}
+
+.leaflet-container {
+    background: #2a2a2a;
+}
+/* ============================================================
+   CRITICAL LAYOUT FIX FOR MAPPING
+   ============================================================ */
+
+/* Ensure root elements can size children */
+html, body {
+    height: 100%;
+}
+
+/* Ensure main flex layout has height */
+.d-flex {
+    height: 100vh;
+}
+
+/* Allow content area to grow vertically */
+#contentArea {
+    flex: 1 1 auto;
+    overflow: auto;
+}
+
+/* Ensure Mapping step can expand */
+.wizard-step[data-step="5"] {
+    display: block !important;
+    min-height: 500px;
+}
+
+/* Ensure map itself has space */
+.wizard-step[data-step="5"] #map {
+    height: 400px !important;
+    width: 100%;
+    background: #2a2a2a;
+}
+
+.leaflet-container {
+    background: #2a2a2a;
+}
+/* ================================
+   CRITICAL FLEX HEIGHT FIX
+   ================================ */
+
+/* Allow flex layout to size children vertically */
+html, body {
+    height: 100%;
+}
+
+body > .d-flex {
+    height: 100%;
+}
+
+/* Ensure content area can expand */
+#contentArea {
+    flex: 1 1 auto;
+    overflow: auto;
+}
+
+/* Mapping step must have space */
+.wizard-step[data-step="5"] {
+    min-height: 500px;
+}
+
+/* Map must have explicit height */
+#map {
+    height: 400px;
+    width: 100%;
 }

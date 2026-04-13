@@ -10,6 +10,8 @@ let folderProcessing = false;
    STEP SWITCHING
    ============================================================ */
 function showStep(stepNum) {
+    // debug line only console.log("showStep called:", stepNum);
+
     document.querySelectorAll(".wizard-step").forEach(step => {
         const n = parseInt(step.dataset.step);
         step.classList.toggle("active-step", n === stepNum);
@@ -20,20 +22,20 @@ function showStep(stepNum) {
         item.classList.toggle("active", parseInt(item.dataset.step) === stepNum);
     });
 
-    // ✅ Load thumbnails ONLY when user opens thumbnails step
+    if (stepNum === 3) {
+        prepareStatsUI();
+    }
+
     if (stepNum === 4) {
         loadThumbnails();
     }
 
-    // ✅ Load map ONLY when user opens map step
     if (stepNum === 5) {
-        if (!map) {
-            initMap();
-            loadMap();
-        } else {
-            map.invalidateSize();
-        }
+        initMap();
+        map.invalidateSize();
+        loadMap();
     }
+
 }
 /* ============================================================
    GLOBAL STATE
@@ -44,12 +46,14 @@ let currentPreviewIndex = 0;
 
 let cameraChart = null;
 let lensChart = null;
+let map = null;
 
 /* ============================================================
    STEP 1 — SD CARD DETECTION
    ============================================================ */
 async function detectSDCards() {
     const sel = $("sdSelect");
+    console.log("Detecting SD cards…");
     const status = $("sdStatus");
 
     sel.innerHTML = "<option>Detecting...</option>";
@@ -57,7 +61,26 @@ async function detectSDCards() {
 
     try {
         const res = await fetch("/api/sd-cards");
+
+        // ✅ NEW: handle HTTP errors explicitly
+        if (!res.ok) {
+            const text = await res.text();
+            console.error("SD API error:", text);
+            status.textContent = "❌ SD card detection failed.";
+            sel.innerHTML = "<option>No SD card</option>";
+            return;
+        }
+
         const data = await res.json();
+
+        // ✅ NEW: guard against unexpected response shape
+        if (!data || !Array.isArray(data.drives)) {
+            console.error("Invalid SD response:", data);
+            console.log("SD DATA RECEIVED:", data);
+            status.textContent = "❌ SD card detection failed.";
+            sel.innerHTML = "<option>No SD card</option>";
+            return;
+        }
 
         sel.innerHTML = "";
 
@@ -72,7 +95,6 @@ async function detectSDCards() {
         if (data.drives.length === 1) {
             status.innerHTML = "✅ <strong>SD card detected</strong> and auto-selected";
 
-            // ✅ auto-analyze here, at the end
             setTimeout(() => {
                 analyzeCard();
             }, 100);
@@ -84,6 +106,7 @@ async function detectSDCards() {
     } catch (err) {
         console.error(err);
         status.textContent = "❌ Error detecting SD cards.";
+        sel.innerHTML = "<option>No SD card</option>";
     }
 }
 
@@ -91,6 +114,7 @@ async function detectSDCards() {
    STEP 2 — ANALYZE CARD
    ============================================================ */
 async function analyzeCard() {
+    console.log("analyzeCard() called");
     const sd = $("sdSelect").value;
     if (!sd) return;
 
@@ -145,30 +169,24 @@ function renderAnalysisFolders() {
    STEP 3 — CAMERA & LENS STATS
    ============================================================ */
 async function waitForStatsReady() {
-    let attempts = 0;
+    const MAX_WAIT_MS = 30000; // 30 seconds
+    const POLL_INTERVAL = 500;
+    const start = Date.now();
 
-    while (attempts < 60) {
+    while (true) {
         const res = await fetch("/api/exif-stats");
-        const stats = await res.json();
+        const data = await res.json();
 
-        if (
-            Array.isArray(stats.cameras) && stats.cameras.length > 0 &&
-            Array.isArray(stats.lenses) && stats.lenses.length > 0
-        ) {
-            $("statsLoadingMessage").textContent = "";
-            return stats;
+        if (data && data.ready) {
+            return data;
         }
 
-        if (attempts === 20) {
-            $("statsLoadingMessage").textContent = "Still extracting EXIF… please wait.";
+        if (Date.now() - start > MAX_WAIT_MS) {
+            throw new Error("Timed out waiting for EXIF stats");
         }
 
-        await new Promise(r => setTimeout(r, 500));
-        attempts++;
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
     }
-
-    $("statsLoadingMessage").textContent = "EXIF scan did not complete in time.";
-    return { cameras: [], lenses: [] };
 }
 
 async function selectFolder(folder) {
@@ -179,18 +197,15 @@ async function selectFolder(folder) {
 
     folderProcessing = true;
 
+    // ✅ RESET thumbnail state when folder changes
+    thumbnails = [];
+    const gallery = $("thumbnailGallery");
+    if (gallery) gallery.innerHTML = "";
+
+
     try {
         // Always move to Step 3 immediately
         showStep(3);
-
-        // Reset UI state
-        const loading = $("statsLoading");
-        loading.classList.add("d-none");
-        loading.style.pointerEvents = "none";
-
-        $("statsLoadingMessage").textContent = "";
-        $("cameraStats").innerHTML = "";
-        $("lensStats").innerHTML = "";
 
         // Destroy existing charts safely
         if (cameraChart) {
@@ -222,7 +237,7 @@ async function selectFolder(folder) {
         // Wait for EXIF stats fresh each time
         const stats = await waitForStatsReady();
 
-        $("statsLoading").classList.add("d-none");
+        $("statsLoading")?.classList.add("d-none");
 
         renderCameraList(stats.cameras);
         renderLensList(stats.lenses);
@@ -285,6 +300,28 @@ function renderCameraChart(cameras) {
     });
 }
 
+function prepareStatsUI() {
+    const loading = $("statsLoading");
+    if (loading) {
+        loading.classList.add("d-none");
+        loading.style.pointerEvents = "none";
+    }
+
+    $("statsLoadingMessage") && ($("statsLoadingMessage").textContent = "");
+    $("cameraStats") && ($("cameraStats").innerHTML = "");
+    $("lensStats") && ($("lensStats").innerHTML = "");
+
+    // Reset charts safely
+    if (cameraChart) {
+        cameraChart.destroy();
+        cameraChart = null;
+    }
+    if (lensChart) {
+        lensChart.destroy();
+        lensChart = null;
+    }
+}
+
 function renderLensChart(lenses) {
     if (lensChart) lensChart.destroy();
     lensChart = new Chart($("chartLenses"), {
@@ -331,10 +368,12 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
         img.loading = "lazy";
         img.decoding = "async";
 
-        // ✅ Click should work regardless of where user clicks
-        const open = () => openPreview(i);
+// ✅ click should work regardless of where user clicks
+        const open = () => openFullImage(items[i]);
         div.onclick = open;
         img.onclick = open;
+
+
 
         div.appendChild(img);
         grid.appendChild(div);
@@ -346,12 +385,12 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
         }, 0);
     }
 }
-function openPreview(i) {
-    currentPreviewIndex = i;
-    const modal = new bootstrap.Modal($("previewModal"));
-    updatePreviewImage();
-    modal.show();
-}
+// function openPreview(i) {
+//    currentPreviewIndex = i;
+//    const modal = new bootstrap.Modal($("previewModal"));
+//    updatePreviewImage();
+//    modal.show();
+//}
 
 function updatePreviewImage() {
     const img = $("previewImage");
@@ -370,36 +409,83 @@ function updatePreviewImage() {
 /* ============================================================
    STEP 5 — MAP
    ============================================================ */
-let map;
-let mapMarkers = [];
-
 async function loadMap() {
+    const status = document.getElementById("mapStatus");
+    status.textContent = ""; // reset
+
     try {
         const res = await fetch("/api/gps-data");
         const gps = await res.json();
 
-        if (!Array.isArray(gps) || gps.length === 0) {
+        if (!gps.length) {
+            status.innerHTML = `
+                <i class="bi bi-geo-alt-slash text-secondary"></i>
+                <strong>No GPS location data found</strong><br>
+                These photos do not contain EXIF GPS coordinates.
+            `;
             return;
         }
 
-        // Defer marker rendering so UI responds first
+        const hasPrecise = gps.some(p => p.quality === "precise");
+        const hasCoarse  = gps.some(p => p.quality === "coarse");
+
+        if (!hasPrecise && hasCoarse) {
+            status.innerHTML = `
+                <i class="bi bi-exclamation-triangle text-warning"></i>
+                <strong>Approximate location data</strong><br>
+                Location information is low‑precision and may represent a region.
+            `;
+        } else if (hasPrecise && hasCoarse) {
+            status.innerHTML = `
+                <i class="bi bi-geo text-info"></i>
+                <strong>Mixed GPS accuracy</strong><br>
+                Some photos have precise locations; others are approximate.
+            `;
+        } else {
+            status.innerHTML = `
+                <i class="bi bi-geo-alt-fill text-success"></i>
+                <strong>Showing photo locations</strong><br>
+                Locations are based on EXIF GPS data from the camera.
+            `;
+        }
+
+        // Existing marker logic
         requestAnimationFrame(() => renderMapMarkers(gps));
 
     } catch (err) {
         console.warn("GPS load failed:", err);
+        status.textContent = "Unable to load GPS data.";
     }
 }
+// Map is initialised lazily when Step 5 becomes visible.
+// Height is set inline to avoid flexbox collapse issues.
 function initMap() {
-    map = L.map("map").setView([0, 0], 2);
+    const el = document.getElementById("map");
+    if (!el) {
+        console.warn("Map container not found");
+        return;
+    }
+
+    el.style.height = "400px";
+    el.style.width = "100%";
+    el.style.display = "block";
+
+    if (map) return;
+
+    map = L.map(el);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
         maxZoom: 18
     }).addTo(map);
+
+    map.setView([51.5, -0.12], 5);
 }
 
+
+
 function renderMapMarkers(points, start = 0, chunkSize = 25) {
-    if (!map) initMap();
+    if (!map) return;
 
     const end = Math.min(start + chunkSize, points.length);
 
@@ -459,8 +545,10 @@ async function pollJobStatus() {
    STEP 7 — LOG STREAM
    ============================================================ */
 function bindLogStream() {
-    // Disabled – SSE causes backend lockups on Windows dev server
-    console.log("🔕 Log stream disabled");
+    const log = $("log");
+    if (log) {
+        log.textContent = "Live logs are disabled in this build.";
+    }
 }
 /* ============================================================
    INIT — SAFE DOM READY
@@ -468,46 +556,84 @@ function bindLogStream() {
 window.addEventListener("DOMContentLoaded", () => {
     console.log("DOM ready → binding UI");
 
-    // ---- SD detection ----
+    showStep(1);
     setTimeout(detectSDCards, 0);
 
-    const analyzeBtn = document.getElementById("analyzeBtn");
-    if (analyzeBtn) {
-        analyzeBtn.addEventListener("click", () => {
-            console.log("Analyze clicked");
-            analyzeCard();
+    // ✅ Sidebar navigation
+    document.querySelectorAll(".sidebar-item").forEach(item => {
+        item.addEventListener("click", () => {
+            const step = parseInt(item.dataset.step);
+            if (!isNaN(step)) {
+                console.log("Sidebar click → showStep", step);
+                showStep(step);
+            }
         });
-    } else {
-        console.warn("Analyze button not found");
+    });
+
+    // ✅ Thumbnail click (event delegation — survives re-render)
+    const gallery = document.getElementById("thumbnailGallery");
+    if (gallery) {
+        gallery.addEventListener("click", e => {
+            const img = e.target.closest("img[data-fullpath]");
+            if (!img) return;
+
+            const path = img.dataset.fullpath;
+            openFullImage(path);
+        });
     }
 
-    document.getElementById("refreshSdBtn")
-        ?.addEventListener("click", detectSDCards);
-
-    document.getElementById("rescanBtn")
-        ?.addEventListener("click", detectSDCards);
-
-    // ---- Preview navigation ----
-    const btnNext = $("previewNext");
-    if (btnNext) {
-        btnNext.onclick = () => {
-            currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
-            updatePreviewImage();
-        };
-    }
-
-    const btnPrev = $("previewPrev");
-    if (btnPrev) {
-        btnPrev.onclick = () => {
-            currentPreviewIndex =
-                (currentPreviewIndex - 1 + thumbnails.length) % thumbnails.length;
-            updatePreviewImage();
-        };
-    }
-
-    // ---- Organize buttons ----
-    bindOrganizeEvents();
-
-    // ---- Logs (disabled safely) ----
     bindLogStream();
 });
+
+function openFullImage(path) {
+    if (!path) {
+        console.warn("openFullImage: no path");
+        return;
+    }
+
+    const url = `/api/full-image?path=${encodeURIComponent(path)}`;
+    console.log("Opening full image:", url);
+
+    window.location.href = url;
+}
+
+
+// ---- SD detection ----
+setTimeout(detectSDCards, 0);
+
+const analyzeBtn = document.getElementById("analyzeBtn");
+if (analyzeBtn) {
+    analyzeBtn.addEventListener("click", () => {
+        console.log("Analyze clicked");
+        analyzeCard();
+    });
+} else {
+    console.warn("Analyze button not found");
+}
+
+document.getElementById("refreshSdBtn")
+    ?.addEventListener("click", detectSDCards);
+
+document.getElementById("rescanBtn")
+    ?.addEventListener("click", detectSDCards);
+
+// ---- Preview navigation ----
+const btnNext = $("previewNext");
+if (btnNext) {
+    btnNext.onclick = () => {
+        currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
+        updatePreviewImage();
+    };
+}
+
+const btnPrev = $("previewPrev");
+if (btnPrev) {
+    btnPrev.onclick = () => {
+        currentPreviewIndex =
+            (currentPreviewIndex - 1 + thumbnails.length) % thumbnails.length;
+        updatePreviewImage();
+    };
+}
+
+// ---- Organize buttons ----
+bindOrganizeEvents();
