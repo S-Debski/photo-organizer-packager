@@ -1,0 +1,315 @@
+{
+  "main": {
+    "id": "5ff1616e6b5ce24f",
+    "type": "split",
+    "children": [
+      {
+        "id": "bc5d2c794fba920d",
+        "type": "tabs",
+        "dimension": 58.348375451263536,
+        "children": [
+          {
+            "id": "04d6e599296ee7fe",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Testing/v2.7 Mapping & Organize Freeze.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "v2.7 Mapping & Organize Freeze.md"
+            }
+          },
+          {
+            "id": "560d363b2861057d",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Mapping & GPS Testing.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Mapping & GPS Testing.md"
+            }
+          },
+          {
+            "id": "f5f22b198d87d9f7",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/GPS Quality Classification.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "GPS Quality Classification.md"
+            }
+          },
+          {
+            "id": "89bdbda00519b694",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/Organize – Behaviour & Guarantees.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Organize – Behaviour & Guarantees.md"
+            }
+          },
+          {
+            "id": "911bd2d968ed8317",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/CTX.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "CTX"
+            }
+          },
+          {
+            "id": "1cd305ba831bc7e8",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/CTX.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "CTX"
+            }
+          },
+          {
+            "id": "fbb1aa18ab76b55b",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/Why Mapping Is Informational.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Why Mapping Is Informational.md"
+            }
+          },
+          {
+            "id": "dd6be8e24dfde14f",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Photo Organiser Book/Design Decisions/Mapping.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Mapping"
+            }
+          }
+        ],
+        "currentTab": 7
+      },
+      {
+        "id": "942406dc48ee65f3",
+        "type": "tabs",
+        "dimension": 41.65162454873646,
+        "children": [
+          {
+            "id": "bbea10240d46508b",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "6e6599e5347e0a23",
+    "type": "split",
+    "children": [
+      {
+        "id": "a21ece423f84ae01",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a13896995d4ef99d",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "16b5d470e3924727",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "9759cf57cb3b54d0",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "4d1284fa089e0d64",
+    "type": "split",
+    "children": [
+      {
+        "id": "7e7687b6efa67a82",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "92bd1b5324f04652",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Welcome.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Welcome"
+            }
+          },
+          {
+            "id": "9234add9b9ba5dbf",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Welcome.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Welcome"
+            }
+          },
+          {
+            "id": "0d61e97d28d29422",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "6148eaf1cb79484f",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Welcome.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Welcome"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "bases:Create new base": false,
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false
+    }
+  },
+  "active": "bbea10240d46508b",
+  "lastOpenFiles": [
+    "Photo Organiser Book/Design Decisions/Mapping.md",
+    "Photo Organiser Book/Design Decisions/Why Mapping Is Informational.md.md",
+    "Photo Organiser Book/Design Decisions/Organize – Behaviour & Guarantees.md.md",
+    "ctx.output_dir reasoning.md",
+    "Photo Organiser Book/Design Decisions/CTX.md",
+    "Photo Organiser Book/Design Decisions/Known `ctx` Fields.md",
+    "Photo Organiser Book/Testing/Organize Testing Checklist (v2.7).md.md",
+    "Photo Organiser Book/Design Decisions/GPS Quality Classification.md.md",
+    "Photo Organiser Book/Design Decisions/Untitled",
+    "Photo Organiser Book/Debug Notes",
+    "Photo Organiser Book/Testing",
+    "Photo Organiser Book/Design Decisions",
+    "Photo Organiser Book/Releases/Untitled.md",
+    "Photo Organiser Book/Testing/V2.7 Mapping & Organise Frreze.md",
+    "Photo Organiser Book/Releases",
+    "Photo Organiser Book",
+    "Welcome.md",
+    "Test Plan.base",
+    "Mapping & GPS Testing.md.md",
+    "Photo Organiser Book/Testing/v2.7 Mapping & Organize Freeze.md.md",
+    "Test Plan Details v2.7.md",
+    "Untitled.base",
+    "Untitled 1.base"
+  ]
+}
