@@ -17,7 +17,14 @@ def api_organize(ctx):
     if not src or not os.path.isdir(src):
         return jsonify({"success": False, "error": "No active folder"}), 400
 
-    pictures = ctx.pictures_dir
+    pictures = ctx.output_dir
+
+    if not pictures:
+        return jsonify({
+            "success": False,
+            "error": "Output directory is not configured"
+        }), 400
+
     os.makedirs(pictures, exist_ok=True)
 
     # Initialize job state
@@ -68,13 +75,19 @@ def api_job_status(ctx):
 
 def api_open_pictures(ctx):
     """
-    Open the Pictures folder in Windows Explorer.
+    Open the output folder in Windows Explorer.
     """
-    folder = ctx.pictures_dir
+    folder = ctx.output_dir
+
+    if not folder:
+        return jsonify({
+            "success": False,
+            "error": "Output directory not configured"
+        }), 400
 
     try:
         os.makedirs(folder, exist_ok=True)
-        subprocess.Popen(['explorer', folder])
+        subprocess.Popen(['explorer', os.path.abspath(folder)])
     except Exception as e:
         log_info(ctx, f"Open Pictures error: {e}")
         return jsonify({"success": False}), 500

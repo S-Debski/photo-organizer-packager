@@ -526,16 +526,28 @@ function bindOrganizeEvents() {
 
 async function pollJobStatus() {
     try {
+        // NOTE: outputDirName is currently fixed.
+        // In future versions, this should come from the backend job status.
+        const outputDirName = "Pictures/PhotoWizard";
+        //
         const res = await fetch("/api/job-status");
         const job = await res.json();
-
-        const pct = job.total ? Math.floor((job.done / job.total) * 100) : 0;
+        const pct = job.total
+            ? Math.floor((job.done / job.total) * 100)
+            : 0;
 
         $("progressFill").style.width = `${pct}%`;
-        $("progressText").textContent =
-            job.running ? `Processing (${job.done}/${job.total})…` : "Done.";
 
-        if (job.running) setTimeout(pollJobStatus, 500);
+        if (job.running) {
+            $("progressText").textContent =
+                `Processing (${job.done}/${job.total})…`;
+            setTimeout(pollJobStatus, 500);
+        } else {
+    const count = job.done || 0;
+
+    $("progressText").textContent =
+        `Done. ${count} photos copied to ${outputDirName}.`;
+        }
     } catch (err) {
         console.error(err);
     }
