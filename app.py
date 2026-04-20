@@ -13,9 +13,9 @@ import logging
 from queue import Queue
 
 from backend.api_server import run_api_server
-from context import AppContext
+from photo_core.ctx.context import AppContext
 
-from version import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
+from version import APP_NAME, APP_BUILD
 # ------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------

@@ -3,7 +3,7 @@ import os
 from flask import jsonify
 
 from utils.fs_utils import iter_jpegs, iter_raws, list_candidate_folders
-from utils.exif_utils import extract_exif
+from photo_core.mapping.exif_utils import extract_exif
 from utils.logging_bus import log_info
 
 

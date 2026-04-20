@@ -3,7 +3,7 @@ import os
 import time
 
 from utils.fs_utils import iter_jpegs
-from utils.exif_utils import extract_exif
+from photo_core.mapping.exif_utils import extract_exif
 from utils.logging_bus import log_info
 
 SCAN_INTERVAL = 5  # seconds between idle checks

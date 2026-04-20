@@ -3,7 +3,8 @@ import os
 from flask import jsonify
 
 from utils.fs_utils import iter_jpegs
-from utils.exif_utils import extract_exif
+from photo_core.mapping.exif_dates import extract_exif_datetime
+from photo_core.mapping.quality_classification import extract_exif_gps
 from utils.logging_bus import log_info
 
 
@@ -36,9 +37,12 @@ def api_exif_stats(ctx, path=None):
     count = 0
 
     for img in iter_jpegs(root):
-        ex = extract_exif(img)
-        cam = ex.get("model") or "Unknown"
-        lens = ex.get("lens") or "Unknown Lens"
+        # Mapping signals extracted here; consumed by other flows
+        dt = extract_exif_datetime(img)
+        gps = extract_exif_gps(img)
+        
+        cam = "Unknown"
+        lens = "Unknown Lens"
 
         camera_counter[cam] = camera_counter.get(cam, 0) + 1
         lens_counter[lens] = lens_counter.get(lens, 0) + 1

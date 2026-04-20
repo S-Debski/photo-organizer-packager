@@ -11,13 +11,46 @@
             "id": "b1e8e62aa7178018",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "Design Decisions/Pre‑Import Workflow.md.md",
+                "mode": "preview",
+                "source": true
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "Pre‑Import Workflow.md"
+            }
+          },
+          {
+            "id": "c3fcc860f200bc17",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Design Decisions/Index.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "Index.md"
+            }
+          },
+          {
+            "id": "0fa5fc88b133b32e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Design Decisions/10 - Code Boundaries.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "10 - Code Boundaries.md"
             }
           }
-        ]
+        ],
+        "currentTab": 2
       }
     ],
     "direction": "vertical"
@@ -90,6 +123,7 @@
             "state": {
               "type": "backlink",
               "state": {
+                "file": "Documentation Style.md.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -99,7 +133,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks"
+              "title": "Backlinks for Documentation Style.md"
             }
           },
           {
@@ -108,11 +142,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
+                "file": "Documentation Style.md.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links"
+              "title": "Outgoing links from Documentation Style.md"
             }
           },
           {
@@ -150,12 +185,13 @@
             "state": {
               "type": "outline",
               "state": {
+                "file": "Documentation Style.md.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline"
+              "title": "Outline of Documentation Style.md"
             }
           }
         ]
@@ -176,6 +212,21 @@
       "bases:Create new base": false
     }
   },
-  "active": "b1e8e62aa7178018",
-  "lastOpenFiles": []
+  "active": "0fa5fc88b133b32e",
+  "lastOpenFiles": [
+    "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
+    "Design Decisions/07 - Pre‑Import Workflow.md.md",
+    "Design Decisions/00 - Documentation Style.md.md",
+    "Design Decisions/10 - Code Boundaries.md.md",
+    "Releases/Index.md.md",
+    "Design Decisions/Index.md.md",
+    "Design Decisions/08 - Import Session Metadata.md.md",
+    "Design Decisions/06 - Mapping.md",
+    "Design Decisions/05 - Why Mapping Is Informational.md.md",
+    "Design Decisions/04 - GPS Quality Classification.md.md",
+    "Design Decisions/03 - Date Suggestion Rules (Mapping).md",
+    "Design Decisions/02 - Known `ctx` Fields.md",
+    "Design Decisions/01 - CTX.md",
+    "Culling (Pre‑Import).md"
+  ]
 }

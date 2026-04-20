@@ -1,16 +1,13 @@
 # backend/api_server.py
 
-import os
 import threading
 import webbrowser
-from pathlib import Path
 
 from flask import (
     Flask,
     jsonify,
     request,
     render_template,
-    Response,
 )
 from flask_cors import CORS
 
@@ -25,14 +22,14 @@ from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
 # ------------------------------------------------------------
 # Backend context + workers
 # ------------------------------------------------------------
-from context import AppContext
+from photo_core.ctx.context import AppContext
 
 # Routes
-from backend.routes.analyze_card import api_analyze_card
+from photo_core.mapping.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
-from backend.routes.exif_stats import api_exif_stats
+from photo_core.mapping.exif_stats import api_exif_stats
 from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
-from backend.routes.gps_data import api_gps_data
+from photo_core.mapping.gps_data import api_gps_data
 from backend.routes.organize import api_organize, api_job_status, api_open_pictures
 
 # ------------------------------------------------------------
