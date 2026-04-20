@@ -137,3 +137,8 @@ pytestdebug.log
 # Reports
 *.html
 *.xml
+
+# Local tooling / scratch
+.claude/
+CLAUDE.md
+flist*.txt
