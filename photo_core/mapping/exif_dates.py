@@ -33,3 +33,52 @@ def extract_exif_datetime(path):
             return dt
     except Exception:
         return None
+def extract_camera_model(path):
+    """
+    Returns a camera model string, or None.
+    Informational only.
+    """
+    try:
+        with Image.open(path) as im:
+            exif = im.getexif()
+            if not exif:
+                return None
+
+            make = exif.get(TAGS.get("Make"))
+            model = exif.get(TAGS.get("Model"))
+
+            if make and model:
+                return f"{str(make).strip()} {str(model).strip()}"
+
+            return str(model).strip() if model else str(make).strip() if make else None
+    except Exception:
+        return None
+
+def extract_lens_model(path):
+    """
+    Returns a human-readable lens name if available, otherwise None.
+    Informational only.
+    """
+    try:
+        with Image.open(path) as im:
+            exif = im.getexif()
+            if not exif:
+                return None
+
+            # Try common EXIF fields in order of usefulness
+            for tag in (
+                "LensModel",
+                "Lens",
+                "LensSpecification",
+                "LensID",
+                "AuxLens",
+            ):
+                key = TAGS.get(tag)
+                if key:
+                    value = exif.get(key)
+                    if value:
+                        return str(value).strip()
+
+            return None
+    except Exception:
+        return None

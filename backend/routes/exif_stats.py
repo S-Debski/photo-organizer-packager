@@ -1,41 +1,49 @@
-# Mapping: EXIF statistics analysis
-# Read-only analysis
-# Informational outputs only
-# No Flask, no ctx, no caching
+# backend/routes/exif_stats.py
+# HTTP API wrapper for EXIF statistics
+# Delegates analysis to photo_core.mapping.exif_stats
 
-from photo_core.mapping.exif_dates import (
-    extract_exif_datetime,
-    extract_camera_model,
-    extract_lens_model,
-)
-from photo_core.mapping.quality_classification import extract_exif_gps
+import os
+from flask import jsonify
+
+from utils.fs_utils import iter_jpegs
+from utils.logging_bus import log_info
+
+from photo_core.mapping.exif_stats import compute_exif_stats
 
 
-def compute_exif_stats(image_paths):
-    """
-    Compute camera and lens usage statistics for a set of image paths.
+def api_exif_stats(ctx, path=None):
+    root = (
+        path
+        or ctx.state.get("current_active_folder")
+        or ctx.state.get("current_sd_root")
+    )
 
-    Returns:
-        {
-            "cameras": [{"model": str, "count": int}, ...],
-            "lenses": [{"lens": str, "count": int}, ...],
-        }
-    """
-    camera_counter = {}
-    lens_counter = {}
+    if not root or not os.path.isdir(root):
+        return jsonify({
+            "ready": False,
+            "cameras": [],
+            "lenses": []
+        })
 
-    for img in image_paths:
-        # Mapping signals (date/GPS extracted but not interpreted here)
-        extract_exif_datetime(img)
-        extract_exif_gps(img)
+    cache_key = f"exif_stats::{os.path.abspath(root)}"
+    cached = ctx.exif_cache.get(cache_key)
 
-        cam = extract_camera_model(img) or "Unknown"
-        lens = extract_lens_model(img) or "Unknown Lens"
+    # Return cached result if present
+    if cached:
+        return jsonify({
+            "ready": True,
+            **cached
+        })
 
-        camera_counter[cam] = camera_counter.get(cam, 0) + 1
-        lens_counter[lens] = lens_counter.get(lens, 0) + 1
+    log_info(ctx, f"EXIF Stats: scanning {root}")
 
-    return {
-        "cameras": [{"model": k, "count": v} for k, v in camera_counter.items()],
-        "lenses": [{"lens": k, "count": v} for k, v in lens_counter.items()],
-    }
+    image_paths = list(iter_jpegs(root))
+
+    stats = compute_exif_stats(image_paths)
+
+    ctx.exif_cache[cache_key] = stats
+
+    return jsonify({
+        "ready": True,
+        **stats
+    })
