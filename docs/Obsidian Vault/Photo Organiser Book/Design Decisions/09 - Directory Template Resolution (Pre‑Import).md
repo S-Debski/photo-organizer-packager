@@ -10,55 +10,50 @@ Derive a deterministic destination subdirectory from explicit Pre‑Import input
 
 ---
 
-## Pipeline Position
+## Pipeline (High‑Level)
 
 Source
-
-    ↓
-
+  ↓
 Mapping (informational)
-
-    ↓
-
+  ↓
 Pre‑Import (session metadata, destination selection)
-
-    ↓
-
+  ↓
 Organize (safe copy)
 
-  
+## Pre‑Import (Detailed)
+
+Mapping (informational only)
+  ↓
+Pre‑Import
+   ├─ session metadata
+   ├─ directory template selection
+   ├─ preview + validation
+   ├─ user confirmation
+   └─ ctx freeze
+  ↓
+Organize (copy only)
 
 ---
 
 ## Core Rules
 
 - Template resolution is optional
-
 - No directories are created during Pre‑Import
-
 - Final destination is resolved before Organize starts
-
 - Resulting path is immutable per run
+- The session title should be derived from the first directory _below_ `DCIM` that actually contains images.
 
   
 
 ---
 
 ## Inputs
-
 Template resolution may reference:
-
 - Session title
-
 - User‑supplied shoot date
-
 - Static path segments
 
-  
-
 No EXIF metadata is used directly.
-
-  
 
 ---
 
@@ -123,3 +118,24 @@ If template resolution fails:
 - No directories are created
 
 - Operation aborts safely
+
+## Directory Templates — Default
+
+**Default template:**
+
+{YYYY}/{MM}/{DD} - {title}
+
+### Rationale
+- Chronological sorting at all levels
+- Human‑readable folder names
+- Collision‑resistant
+- Industry‑standard practice for photography archives
+
+### Scope
+- Applies to new sessions by default
+- User‑editable during Pre‑Import
+- No automatic changes to existing sessions
+
+### Notes
+- EXIF is not used for directory naming at this stage
+- Title is sanitized before substitution

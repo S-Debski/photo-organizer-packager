@@ -18,6 +18,11 @@ import pythoncom
 # ------------------------------------------------------------
 from version import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
 from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
+from backend.routes.pre_import import (
+    api_preview_directory,
+    api_confirm_pre_import,
+)
+
 
 # ------------------------------------------------------------
 # Backend context + workers
@@ -31,6 +36,7 @@ from backend.routes.exif_stats import api_exif_stats
 from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
 from backend.routes.gps_data import api_gps_data
 from backend.routes.organize import api_organize, api_job_status, api_open_pictures
+from backend.routes.pre_import import api_set_output_destination
 
 # ------------------------------------------------------------
 # Flask app (single instance)
@@ -55,6 +61,12 @@ CORS(app)
 # Context is injected at runtime
 ctx: AppContext | None = None
 
+from backend.routes.pre_import import api_update_session_metadata
+# version data #
+@app.route("/api/pre-import/session", methods=["POST"])
+def pre_import_update_session():
+    touch_activity()
+    return api_update_session_metadata(ctx)
 
 # ------------------------------------------------------------
 # Helper: activity tracking (optional future use)
@@ -71,7 +83,24 @@ def touch_activity():
 def index():
     touch_activity()
     return render_template("index.html")
+# ------------------------------------------------------------
+# Pre import routes
+# ------------------------------------------------------------
+@app.route("/api/pre-import/preview", methods=["POST"])
+def pre_import_preview():
+    touch_activity()
+    return api_preview_directory(ctx)
 
+@app.route("/api/pre-import/confirm", methods=["POST"])
+def pre_import_confirm():
+    touch_activity()
+    return api_confirm_pre_import(ctx)
+
+# Output routes
+@app.route("/api/pre-import/output-destination", methods=["POST"])
+def pre_import_set_output():
+    touch_activity()
+    return api_set_output_destination(ctx)
 
 # ------------------------------------------------------------
 # Version API

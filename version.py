@@ -1,5 +1,5 @@
 # version.py
 APP_NAME = "Photo Organizer"
-APP_VERSION = "2.7.1"
-APP_STAGE = "stable"   # stable | beta | dev
-APP_BUILD = "v2.7.1-stable"
+APP_VERSION = "2.8.0"
+APP_STAGE = "beta"
+APP_BUILD = "pre-import"
