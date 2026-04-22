@@ -54,31 +54,6 @@ def extract_camera_model(path):
     except Exception:
         return None
 
-def extract_lens_model(path):
-    """
-    Returns a human-readable lens name if available, otherwise None.
-    Informational only.
-    """
-    try:
-        with Image.open(path) as im:
-            exif = im.getexif()
-            if not exif:
-                return None
-
-            # Try common EXIF fields in order of usefulness
-            for tag in (
-                "LensModel",
-                "Lens",
-                "LensSpecification",
-                "LensID",
-                "AuxLens",
-            ):
-                key = TAGS.get(tag)
-                if key:
-                    value = exif.get(key)
-                    if value:
-                        return str(value).strip()
-
-            return None
-    except Exception:
-        return None
+import subprocess
+import json
+from photo_core.exif.lens import extract_lens_model

@@ -22,7 +22,12 @@ from backend.routes.pre_import import (
     api_preview_directory,
     api_confirm_pre_import,
 )
+## Check Exiftool is available ##
+from photo_core.exif.reader import exiftool_available
 
+if not exiftool_available():
+    print("ℹ️ ExifTool not found — advanced lens metadata disabled")
+##
 
 # ------------------------------------------------------------
 # Backend context + workers
@@ -44,6 +49,10 @@ from backend.routes.pre_import import api_set_output_destination
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+
+print("BASE_DIR =", BASE_DIR)
+print("STATIC_DIR =", BASE_DIR / "ui" / "static")
+
 print("auto_select_sd_card signature:", auto_select_sd_card.__code__.co_argcount)
 
 app = Flask(

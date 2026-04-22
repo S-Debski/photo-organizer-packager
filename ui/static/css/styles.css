@@ -102,8 +102,10 @@ body {
 /* ============================================================
    WIZARD PANELS & STEP VISIBILITY
    ============================================================ */
+/* Wizard step visibility is controlled by JS via .d-none — do not hide here */
+
 .wizard-step {
-    display: none; /* default hidden */
+    /* display is controlled by JS via .d-none */
     background: var(--wizard-panel);
     border: 1px solid var(--wizard-panel-border);
     border-radius: 8px;
@@ -113,17 +115,12 @@ body {
     margin-bottom: 32px;
 }
 
-/* ✅ This is the ONLY rule that should make the panel visible */
+/* ❌ REMOVE THIS BLOCK ENTIRELY */
+/*
 .wizard-step.active-step {
     display: block !important;
 }
-
-/* Titles */
-h2, h4 {
-    color: #fff !important;
-    margin-bottom: 20px;
-}
-
+*/
 /* ============================================================
    FORM ELEMENTS
    ============================================================ */
@@ -253,4 +250,13 @@ canvas {
 }
 .thumbnail-item img {
     image-orientation: from-image;
+}
+
+.folder-entry {
+    cursor: pointer;
+}
+
+.folder-entry.active {
+    border-color: #4da6ff;
+    background: rgba(77, 166, 255, 0.15);
 }

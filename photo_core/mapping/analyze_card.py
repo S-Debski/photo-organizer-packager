@@ -53,7 +53,7 @@ def analyze_card(sd_root):
             model = "RAW-only"
             lens = "Unknown Lens"
         else:
-            model = "Unknown"
+            model = "Camera not resolved - no camera EXIF"
             lens = "Unknown Lens"
 
             for img in samples:

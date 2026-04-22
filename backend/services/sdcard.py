@@ -1,49 +1,56 @@
-print("✅ LOADED sdcard FROM:", __file__)
-
-"""
-Optimized universal SD/CFexpress detection for Windows, macOS, Linux.
-
-✅ FAST on multi-slot USB readers (skips empty slots)
-✅ Filters only FAT/exFAT volumes between 0.5GB and 2TB
-✅ Detects DCIM/PRIVATE/M4ROOT etc.
-✅ Compatible with your existing Photo Organizer backend
-"""
+# backend/services/sdcard.py
+# ------------------------------------------------------------
+# Universal SD / CFexpress detection (Windows, macOS, Linux)
+#
+# Design goals:
+# - Correct detection of real camera cards
+# - Exclude cloud / virtual drives (Google Drive, etc.)
+# - Stable across filesystem types (exFAT, FAT32, etc.)
+# - One authoritative implementation
+# ------------------------------------------------------------
 
 import os
 import platform
 from pathlib import Path
 
-# Windows-specific imports
+# ------------------------------------------------------------
+# Platform‑specific imports
+# ------------------------------------------------------------
 if os.name == "nt":
     import win32api
     import win32file
     import pythoncom
-    import wmi
+
+# ------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------
+CAMERA_FOLDERS = {
+    "DCIM",
+    "PRIVATE",
+    "AVCHD",
+    "MISC",
+    "MP_ROOT",
+    "VIDEO",
+    "100MEDIA",
+}
+
+MIN_SD_SIZE = 512 * 1024 * 1024                 # 0.5 GB
+MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024     # 2 TB
 
 
-# -------------------------------------------------------------
-# General helpers
-# -------------------------------------------------------------
-FLASH_FILESYSTEMS = {"FAT32", "FAT", "FAT16", "exFAT", "MSDOS", "VFAT"}
-CAMERA_FOLDERS = {"DCIM", "PRIVATE", "AVCHD", "MISC", "MP_ROOT", "VIDEO", "DCIM/100MEDIA"}
-
-MIN_SD_SIZE = 512 * 1024 * 1024           # 0.5 GB
-MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024  # 2 TB
-
-
-def is_flash_fs(fs: str) -> bool:
-    return fs and fs.upper() in FLASH_FILESYSTEMS
-
-
-def has_camera_structure(path: Path) -> bool:
+# ------------------------------------------------------------
+# Shared helpers
+# ------------------------------------------------------------
+def has_camera_structure(root: Path) -> bool:
+    """
+    True if the root contains a typical camera folder.
+    Empty cards are allowed.
+    """
     try:
-        root_items = {p.name.upper() for p in path.iterdir() if p.is_dir()}
-
-        # ✅ Allow empty cards (restores previous behaviour)
-        if not root_items:
+        entries = {p.name.upper() for p in root.iterdir() if p.is_dir()}
+        if not entries:
             return True
-
-        return any(folder in root_items for folder in CAMERA_FOLDERS)
+        return any(name in entries for name in CAMERA_FOLDERS)
     except Exception:
         return False
 
@@ -52,67 +59,19 @@ def size_within_sd_range(size: int) -> bool:
     return size and MIN_SD_SIZE <= size <= MAX_SD_SIZE
 
 
-def normalize(path: str) -> str:
-    return path.rstrip("\\/").upper() if path else None
-
-
-"""
-Optimized universal SD/CFexpress detection for Windows, macOS, Linux.
-
-✅ FAST on multi-slot USB readers (skips empty slots)
-✅ Filters only FAT/exFAT volumes between 0.5GB and 2TB
-✅ Detects DCIM/PRIVATE/M4ROOT etc.
-✅ Compatible with your existing Photo Organizer backend
-"""
-
-import os
-import platform
-from pathlib import Path
-
-# Windows-specific imports
-if os.name == "nt":
-    import win32api
-    import win32file
-    import pythoncom
-    import wmi
-
-
-# -------------------------------------------------------------
-# General helpers
-# -------------------------------------------------------------
-FLASH_FILESYSTEMS = {"FAT32", "FAT", "FAT16", "exFAT", "MSDOS", "VFAT"}
-CAMERA_FOLDERS = {"DCIM", "PRIVATE", "AVCHD", "MISC", "MP_ROOT", "VIDEO", "DCIM/100MEDIA"}
-
-MIN_SD_SIZE = 512 * 1024 * 1024           # 0.5 GB
-MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024  # 2 TB
-
-
-def is_flash_fs(fs: str) -> bool:
-    return fs and fs.upper() in FLASH_FILESYSTEMS
-
-
-def has_camera_structure(path: Path) -> bool:
+# ------------------------------------------------------------
+# WINDOWS IMPLEMENTATION
+# ------------------------------------------------------------
+def _is_removable_drive_windows(path: str) -> bool:
     try:
-        root_items = {p.name.upper() for p in path.iterdir() if p.is_dir()}
-        return any(folder in root_items for folder in CAMERA_FOLDERS)
+        return win32file.GetDriveType(path) == win32file.DRIVE_REMOVABLE
     except Exception:
         return False
 
 
-def size_within_sd_range(size: int) -> bool:
-    return size and MIN_SD_SIZE <= size <= MAX_SD_SIZE
-
-
-def normalize(path: str) -> str:
-    return path.rstrip("\\/").upper() if path else None
-
-
-# -------------------------------------------------------------
-# WINDOWS IMPLEMENTATION (Optimized)
-# -------------------------------------------------------------
 def detect_windows_volumes():
     """
-    Enumerate volumes quickly and skip empty multi-slot ports immediately.
+    Enumerate all Windows logical drives with size + label.
     """
     pythoncom.CoInitialize()
 
@@ -120,30 +79,23 @@ def detect_windows_volumes():
     volumes = []
 
     for d in drives:
-        letter = normalize(d)
-        if not letter:
+        if not d:
             continue
 
-        root = letter + "\\"
-        if not os.path.exists(root):
-            continue
-
-        # Get filesystem + label
         try:
-            label, _, _, _, fs = win32api.GetVolumeInformation(letter)
+            label, _, _, _, fs = win32api.GetVolumeInformation(d)
         except Exception:
-            fs = None
-            label = None
+            label, fs = None, None
 
-        # Get size (FAST)
         try:
-            secs, bps, free_c, total_c = win32file.GetDiskFreeSpace(root)
-            size = total_c * secs * bps
+            sectors, bytes_per_sector, _, total_clusters = \
+                win32file.GetDiskFreeSpace(d)
+            size = sectors * bytes_per_sector * total_clusters
         except Exception:
             size = 0
 
         volumes.append({
-            "path": letter,
+            "path": d.rstrip("\\"),
             "label": label,
             "filesystem": fs,
             "size_bytes": size,
@@ -152,50 +104,46 @@ def detect_windows_volumes():
     return volumes
 
 
-def filter_windows_sd_cards():
+def filter_windows_sd_cards(include_fixed=False):
     """
-    Optimized SD-card detection for Windows:
-
-    ✅ Skips empty multi-reader slots (<64MB)
-    ✅ Filters only flash-like filesystems
-    ✅ Filters by realistic SD/CFexpress sizes
-    ✅ Uses DCIM detection to prioritize camera cards
+    Windows SD card detection:
+    - Only DRIVE_REMOVABLE
+    - Size sanity check
+    - Camera folder structure preferred
     """
 
-    volumes = detect_windows_volumes()
     results = []
 
-    for v in volumes:
-        path = v["path"]
-        fs = v["filesystem"]
+    for v in detect_windows_volumes():
+        path = v["path"] + "\\"
         size = v["size_bytes"]
 
-        print("🔍 WINDOWS VOLUME:", path, "FS:", fs, "SIZE:", size)
-
-        if not size or size < 64 * 1024 * 1024:
-            print("  ⛔ excluded: size")
-            continue
-
-        if not is_flash_fs(fs):
-            print("  ⛔ excluded: filesystem")
-            continue
+        print("🔍 WINDOWS VOLUME:", path,
+              "FS:", v["filesystem"],
+              "SIZE:", size)
 
         if not size_within_sd_range(size):
             print("  ⛔ excluded: size range")
             continue
 
-        root = Path(path + "\\")
-        has_camera_structure(root)
+        is_removable = _is_removable_drive_windows(path)
+
+        if not is_removable and not include_fixed:
+            print("  ⛔ excluded: not removable (fixed drive hidden)")
+            continue
+
+        if not has_camera_structure(Path(path)):
+            print("  ⛔ excluded: no camera structure")
+            continue
 
         print("  ✅ accepted")
         results.append(v)
-
     return results
 
 
-# -------------------------------------------------------------
+# ------------------------------------------------------------
 # macOS IMPLEMENTATION
-# -------------------------------------------------------------
+# ------------------------------------------------------------
 def detect_macos_volumes():
     volumes_root = Path("/Volumes")
     results = []
@@ -206,7 +154,7 @@ def detect_macos_volumes():
     for vol in volumes_root.iterdir():
         if not vol.is_dir():
             continue
-        if vol.name in {"Macintosh HD", "Macintosh HD - Data"}:
+        if vol.name.startswith("Macintosh"):
             continue
 
         fs, size = get_macos_disk_info(vol)
@@ -233,38 +181,32 @@ def get_macos_disk_info(path: Path):
 
 def filter_macos_sd_cards():
     results = []
-    for v in detect_macos_volumes():
-        fs = v["filesystem"]
-        size = v["size_bytes"]
-        path = Path(v["path"])
 
-        if not is_flash_fs(fs):
-            continue
+    for v in detect_macos_volumes():
+        path = Path(v["path"])
+        size = v["size_bytes"]
+
         if not size_within_sd_range(size):
+            continue
+        if not has_camera_structure(path):
             continue
 
         results.append(v)
+
     return results
 
 
-# -------------------------------------------------------------
+# ------------------------------------------------------------
 # LINUX IMPLEMENTATION
-# -------------------------------------------------------------
+# ------------------------------------------------------------
 def detect_linux_volumes():
     mounts = []
-    media_root = Path("/media")
-    if media_root.exists():
-        for user_dir in media_root.iterdir():
-            if user_dir.is_dir():
-                for vol in user_dir.iterdir():
-                    if vol.is_dir():
-                        mounts.append(vol)
-
-    mnt_root = Path("/mnt")
-    if mnt_root.exists():
-        mounts += [d for d in mnt_root.iterdir() if d.is_dir()]
+    for base in (Path("/media"), Path("/mnt")):
+        if base.exists():
+            mounts += [p for p in base.rglob("*") if p.is_dir()]
 
     results = []
+
     for path in mounts:
         fs, size = get_linux_disk_info(path)
         results.append({
@@ -273,6 +215,7 @@ def detect_linux_volumes():
             "filesystem": fs,
             "size_bytes": size,
         })
+
     return results
 
 
@@ -299,205 +242,40 @@ def get_linux_disk_info(path: Path):
 
 def filter_linux_sd_cards():
     results = []
+
     for v in detect_linux_volumes():
-        fs = v["filesystem"]
+        path = Path(v["path"])
         size = v["size_bytes"]
 
-        if not is_flash_fs(fs):
-            continue
         if not size_within_sd_range(size):
+            continue
+        if not has_camera_structure(path):
             continue
 
         results.append(v)
+
     return results
 
 
-# -------------------------------------------------------------
+# ------------------------------------------------------------
 # UNIVERSAL ENTRY POINTS
-# -------------------------------------------------------------
-def detect_sd_cards():
+# ------------------------------------------------------------
+def detect_sd_cards(include_fixed=False):
     system = platform.system().lower()
 
     if system == "windows":
-        return filter_windows_sd_cards()
+        return filter_windows_sd_cards(include_fixed=include_fixed)
     elif system == "darwin":
         return filter_macos_sd_cards()
     elif system == "linux":
         return filter_linux_sd_cards()
     else:
         return []
+
 
 
 def auto_select_sd_card(cards):
     """
-    Return the single SD card if exactly one is detected,
-    otherwise return None.
+    Auto‑select if exactly one SD card is detected.
     """
-    return cards[0] if cards and len(cards) == 1 else None
-
-# -------------------------------------------------------------
-# Standalone tester
-# -------------------------------------------------------------
-if __name__ == "__main__":
-    print("Testing optimized SD/CFexpress detection...\n")
-    cards = detect_sd_cards()
-
-    print("Detected cards:")
-    for card in cards:
-        print(card)
-
-    if cards:
-        print("\nAuto-select:", auto_select_sd_card())
-    else:
-        print("\nNo SD cards detected")
-        
-
-# -------------------------------------------------------------
-# macOS IMPLEMENTATION
-# -------------------------------------------------------------
-def detect_macos_volumes():
-    volumes_root = Path("/Volumes")
-    results = []
-
-    if not volumes_root.exists():
-        return results
-
-    for vol in volumes_root.iterdir():
-        if not vol.is_dir():
-            continue
-        if vol.name in {"Macintosh HD", "Macintosh HD - Data"}:
-            continue
-
-        fs, size = get_macos_disk_info(vol)
-        results.append({
-            "path": str(vol),
-            "label": vol.name,
-            "filesystem": fs,
-            "size_bytes": size,
-        })
-
-    return results
-
-
-def get_macos_disk_info(path: Path):
-    try:
-        import subprocess, plistlib
-        info = plistlib.loads(subprocess.check_output(
-            ["diskutil", "info", "-plist", str(path)]
-        ))
-        return info.get("FilesystemType"), info.get("TotalSize")
-    except Exception:
-        return None, None
-
-
-def filter_macos_sd_cards():
-    results = []
-    for v in detect_macos_volumes():
-        fs = v["filesystem"]
-        size = v["size_bytes"]
-        path = Path(v["path"])
-
-        if not is_flash_fs(fs):
-            continue
-        if not size_within_sd_range(size):
-            continue
-
-        results.append(v)
-    return results
-
-
-# -------------------------------------------------------------
-# LINUX IMPLEMENTATION
-# -------------------------------------------------------------
-def detect_linux_volumes():
-    mounts = []
-    media_root = Path("/media")
-    if media_root.exists():
-        for user_dir in media_root.iterdir():
-            if user_dir.is_dir():
-                for vol in user_dir.iterdir():
-                    if vol.is_dir():
-                        mounts.append(vol)
-
-    mnt_root = Path("/mnt")
-    if mnt_root.exists():
-        mounts += [d for d in mnt_root.iterdir() if d.is_dir()]
-
-    results = []
-    for path in mounts:
-        fs, size = get_linux_disk_info(path)
-        results.append({
-            "path": str(path),
-            "label": path.name,
-            "filesystem": fs,
-            "size_bytes": size,
-        })
-    return results
-
-
-def get_linux_disk_info(path: Path):
-    try:
-        stat = os.statvfs(path)
-        size = stat.f_blocks * stat.f_frsize
-    except Exception:
-        size = None
-
-    fs = None
-    try:
-        with open("/proc/mounts") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) > 2 and parts[1] == str(path):
-                    fs = parts[2]
-                    break
-    except Exception:
-        pass
-
-    return fs, size
-
-
-def filter_linux_sd_cards():
-    results = []
-    for v in detect_linux_volumes():
-        fs = v["filesystem"]
-        size = v["size_bytes"]
-
-        if not is_flash_fs(fs):
-            continue
-        if not size_within_sd_range(size):
-            continue
-
-        results.append(v)
-    return results
-
-
-# -------------------------------------------------------------
-# UNIVERSAL ENTRY POINTS
-# -------------------------------------------------------------
-def detect_sd_cards():
-    system = platform.system().lower()
-
-    if system == "windows":
-        return filter_windows_sd_cards()
-    elif system == "darwin":
-        return filter_macos_sd_cards()
-    elif system == "linux":
-        return filter_linux_sd_cards()
-    else:
-        return []
-
-# -------------------------------------------------------------
-# Standalone tester
-# -------------------------------------------------------------
-if __name__ == "__main__":
-    print("Testing optimized SD/CFexpress detection...\n")
-    cards = detect_sd_cards()
-
-    print("Detected cards:")
-    for card in cards:
-        print(card)
-
-    if cards:
-        print("\nAuto-select:", auto_select_sd_card())
-    else:
-        print("\nNo SD cards detected")
+    return cards[0] if len(cards) == 1 else None

@@ -15,17 +15,55 @@ def iter_jpegs(root):
     """Yield JPEGs only — these go to EXIF + preview."""
     for base, _, files in os.walk(root):
         for fn in files:
+
+            # ✅ Ignore macOS AppleDouble metadata files
+            if fn.startswith("._"):
+                continue
+
             if os.path.splitext(fn)[1].lower() in IMAGE_EXTS_JPEG:
                 yield os.path.join(base, fn)
+
 
 
 def iter_raws(root):
     """Yield RAW files — fallback when no JPEGs exist."""
     for base, _, files in os.walk(root):
         for fn in files:
+
+            # ✅ Ignore macOS AppleDouble metadata files
+            if fn.startswith("._"):
+                continue
+
             if os.path.splitext(fn)[1].lower() in IMAGE_EXTS_RAW:
                 yield os.path.join(base, fn)
 
+def cleanup_card_metadata(root):
+    """
+    Remove OS-generated metadata files from camera cards.
+    Explicit, user-initiated only.
+    """
+    removed = []
+
+    for base, dirs, files in os.walk(root):
+        for fn in files:
+            if fn.startswith("._") or fn == ".DS_Store":
+                path = os.path.join(base, fn)
+                try:
+                    os.remove(path)
+                    removed.append(path)
+                except Exception:
+                    pass
+
+        # macOS metadata dirs
+        for d in (".Spotlight-V100", ".Trashes"):
+            if d in dirs:
+                try:
+                    os.rmdir(os.path.join(base, d))
+                    removed.append(os.path.join(base, d))
+                except Exception:
+                    pass
+
+    return removed
 
 def list_candidate_folders(sd_root):
     """
