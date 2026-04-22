@@ -139,3 +139,22 @@ If template resolution fails:
 ### Notes
 - EXIF is not used for directory naming at this stage
 - Title is sanitized before substitution
+- **Questions to ask**
+
+- Is the DCIM‑subfolder rule exactly what you want?
+- What happens with:
+    - multiple shoot folders?
+    - mixed cameras?
+    - empty cards?
+- Is `date.today()` still acceptable, or do you want EXIF‑earliest next?
+- “Reset title/date to card defaults”?
+
+assumes:
+each folder’s photo_count is reliable
+photos belong to exactly one camera/lens
+
+Questions to answer:
+Does photo_count reflect files, not folders?
+Are mixed‑camera folders possible?
+
+chart.js - Does the chart add value over the list, or is it redundant?

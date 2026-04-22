@@ -41,16 +41,44 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Design Decisions/10 - Code Boundaries.md.md",
+                "file": "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
                 "mode": "source",
                 "source": true
               },
               "icon": "lucide-file",
-              "title": "10 - Code Boundaries.md"
+              "title": "09 - Directory Template Resolution (Pre‑Import)"
+            }
+          },
+          {
+            "id": "e50de4610954ee6f",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Releases/Index.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "Index.md"
+            }
+          },
+          {
+            "id": "11d91621b9e8a764",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "readme.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "readme.md"
             }
           }
         ],
-        "currentTab": 2
+        "currentTab": 4
       }
     ],
     "direction": "vertical"
@@ -212,14 +240,16 @@
       "bases:Create new base": false
     }
   },
-  "active": "0fa5fc88b133b32e",
+  "active": "11d91621b9e8a764",
   "lastOpenFiles": [
-    "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
-    "Design Decisions/07 - Pre‑Import Workflow.md.md",
-    "Design Decisions/00 - Documentation Style.md.md",
-    "Design Decisions/10 - Code Boundaries.md.md",
+    "What the files do.md",
+    "readme.md.md",
     "Releases/Index.md.md",
     "Design Decisions/Index.md.md",
+    "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
+    "Design Decisions/10 - Code Boundaries.md.md",
+    "Design Decisions/07 - Pre‑Import Workflow.md.md",
+    "Design Decisions/00 - Documentation Style.md.md",
     "Design Decisions/08 - Import Session Metadata.md.md",
     "Design Decisions/06 - Mapping.md",
     "Design Decisions/05 - Why Mapping Is Informational.md.md",
