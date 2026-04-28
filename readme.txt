@@ -1,3 +1,5 @@
+# Role: User-facing documentation (see Stability Contract)
+
 ============================================================
 Photo Organizer v2.7 — Advanced EXIF Edition
 ============================================================

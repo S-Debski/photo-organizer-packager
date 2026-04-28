@@ -1,3 +1,5 @@
+# Role: Central configuration (see Stability Contract)
+
 """
 Configuration module for Photo Organizer
 Supports .env files and environment variables

@@ -1,3 +1,5 @@
+REM Role: Build automation script (Windows) (see Stability Contract)
+
 @echo off
 echo ================================
 echo PHOTO ORGANIZER - BUILD SCRIPT

@@ -1,3 +1,5 @@
+# Role: Release history (see Stability Contract)
+
 # Changelog
 
 ## v2.7.1 – Stable Frontend/Backend Alignment

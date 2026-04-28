@@ -1,3 +1,5 @@
+REM Role: Windows build automation (see Stability Contract)
+
 @echo off
 echo === Building Photo Organizer for Windows ===
 

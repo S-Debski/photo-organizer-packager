@@ -1,3 +1,5 @@
+# Role: Build cleanup automation (see Stability Contract)
+
 Write-Host "------------------------"
 Write-Host " CLEAN + REBUILD START "
 Write-Host "------------------------"

@@ -69,12 +69,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "readme.md.md",
+                "file": "Releases/File Responsibilities (Design Contract).md.md",
                 "mode": "source",
                 "source": true
               },
               "icon": "lucide-file",
-              "title": "readme.md"
+              "title": "File Responsibilities (Design Contract).md"
             }
           }
         ],
@@ -242,8 +242,15 @@
   },
   "active": "11d91621b9e8a764",
   "lastOpenFiles": [
-    "What the files do.md",
+    "Releases/Stability Contract.md.md",
+    "Releases/File Responsibilities (Design Contract).md.md",
     "readme.md.md",
+    "Design Decisions/Why Mapping Is Informational.md.md",
+    "Design Decisions/Mapping.md",
+    "Design Decisions/Known `ctx` Fields.md",
+    "Design Decisions/GPS Quality Classification.md.md",
+    "Design Decisions/CTX.md",
+    "What the files do.md",
     "Releases/Index.md.md",
     "Design Decisions/Index.md.md",
     "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",

@@ -1,3 +1,5 @@
+# Role: Backend service / IPC boundary (see Stability Contract)
+
 from flask import Flask
 
 def run_api_server(ctx):

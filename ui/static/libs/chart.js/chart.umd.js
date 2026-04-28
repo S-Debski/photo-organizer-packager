@@ -1,3 +1,5 @@
+// Role: JavaScript module (see Stability Contract)
+
 /*!
  * Chart.js v4.4.1
  * https://www.chartjs.org

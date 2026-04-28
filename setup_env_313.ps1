@@ -1,3 +1,5 @@
+# Role: Python environment setup (PowerShell) (see Stability Contract)
+
 Write-Host "=== Python 3.13 Environment Setup for Photo Organizer ==="
 
 # 1. Confirm Python 3.13 is installed

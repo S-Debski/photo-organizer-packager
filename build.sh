@@ -1,3 +1,5 @@
+# Role: Build automation script (see Stability Contract)
+
 #!/bin/bash
 # Photo Organizer - Cross-Platform Build Script
 # Builds standalone apps for Mac, Windows, and Linux

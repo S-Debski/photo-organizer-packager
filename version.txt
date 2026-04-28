@@ -1,3 +1,5 @@
+# Role: Version metadata (see Stability Contract)
+
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(

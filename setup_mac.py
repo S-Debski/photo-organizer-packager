@@ -1,3 +1,5 @@
+# Role: macOS build environment setup (see Stability Contract)
+
 #!/usr/bin/env python3
 """
 Setup script for building Mac .app bundle

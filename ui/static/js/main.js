@@ -1,3 +1,5 @@
+// Role: JavaScript module (see Stability Contract)
+//ROLE_MAP["main.js"] = "Frontend application entry point"
 // ====================================================================
 // Photo Organizer main.js – v2.8.0
 //

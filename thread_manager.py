@@ -1,3 +1,5 @@
+# Role: Background job and thread coordination (see Stability Contract)
+
 import threading
 
 class ThreadManager:

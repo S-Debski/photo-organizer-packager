@@ -1,3 +1,5 @@
+# Role: Build automation script (PowerShell) (see Stability Contract)
+
 Write-Host "========================================="
 Write-Host " PHOTO ORGANIZER - POWERFUL BUILD SCRIPT "
 Write-Host "=========================================`n"

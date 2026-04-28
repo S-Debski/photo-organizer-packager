@@ -1,3 +1,5 @@
+# Role: UI application wiring (see Stability Contract)
+
 #!/usr/bin/env python3
 """
 Photo Organizer Backend – v2.7 Advanced EXIF Edition

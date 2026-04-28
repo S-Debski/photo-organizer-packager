@@ -1,3 +1,5 @@
+# Role: Version metadata (see Stability Contract)
+
 # version.py
 APP_NAME = "Photo Organizer"
 APP_VERSION = "2.8.0"

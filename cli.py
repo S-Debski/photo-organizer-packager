@@ -1,3 +1,5 @@
+# Role: Command-line interface (see Stability Contract)
+
 #!/usr/bin/env python3
 """
 Command-line interface for Photo Organizer
