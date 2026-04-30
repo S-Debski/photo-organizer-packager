@@ -142,3 +142,7 @@ pytestdebug.log
 .claude/
 CLAUDE.md
 flist*.txt
+
+# Obsidian workspace state (machine-local)
+docs/**/.obsidian/workspace.json
+docs/**/.obsidian/app.json
