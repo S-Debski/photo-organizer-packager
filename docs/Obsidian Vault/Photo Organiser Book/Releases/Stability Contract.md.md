@@ -123,6 +123,7 @@ Changes that affect:
 - Implicit behaviour
 - Organize semantics
 - Job lifecycle
+- File or module responsibilities
 
 Must include:
 - Contract update
@@ -173,11 +174,40 @@ Use this before tagging any stable release.
 # Contract → Module Mapping
 
 This section anchors the contract to code ownership.
+### Architectural Intent Declaration
+
+**Responsibility**
+
+- Declares the architectural role of each stabilised source file
+- Ensures module intent is explicit, reviewable, and not inferred from structure alone
+- Prevents silent responsibility drift during refactors
+
+**Contract Coverage**
+
+- Applies to all stabilised files (see Stability Contract)
+- Required when:
+  - introducing new files
+  - moving or renaming files
+  - changing module responsibilities
+
+**Enforcement**
+
+- Role declarations are enforced via the role annotation tool  
+  (`tools/role_annotator.py`)
+- Tooling is advisory in development and enforceable in CI
+
+**Ownership Model**
+
+- Each file owns its declared role
+- Higher‑level architecture reviews reason *through* role declarations
+- Missing or outdated role declarations are considered architecture regressions
+
 
 ### State Management
 - Central app state / store
 - Capability flags (`canAnalyze`, `canOrganize`, etc.)
 - Job status model
+- State transitions must align with declared module roles
 
 ### SD Detection
 - SD detection module
@@ -217,6 +247,7 @@ This section anchors the contract to code ownership.
 - Polling / cancellation (`pollJobStatus`)
 
 ### Navigation
+- Navigation modules must not assume responsibilities outside their declared role
 - Tab controller
 - Gating / enablement logic
 
@@ -230,3 +261,22 @@ This section anchors the contract to code ownership.
   - PR review notes
 - Use as a **diff lens**:
   _“Which bullets in this contract does this change touch?”_
+-  Structural changes should be accompanied by a role annotation check.
+
+## Architectural Intent Declaration
+
+All stabilised source files must explicitly declare their architectural role.
+
+- Each eligible file begins with a one‑line `Role:` header.
+- Roles describe **intent**, not implementation.
+- Role declarations are required for:
+  - new files
+  - moved or renamed files
+  - refactors that change responsibilities
+
+This requirement is enforced via lightweight tooling.
+
+Before committing structural changes:
+```bash
+python tools/role_annotator.py --check
+

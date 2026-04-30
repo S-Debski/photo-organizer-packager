@@ -253,3 +253,20 @@ When adding a new file:
 If a file’s purpose becomes unclear, it is a design smell.
 
 ---
+## Architecture Hygiene
+
+Project architecture is enforced through lightweight tooling.
+
+### Role Annotation
+
+- A `# Role:` header is required for all stabilised source files.
+- Roles declare *intent*, not implementation.
+- Role headers are managed by `tools/role_annotator.py`.
+
+**Before committing changes that add or move files:**
+```bash
+python tools/role_annotator.py --check
+``
+
+If missing roles are reported:
+python tools/role_annotator.py --apply
