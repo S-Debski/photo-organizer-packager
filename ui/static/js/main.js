@@ -23,10 +23,50 @@ let analyzeInProgress = false;
 let selectedFolder = null;   // ✅ NEW: user-selected folder
 let thumbnails = [];
 let currentPreviewIndex = 0;
+let organizePreview = null;
+
 
 // ====================================================================
 // UTILITIES (shared across all steps)
 // ====================================================================
+let inferOrganizationTitle = null;
+
+(async () => {
+    const mod = await import("/static/js/lib/inferOrganizationTitle.js");
+    inferOrganizationTitle = mod.inferOrganizationTitle;
+})();
+
+const organizeState = {
+    inferredTitle: null,
+    userTitle: null,
+    userOwnsTitle: false,
+};
+
+// User editing the title transfers ownership permanently.
+// After this point, automatic inference must not override the title.
+
+$('session-title')?.addEventListener('input', e => {
+    organizeState.userTitle = e.target.value;
+    organizeState.userOwnsTitle = true;
+    organizeState.inferredTitle = null; // optional but clarifies ownership
+    organizePreview = null;
+});
+
+function setSDButtonState(state) {
+    const btn = $('refreshSdBtn');
+    const hint = $('sdHint');
+
+    if (!btn) return;
+
+    if (state === 'initial') {
+        btn.innerHTML = '<i class="bi bi-sd-card"></i> Detect cards';
+        if (hint) hint.textContent = 'Click to scan for removable media.';
+    } else if (state === 'loaded') {
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh card list';
+        if (hint) hint.textContent = 'Cards detected. Click to rescan.';
+    }
+}
+
 function $(id) { return document.getElementById(id); }
 
 function log(msg) {
@@ -102,20 +142,12 @@ function switchStep(step) {
                 return;
             }
 
-            const folder = analyzedFolders.find(f => f.path === selectedFolder);
-            if (folder) {
-                // Title (already correct)
-                $('session-title').value = folder.name;
-
-                // ✅ Shoot date (RESTORE v2.7 behaviour)
-                if (folder.shoot_date) {
-                    $('session-date').value = folder.shoot_date;
-                }
-            }
-
             bindOrganizeEvents();
             clearGlobalStatus();
             break;
+// NOTE: Step 6 must not derive or modify title state.
+// Title defaults are established after Analyze and may be user-owned.
+
     }   // ✅ closes switch(step)
 }       // ✅ closes function switchStep
 
@@ -152,10 +184,13 @@ $('refreshSdBtn')?.addEventListener('click', () => {
 async function fetchSDCards() {
     const sel = $('sdSelect');
     sel.innerHTML = '';
-
     let secs = 0;
     const startTime = Date.now();
     const MIN_VISIBLE_MS = 600;
+
+    const showVirtual = document.querySelector(
+        '#showVirtualDrives'
+    )?.checked;
 
     $('sdStatus').innerHTML = `
         ⏳ <strong>Detecting cards…</strong><br>
@@ -176,44 +211,65 @@ async function fetchSDCards() {
         const data = await res.json();
         clearInterval(timer);
 
+        // 🔍 DEBUG: inspect what the backend actually returned
+        console.log("[SD-CARDS raw response]", data);
+        console.log("[SD-CARDS drives]", data.drives);
+
         if (!data.success) {
             $('sdStatus').textContent = "⚠️ Error detecting cards.";
-            sel.innerHTML = "<option>Error loading cards</option>";
+            return;
+        }
+
+        const visibleDrives = data.drives || [];
+
+        if (visibleDrives.length === 0) {
+            $('sdStatus').textContent = showVirtual
+                ? "⚠️ No drives detected."
+                : "⚠️ No camera cards detected. Insert a card or enable additional drives.";
+
+            setSDButtonState('initial');
             return;
         }
 
         sel.innerHTML = '';
-        (data.drives || []).forEach(d => {
+        visibleDrives.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.path;
             opt.textContent = `${d.path} — ${d.label || ''}`;
             sel.appendChild(opt);
         });
 
+        // ✅ Auto-select first detected card
+        if (sel.options.length > 0) {
+            sel.selectedIndex = 0;
+        }
+        // ✅ NOW we know detection succeeded
+        setSDButtonState('loaded');
+
         const elapsed = Date.now() - startTime;
         setTimeout(() => {
             const durationText = secs > 0 ? `${secs}s` : "under 1s";
-
             $('sdStatus').textContent =
                 `✅ Cards detected in ${durationText} (reader / system dependent)`;
 
-            // ✅ Clear global banner shortly after completion
             setTimeout(clearGlobalStatus, 500);
-
         }, Math.max(0, MIN_VISIBLE_MS - elapsed));
 
     } catch (err) {
         clearInterval(timer);
         $('sdStatus').textContent = "⚠️ Failed to detect cards.";
         log("SD detection error: " + err);
+
+        // ❌ do NOT set loaded state on failure
     }
 }
+
 // ====================================================================
 // STEP 2 – Analyze SD Card
 // Derives:
 //   - folder analysis
 //   - default session metadata (title / shoot_date)
-// Then stay on analyze to check folders (Step 6)
+// Remain in Analyze (Step 2) to allow folder selection
 // ====================================================================
 function renderAnalyzeFolders() {
     const zone = $('foldersList');
@@ -637,6 +693,7 @@ document.querySelector('[data-step="7"]')
 // INITIALIZE
 // ====================================================================
 document.addEventListener("DOMContentLoaded", () => {
+    setSDButtonState('initial');
     document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
         item.addEventListener('click', e => {
             e.preventDefault();
@@ -679,10 +736,40 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+// Store analyze results
             analyzedFolders = data.analysis.folders;
             renderAnalyzeFolders();
 
+// Organize title state
+// Invariant:
+// - inferredTitle is set only after Analyze
+// - once userOwnsTitle === true, inferredTitle must never override user input
+            // 🔹 NEW: infer default organization title
+            if (!organizeState.userOwnsTitle) {
+                organizeState.inferredTitle = inferOrganizationTitle(
+                    data.analysis.earliestCaptureDate,
+                    data.analysis.latestCaptureDate
+                );
+            }
+
+// Derive effective title
+            const effectiveTitle =
+                organizeState.userTitle ?? organizeState.inferredTitle;
+
+// Populate UI field if not user-owned
+            if (!organizeState.userOwnsTitle) {
+                const titleInput = $("session-title");
+                if (titleInput) {
+                    titleInput.value = effectiveTitle;
+                }
+            }
+
+// Any existing preview should be invalid now
+            organizePreview = null;
+
+// Proceed
             switchStep(2);
+
 
             showGlobalStatus(
                 "✅ <strong>Analysis complete.</strong><br>" +

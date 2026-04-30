@@ -4,9 +4,9 @@
 #
 # Design goals:
 # - Correct detection of real camera cards
-# - Exclude cloud / virtual drives (Google Drive, etc.)
+# - Exclude cloud / virtual drives by default
 # - Stable across filesystem types (exFAT, FAT32, etc.)
-# - One authoritative implementation
+# - One authoritative backend decision
 # ------------------------------------------------------------
 
 import os
@@ -14,7 +14,7 @@ import platform
 from pathlib import Path
 
 # ------------------------------------------------------------
-# Platform‑specific imports
+# Platform-specific imports
 # ------------------------------------------------------------
 if os.name == "nt":
     import win32api
@@ -62,16 +62,9 @@ def size_within_sd_range(size: int) -> bool:
 # ------------------------------------------------------------
 # WINDOWS IMPLEMENTATION
 # ------------------------------------------------------------
-def _is_removable_drive_windows(path: str) -> bool:
-    try:
-        return win32file.GetDriveType(path) == win32file.DRIVE_REMOVABLE
-    except Exception:
-        return False
-
-
 def detect_windows_volumes():
     """
-    Enumerate all Windows logical drives with size + label.
+    Enumerate all Windows logical drives with size + filesystem + label.
     """
     pythoncom.CoInitialize()
 
@@ -104,12 +97,44 @@ def detect_windows_volumes():
     return volumes
 
 
-def filter_windows_sd_cards(include_fixed=False):
+def is_cloud_or_virtual_drive_windows(v: dict) -> bool:
     """
-    Windows SD card detection:
-    - Only DRIVE_REMOVABLE
-    - Size sanity check
-    - Camera folder structure preferred
+    Identify cloud / virtual drives such as Google Drive, OneDrive, etc.
+    """
+    label = (v.get("label") or "").lower()
+    fs = (v.get("filesystem") or "").upper()
+    size = v.get("size_bytes", 0)
+
+    cloud_keywords = [
+        "google drive",
+        "google-drive",
+        "drivefs",
+        "onedrive",
+        "dropbox",
+        "icloud",
+    ]
+
+    if any(k in label for k in cloud_keywords):
+        return True
+
+    # Very large NTFS volumes are almost always internal or virtual
+    if fs == "NTFS" and size > 500 * 1024**3:
+        return True
+
+    return False
+
+
+def filter_windows_sd_cards(include_fixed: bool = False):
+    """
+    Windows SD / CFexpress detection (Windows-correct).
+
+    Rules:
+    - Do NOT rely on DRIVE_REMOVABLE (unreliable on Windows)
+    - Exclude empty reader slots (size == 0)
+    - Exclude cloud / virtual drives by default
+    - Exclude large NTFS system disks
+    - Accept FAT32 / exFAT volumes within SD size range
+    - Camera folder structure is a soft signal
     """
 
     results = []
@@ -117,27 +142,32 @@ def filter_windows_sd_cards(include_fixed=False):
     for v in detect_windows_volumes():
         path = v["path"] + "\\"
         size = v["size_bytes"]
+        fs = v["filesystem"]
 
-        print("🔍 WINDOWS VOLUME:", path,
-              "FS:", v["filesystem"],
-              "SIZE:", size)
+        print("🔍 WINDOWS VOLUME:", path, "FS:", fs, "SIZE:", size)
 
+        # Exclude empty slots and nonsense
         if not size_within_sd_range(size):
             print("  ⛔ excluded: size range")
             continue
 
-        is_removable = _is_removable_drive_windows(path)
-
-        if not is_removable and not include_fixed:
-            print("  ⛔ excluded: not removable (fixed drive hidden)")
+        # Must be mounted media
+        if fs is None:
+            print("  ⛔ excluded: no filesystem")
             continue
 
+        # Exclude cloud / virtual drives (unless explicitly enabled)
+        if not include_fixed and is_cloud_or_virtual_drive_windows(v):
+            print("  ⛔ excluded: cloud / virtual drive")
+            continue
+
+        # Camera structure is optional (empty cards allowed)
         if not has_camera_structure(Path(path)):
-            print("  ⛔ excluded: no camera structure")
-            continue
+            print("  ⚠ no camera structure (allowed)")
 
         print("  ✅ accepted")
         results.append(v)
+
     return results
 
 
@@ -260,7 +290,7 @@ def filter_linux_sd_cards():
 # ------------------------------------------------------------
 # UNIVERSAL ENTRY POINTS
 # ------------------------------------------------------------
-def detect_sd_cards(include_fixed=False):
+def detect_sd_cards(include_fixed: bool = False):
     system = platform.system().lower()
 
     if system == "windows":
@@ -273,9 +303,8 @@ def detect_sd_cards(include_fixed=False):
         return []
 
 
-
 def auto_select_sd_card(cards):
     """
-    Auto‑select if exactly one SD card is detected.
+    Auto-select if exactly one SD card is detected.
     """
     return cards[0] if len(cards) == 1 else None
