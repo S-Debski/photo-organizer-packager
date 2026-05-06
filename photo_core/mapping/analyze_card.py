@@ -66,9 +66,21 @@ def analyze_card(sd_root):
             "name": os.path.basename(folder),
             "path": folder,
             "photo_count": jpeg_count + raw_count,
+            "jpeg_count": jpeg_count,
+            "raw_count": raw_count,
             "camera_model": model,
             "lens": lens,
             "raw_only": raw_only
         })
+        total_raw = sum(f["raw_count"] for f in folders)
+        total_jpg = sum(f["jpeg_count"] for f in folders)
+        total_images = sum(f["photo_count"] for f in folders)
 
-    return {"folders": folders}
+    return {
+        "folders": folders,
+        "counts": {
+            "total": total_images,
+            "raw": total_raw,
+            "jpg": total_jpg
+        }
+    }

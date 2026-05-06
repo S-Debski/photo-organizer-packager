@@ -98,6 +98,12 @@ body {
     font-size: 0.75rem;
     opacity: 0.55;
 }
+/* Recommended next step highlight */
+.sidebar-item.recommended {
+    border-left: 3px solid #4dc9f6;
+    background: rgba(77, 201, 246, 0.1);
+    transition: background 0.2s ease;
+}
 
 /* ============================================================
    WIZARD PANELS & STEP VISIBILITY
@@ -251,7 +257,6 @@ canvas {
 .thumbnail-item img {
     image-orientation: from-image;
 }
-
 .folder-entry {
     cursor: pointer;
 }
@@ -259,4 +264,40 @@ canvas {
 .folder-entry.active {
     border-color: #4da6ff;
     background: rgba(77, 166, 255, 0.15);
+}
+/* ============================================================
+   STABLE STATUS TIMER (prevents layout shift)
+   ============================================================ */
+#sdTimer {
+    display: inline-block;
+    min-width: 48px;   /* prevents width jump (e.g. 9s → 10s) */
+    text-align: right;
+}
+
+/* ============================================================
+   GLOBAL STATUS (overlay - prevents layout jump)
+   ============================================================ */
+#globalStatus {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+
+    background: rgba(30, 30, 35, 0.95);
+    border: 1px solid var(--wizard-panel-border);
+    border-radius: 8px;
+
+    padding: 10px 16px;
+    z-index: 9999;
+
+    max-width: 600px;
+    text-align: center;
+}
+#globalStatus {
+    transition: opacity 0.25s ease;
+}
+
+#globalStatus.d-none {
+    opacity: 0;
+    pointer-events: none;
 }

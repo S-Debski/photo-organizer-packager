@@ -24,6 +24,7 @@ let selectedFolder = null;   // ✅ NEW: user-selected folder
 let thumbnails = [];
 let currentPreviewIndex = 0;
 let organizePreview = null;
+let imageCounts = { total: 0, raw: 0, jpg: 0 };
 
 
 // ====================================================================
@@ -60,7 +61,7 @@ function setSDButtonState(state) {
 
     if (state === 'initial') {
         btn.innerHTML = '<i class="bi bi-sd-card"></i> Detect cards';
-        if (hint) hint.textContent = 'Click to scan for removable media.';
+        if (hint) hint.textContent = 'Card ready. Click "Analyze Card" or refresh.';
     } else if (state === 'loaded') {
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh card list';
         if (hint) hint.textContent = 'Cards detected. Click to rescan.';
@@ -159,7 +160,8 @@ function showGlobalStatus(msg) {
     el.classList.remove("d-none");
 
     // ✅ Ensure it is visible even if contentArea is scrolled
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // ❌ Disable auto-scroll (prevents UI jumping)
+// el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function clearGlobalStatus() {
@@ -170,6 +172,15 @@ function clearGlobalStatus() {
 }
 
 $('refreshSdBtn')?.addEventListener('click', () => {
+    const spinner = $("sdSpinner");
+    const text = $("sdBtnText");
+    const btn = $("refreshSdBtn");
+
+    // ✅ Start loading state
+    if (spinner) spinner.classList.remove("d-none");
+    if (text) text.style.opacity = "0.6";
+    if (btn) btn.disabled = true;
+
     showGlobalStatus(`
         ⏳ <strong>Detecting cards…</strong><br>
         This can take a moment depending on your card reader and system.
@@ -178,32 +189,35 @@ $('refreshSdBtn')?.addEventListener('click', () => {
     fetchSDCards();
 });
 
+
 // ====================================================================
 // STEP 1 – Select Card (SD Card Detection)
 // ====================================================================
 async function fetchSDCards() {
     const sel = $('sdSelect');
-    sel.innerHTML = '';
+
+    // ✅ Set scanning state
+    if (sel) {
+        sel.innerHTML = `<option>Scanning for cards...</option>`;
+        sel.disabled = true;
+    }
+
     let secs = 0;
     const startTime = Date.now();
     const MIN_VISIBLE_MS = 600;
 
-    const showVirtual = document.querySelector(
-        '#showVirtualDrives'
-    )?.checked;
+    const showVirtual = document.querySelector('#showVirtualDrives')?.checked;
 
-    $('sdStatus').innerHTML = `
-        ⏳ <strong>Detecting cards…</strong><br>
+   $('sdStatusText').innerHTML = `
+    ⏳ <strong>Detecting cards…</strong>
+    <div class="small text-muted mt-1">
         This can take a moment depending on your card reader and system.
-    `;
+    </div>
+`;
 
     const timer = setInterval(() => {
         secs++;
-        $('sdStatus').innerHTML = `
-            ⏳ <strong>Detecting cards…</strong><br>
-            This can take a moment depending on your card reader and system.
-            <span class="ms-1 text-muted">(${secs}s)</span>
-        `;
+        $("sdTimer").textContent = `(${secs}s)`;
     }, 1000);
 
     try {
@@ -211,7 +225,6 @@ async function fetchSDCards() {
         const data = await res.json();
         clearInterval(timer);
 
-        // 🔍 DEBUG: inspect what the backend actually returned
         console.log("[SD-CARDS raw response]", data);
         console.log("[SD-CARDS drives]", data.drives);
 
@@ -232,25 +245,28 @@ async function fetchSDCards() {
         }
 
         sel.innerHTML = '';
+
         visibleDrives.forEach(d => {
             const opt = document.createElement('option');
             opt.value = d.path;
             opt.textContent = `${d.path} — ${d.label || ''}`;
             sel.appendChild(opt);
         });
-
-        // ✅ Auto-select first detected card
+// ✅ Auto-select first detected card
         if (sel.options.length > 0) {
             sel.selectedIndex = 0;
         }
-        // ✅ NOW we know detection succeeded
+// ✅ Enable Analyze button now that a valid card exists
+        const analyzeBtn = $("analyzeBtn");
+        if (analyzeBtn) analyzeBtn.disabled = false;
+
         setSDButtonState('loaded');
 
         const elapsed = Date.now() - startTime;
         setTimeout(() => {
             const durationText = secs > 0 ? `${secs}s` : "under 1s";
             $('sdStatus').textContent =
-                `✅ Cards detected in ${durationText} (reader / system dependent)`;
+                `✅ Card detected in ${durationText}. Click "Analyze Card" to continue or rescan if needed.`;
 
             setTimeout(clearGlobalStatus, 500);
         }, Math.max(0, MIN_VISIBLE_MS - elapsed));
@@ -260,10 +276,19 @@ async function fetchSDCards() {
         $('sdStatus').textContent = "⚠️ Failed to detect cards.";
         log("SD detection error: " + err);
 
-        // ❌ do NOT set loaded state on failure
+    } finally {
+        // ✅ ALWAYS reset UI state
+        const spinner = $("sdSpinner");
+        const text = $("sdBtnText");
+        const btn = $("refreshSdBtn");
+
+        if (spinner) spinner.classList.add("d-none");
+        if (text) text.style.opacity = "1";
+        if (btn) btn.disabled = false;
+
+        if (sel) sel.disabled = false;
     }
 }
-
 // ====================================================================
 // STEP 2 – Analyze SD Card
 // Derives:
@@ -308,6 +333,14 @@ function renderAnalyzeFolders() {
 
 function selectFolder(folderPath) {
     selectedFolder = folderPath;
+    const selectedLabel = $("selectedFolderLabel");
+    const btn = $("analyzeBtn");
+    if (btn) btn.disabled = false;
+    if (selectedLabel) {
+        selectedLabel.textContent = `Selected: ${folderPath}`;
+        selectedLabel.classList.remove("d-none");
+    }
+
 
     // ✅ Visual selection state
     document.querySelectorAll('.folder-entry')
@@ -323,7 +356,12 @@ function selectFolder(folderPath) {
         You can now view stats, thumbnails, or organize photos.
     `);
 
-    setTimeout(clearGlobalStatus, 1500);
+    setTimeout(clearGlobalStatus, 3000); // or remove entirely
+    // ✅ Suggest next step (visual nudge only)
+    const statsStep = document.querySelector('[data-step="3"]');
+    if (statsStep) {
+        statsStep.classList.add('recommended');
+    }
 }
 // ====================================================================
 // STEP 3 – Camera + Lens Stats (READ‑ONLY)
@@ -338,13 +376,21 @@ function gatherStats() {
     cameraStats = {};
     lensStats = {};
 
-    analyzedFolders.forEach(f => {
-        const cam = f.camera_model || "Unknown";
-        const lens = f.lens || "Unknown Lens";
+    // ✅ Guard: do nothing if no folder selected
+    if (!selectedFolder) {
+        showGlobalStatus("⚠️ No folder selected.");
+        return;
+    }
 
-        cameraStats[cam] = (cameraStats[cam] || 0) + f.photo_count;
-        lensStats[lens] = (lensStats[lens] || 0) + f.photo_count;
-    });
+    const folder = analyzedFolders.find(f => f.path === selectedFolder);
+
+    if (!folder) return;
+
+    const cam = folder.camera_model || "Unknown";
+    const lens = folder.lens || "Unknown Lens";
+
+    cameraStats[cam] = folder.photo_count;
+    lensStats[lens] = folder.photo_count;
 }
 
 document.querySelector('[data-step="3"]')
@@ -363,13 +409,24 @@ function renderCameraStats() {
             .sort((a, b) => b[1] - a[1])
             .map(([cam, count]) => {
                 const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
+                const folder = analyzedFolders.find(f => f.path === selectedFolder);
+                const raw = folder?.raw_count || 0;
+                const jpg = folder?.jpeg_count || 0;
+                const meta = `
+    <div class="small text-muted mt-1">
+        RAW: ${raw} · JPEG: ${jpg}
+    </div>
+`;
+
                 return `
-                  <div class="list-group-item bg-dark-subtle text-light">
-                    <strong>${cam}</strong>
-                    <span class="text-secondary">
-                      — ${count} photos (${pct}%)
-                    </span>
-                  </div>`;
+  <div class="list-group-item bg-dark-subtle text-light">
+    <strong>${cam}</strong>
+    <span class="text-secondary">
+      — ${count} photos (${pct}%)
+    </span>
+    ${meta}
+  </div>`;
+
             })
             .join('');
 }
@@ -377,17 +434,30 @@ function renderCameraStats() {
 function renderLensStats() {
     const total = Object.values(lensStats).reduce((a, b) => a + b, 0);
 
+    // ✅ Get selected folder counts
+    const folder = analyzedFolders.find(f => f.path === selectedFolder);
+    const raw = folder?.raw_count || 0;
+    const jpg = folder?.jpeg_count || 0;
+
     $('lensStats').innerHTML =
         Object.entries(lensStats)
             .sort((a, b) => b[1] - a[1])
             .map(([lens, count]) => {
                 const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
+
+                const meta = `
+                  <div class="small text-muted mt-1">
+                      RAW: ${raw} · JPEG: ${jpg}
+                  </div>
+                `;
+
                 return `
                   <div class="list-group-item bg-dark-subtle text-light">
                     <strong>${lens}</strong>
                     <span class="text-secondary">
                       — ${count} photos (${pct}%)
                     </span>
+                    ${meta}
                   </div>`;
             })
             .join('');
@@ -455,7 +525,14 @@ toggleChartsBtn?.addEventListener('click', () => {
 // ====================================================================
 async function loadThumbnails() {
     try {
-        const res = await fetch("/api/thumbs");
+        const res = await fetch("/api/thumbs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                folder: selectedFolder
+            })
+        });
+
         thumbnails = await res.json();
         $("thumbnailGallery").innerHTML = "";
         renderThumbnailsChunked(thumbnails, 0, 6);
@@ -542,10 +619,19 @@ async function loadMap() {
     if (status) status.textContent = "";
 
     try {
-        const res = await fetch("/api/gps-data");
+        const res = await fetch("/api/gps-data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                folder: selectedFolder
+            })
+        });
+
         const gps = await res.json();
 
-        if (!gps.length) {
+        console.log("GPS RESPONSE:", gps); // ✅ DEBUG
+
+        if (!gps.points || gps.points.length === 0) {
             if (status) {
                 status.innerHTML = `
                     <i class="bi bi-geo-alt-slash text-secondary"></i>
@@ -556,8 +642,9 @@ async function loadMap() {
             return;
         }
 
-        const hasPrecise = gps.some(p => p.quality === "precise");
-        const hasCoarse  = gps.some(p => p.quality === "coarse");
+        // ✅ FIX: use gps.points instead of gps
+        const hasPrecise = gps.points.some(p => p.quality === "precise");
+        const hasCoarse  = gps.points.some(p => p.quality === "coarse");
 
         if (status) {
             if (!hasPrecise && hasCoarse) {
@@ -581,7 +668,7 @@ async function loadMap() {
             }
         }
 
-        requestAnimationFrame(() => renderMapMarkers(gps));
+        requestAnimationFrame(() => renderMapMarkers(gps.points));
 
     } catch (err) {
         console.warn("GPS load failed:", err);
@@ -693,7 +780,11 @@ document.querySelector('[data-step="7"]')
 // INITIALIZE
 // ====================================================================
 document.addEventListener("DOMContentLoaded", () => {
+
+    // ✅ Initial SD button state
     setSDButtonState('initial');
+
+    // ✅ Sidebar navigation
     document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
         item.addEventListener('click', e => {
             e.preventDefault();
@@ -702,15 +793,21 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // ✅ Get analyze button
     const analyzeBtn = document.getElementById("analyzeBtn");
+
     if (!analyzeBtn) {
         console.warn("Analyze button not found");
         return;
     }
 
-    analyzeBtn.addEventListener("click", async () => {
+    // ✅ Attach click handler (NO setTimeout wrapper)
+    analyzeBtn.onclick = async () => {
+
+        console.log("✅ Analyze clicked");
 
         if (analyzeInProgress) return;
+
         analyzeInProgress = true;
         analyzeBtn.disabled = true;
 
@@ -718,11 +815,26 @@ document.addEventListener("DOMContentLoaded", () => {
             "⏳ <strong>Analyzing card…</strong><br>" +
             "Reading folders and metadata. This may take a moment."
         );
+
         showAnalyzeStatus("⏳ Analyzing card…");
 
+        // ✅ Get SD value BEFORE try block
+        let sd = document.getElementById("sdSelect")?.value;
+
+        // ✅ Basic validation
+        if (!sd || !sd.includes(":")) {
+            showGlobalStatus("⚠️ Please detect and select a valid SD card first.");
+            analyzeInProgress = false;
+            analyzeBtn.disabled = false;
+            return;
+        }
+
+        // ✅ Normalise path
+        if (!sd.endsWith("\\")) sd += "\\";
+
+        // Analyze Handler
         try {
-            let sd = document.getElementById("sdSelect")?.value;
-            if (sd && !sd.endsWith("\\")) sd += "\\";
+            console.log("→ Sending SD path:", sd);
 
             const res = await fetch("/api/analyze-card", {
                 method: "POST",
@@ -731,56 +843,42 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             const data = await res.json();
+
+            console.log("← Analyze response:", data);
+
             if (!data.success) {
                 showAnalyzeStatus("⚠️ Analysis failed.");
                 return;
             }
 
-// Store analyze results
+// ✅ SPLIT RWA/JPG Section - store result
+            imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
+
+            // ✅ Store results
             analyzedFolders = data.analysis.folders;
+
+            // ✅ Render list
             renderAnalyzeFolders();
 
-// Organize title state
-// Invariant:
-// - inferredTitle is set only after Analyze
-// - once userOwnsTitle === true, inferredTitle must never override user input
-            // 🔹 NEW: infer default organization title
-            if (!organizeState.userOwnsTitle) {
-                organizeState.inferredTitle = inferOrganizationTitle(
-                    data.analysis.earliestCaptureDate,
-                    data.analysis.latestCaptureDate
-                );
-            }
-
-// Derive effective title
-            const effectiveTitle =
-                organizeState.userTitle ?? organizeState.inferredTitle;
-
-// Populate UI field if not user-owned
-            if (!organizeState.userOwnsTitle) {
-                const titleInput = $("session-title");
-                if (titleInput) {
-                    titleInput.value = effectiveTitle;
-                }
-            }
-
-// Any existing preview should be invalid now
-            organizePreview = null;
-
-// Proceed
+            // ✅ Move to Step 2
             switchStep(2);
 
 
-            showGlobalStatus(
-                "✅ <strong>Analysis complete.</strong><br>" +
-                "Select a folder below to continue."
-            );
+            showGlobalStatus(`
+    ✅ <strong>Analysis complete.</strong><br>
+    Found ${imageCounts.total} images (${imageCounts.raw} RAW, ${imageCounts.jpg} JPEG).<br>
+    👉 Select a folder below to continue.
+`);
             setTimeout(clearGlobalStatus, 2000);
+
+        } catch (err) {
+            console.error("Analyze failed:", err);
+            showAnalyzeStatus("⚠️ Analyze failed due to an error.");
 
         } finally {
             analyzeInProgress = false;
             analyzeBtn.disabled = false;
             clearAnalyzeStatus();
         }
-    });
+    };
 });

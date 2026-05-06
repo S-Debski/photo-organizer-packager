@@ -2,34 +2,108 @@
 # HTTP API wrapper for GPS data
 
 from flask import jsonify
-from photo_core.mapping.gps_data import classify_gps_quality
+import os
+
+from utils.fs_utils import iter_jpegs
+
+# ✅ IMPORTANT: use the real EXIF reader your project uses
+from photo_core.exif.reader import read_exif
 
 
-def api_gps_data(ctx):
+def api_gps_data(ctx, path=None):
     """
-    Return GPS point quality for the currently active folder
-    using cached EXIF data only.
+    Return GPS point data for the selected folder.
+
+    Uses raw EXIF records (not aggregated stats).
+    Falls back to loading EXIF if cache is missing.
     """
-    active = ctx.state.get("current_active_folder")
-    if not active:
+
+    # --------------------------------------------------
+    # Resolve root folder
+    # --------------------------------------------------
+    root = (
+        path
+        or ctx.state.get("current_active_folder")
+        or ctx.state.get("current_sd_root")
+    )
+
+    if not root or not os.path.isdir(root):
         return jsonify({"ready": False, "points": []})
 
-    exif_key = f"exif::{active}"
+    # --------------------------------------------------
+    # RAW EXIF cache (separate from stats cache)
+    # --------------------------------------------------
+    exif_key = f"exif_raw::{os.path.abspath(root)}"
     exif_records = ctx.exif_cache.get(exif_key)
-    if not exif_records:
-        return jsonify({"ready": False, "points": []})
 
+    # --------------------------------------------------
+    # Fallback: load EXIF if not cached
+    # --------------------------------------------------
+    if not exif_records:
+        from pathlib import Path
+
+        # ✅ Build RAW and JPEG lists separately
+        raw_files = [
+            str(p) for p in Path(root).rglob("*")
+            if p.suffix.lower() == ".raf"
+        ]
+
+        jpeg_files = [
+            str(p) for p in Path(root).rglob("*")
+            if p.suffix.lower() in [".jpg", ".jpeg"]
+        ]
+
+        # ✅ Prefer RAW, fallback to JPEG
+        image_paths = raw_files if raw_files else jpeg_files
+
+        print(f"🔍 Loading EXIF for {len(image_paths)} files (RAW preferred)")
+
+        exif_records = []
+        for p in image_paths:
+            rec = read_exif(p)
+            if rec:
+                exif_records.append(rec)
+
+        # ✅ Cache raw EXIF
+        ctx.exif_cache[exif_key] = exif_records
+
+    # --------------------------------------------------
+    # Extract GPS points
+    # --------------------------------------------------
     points = []
 
-    for record in exif_records:
-        quality = classify_gps_quality(record)
-        if quality != "none":
+    for i, record in enumerate(exif_records):
+
+        # ✅ Only print once (no break!)
+        if i == 0:
+            print("RECORD KEYS:", list(record.keys()))
+            print("GPS KEYS:", [k for k in record.keys() if "GPS" in k])
+
+        lat = (
+                record.get("GPSLatitude")
+                or record.get("Composite:GPSLatitude")
+        )
+
+        lon = (
+                record.get("GPSLongitude")
+                or record.get("Composite:GPSLongitude")
+        )
+
+        # ✅ Optional: show first few GPS values only
+        if i < 3:
+            print("GPS RAW:", lat, lon)
+
+        # ✅ Append valid points
+        if lat is not None and lon is not None:
             points.append({
-                "lat": record.get("GPSLatitude"),
-                "lon": record.get("GPSLongitude"),
-                "quality": quality,
+                "lat": lat,
+                "lon": lon,
+                "quality": "unknown"
             })
 
+    # --------------------------------------------------
+    # Return result
+    # --------------------------------------------------
     return jsonify({
         "ready": True,
         "points": points,

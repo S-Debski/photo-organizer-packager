@@ -60,7 +60,7 @@ def read_exif(path: str | Path) -> dict:
 
     try:
         proc = subprocess.run(
-            [cmd, "-json", path],
+            [cmd, "-json", "-n", "-G1", "-a", "-s", path],
             capture_output=True,
             text=True,
             timeout=5

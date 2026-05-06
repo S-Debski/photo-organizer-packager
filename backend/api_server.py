@@ -165,19 +165,26 @@ def set_active_folder():
 # ------------------------------------------------------------
 # EXIF statistics
 # ------------------------------------------------------------
-@app.route("/api/exif-stats")
+@app.route("/api/exif-stats", methods=["POST"])
 def exif_stats():
     touch_activity()
-    return api_exif_stats(ctx)
 
+    data = request.get_json()
+    folder = data.get("folder")
+
+    return api_exif_stats(ctx, folder)
 
 # ------------------------------------------------------------
 # Thumbnails & images
 # ------------------------------------------------------------
-@app.route("/api/thumbs")
+@app.route("/api/thumbs", methods=["POST"])
 def thumbs():
     touch_activity()
-    return api_thumbs(ctx)
+
+    data = request.get_json()
+    folder = data.get("folder")
+
+    return api_thumbs(ctx, folder)
 
 
 @app.route("/api/photo-proxy")
@@ -197,11 +204,14 @@ def full_image():
 # ------------------------------------------------------------
 # GPS data
 # ------------------------------------------------------------
-@app.route("/api/gps-data")
+@app.route("/api/gps-data", methods=["POST"])
 def gps_data():
     touch_activity()
-    return api_gps_data(ctx)
 
+    data = request.get_json()
+    folder = data.get("folder") if data else None
+
+    return api_gps_data(ctx, folder)
 
 # ------------------------------------------------------------
 # Organize / copy job
