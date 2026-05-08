@@ -1,3 +1,5 @@
+# Role: Application module
+
 # utils/thumb_cache.py
 import os
 import hashlib

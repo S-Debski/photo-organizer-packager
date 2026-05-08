@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/exif_stats.py
 # HTTP API wrapper for EXIF statistics
 # Delegates analysis to photo_core.mapping.exif_stats

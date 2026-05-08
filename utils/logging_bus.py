@@ -1,3 +1,5 @@
+# Role: Application module
+
 # utils/logging_bus.py
 import time
 

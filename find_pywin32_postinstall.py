@@ -1,3 +1,5 @@
+# Role: Application module
+
 import sys
 import os
 import glob

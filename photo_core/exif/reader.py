@@ -1,3 +1,5 @@
+# Role: Application module
+
 # photo_core/exif/reader.py
 # ------------------------------------------------------------
 # ExifTool wrapper with caching

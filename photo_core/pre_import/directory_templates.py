@@ -1,3 +1,5 @@
+# Role: Application module
+
 # photo_core/pre_import/directory_templates.py
 
 from datetime import date

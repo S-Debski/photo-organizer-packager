@@ -1,3 +1,5 @@
+# Role: Application module
+
 # photo_core/mapping/thumbnailing.py
 # Mapping: image thumbnail generation
 # Read-only image transformation

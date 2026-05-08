@@ -1,3 +1,5 @@
+# Role: Application module
+
 # workers/thumbnailer.py
 # Background thumbnail generation worker
 

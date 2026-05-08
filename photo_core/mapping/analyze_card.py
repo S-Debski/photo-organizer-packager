@@ -1,3 +1,5 @@
+# Role: Application module
+
 # Mapping: card structure analysis
 # Read-only analysis
 # Informational outputs only
@@ -33,7 +35,7 @@ def analyze_card(sd_root):
     for folder in list_candidate_folders(sd_root):
 
         # 1) SAMPLE JPEGs FIRST
-        samples = list(iter_jpegs(folder))[:30]
+        samples = list(iter_raws(folder))[:30] or list(iter_jpegs(folder))[:30]
 
         # 2) RAW fallback
         raw_only = False
@@ -51,16 +53,22 @@ def analyze_card(sd_root):
         # 3) Camera / lens extraction
         if raw_only:
             model = "RAW-only"
-            lens = "Unknown Lens"
+            lens = None
         else:
-            model = "Camera not resolved - no camera EXIF"
-            lens = "Unknown Lens"
+            model = None
+            lens = None
 
             for img in samples:
                 model = extract_camera_model(img) or model
                 lens = extract_lens_model(img) or lens
-                if model != "Unknown" and lens != "Unknown Lens":
+
+                # ✅ Stop early only if BOTH found
+                if model and lens:
                     break
+
+            # ✅ Fallback AFTER loop
+            model = model or "Camera not resolved - no camera EXIF"
+            lens = lens or "Unknown Lens"
 
         folders.append({
             "name": os.path.basename(folder),

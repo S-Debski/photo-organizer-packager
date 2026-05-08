@@ -1,3 +1,5 @@
+# Role: Application module
+
 # utils/raw_exif.py
 # Future RAW EXIF support via exiv2 or libraw
 

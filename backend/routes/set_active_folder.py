@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/set_active_folder.py
 import os
 from flask import jsonify

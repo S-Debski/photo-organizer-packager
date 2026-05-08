@@ -1,3 +1,5 @@
+# Role: Application module
+
 # workers/folder_watcher.py
 import time
 

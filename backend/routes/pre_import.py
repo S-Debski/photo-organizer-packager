@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/pre_import.py
 from flask import jsonify, request
 from pathlib import Path

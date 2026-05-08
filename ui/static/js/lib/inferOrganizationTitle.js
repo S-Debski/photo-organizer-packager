@@ -1,3 +1,5 @@
+// Role: JavaScript module
+
 // ui/lib/inferOrganizationTitle.js
 
 export function inferOrganizationTitle(earliestDate, latestDate) {

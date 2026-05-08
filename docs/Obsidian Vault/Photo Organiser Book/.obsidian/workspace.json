@@ -69,16 +69,72 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Releases/File Responsibilities (Design Contract).md.md",
+                "file": "Design Decisions/10 - Code Boundaries.md.md",
                 "mode": "source",
                 "source": true
               },
               "icon": "lucide-file",
-              "title": "File Responsibilities (Design Contract).md"
+              "title": "10 - Code Boundaries.md"
+            }
+          },
+          {
+            "id": "b3ec9380e269735b",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Architecture Hygiene.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "Architecture Hygiene.md"
+            }
+          },
+          {
+            "id": "41ae1219712c6df9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Releases/Stability Contract.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "Stability Contract.md"
+            }
+          },
+          {
+            "id": "83df029bc5579d5d",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "v2.9 Dev Themes.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "v2.9 Dev Themes"
+            }
+          },
+          {
+            "id": "6c94c9b475b69c52",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Testing/Platform-Testing-Example.md.md",
+                "mode": "source",
+                "source": true
+              },
+              "icon": "lucide-file",
+              "title": "Platform-Testing-Example.md"
             }
           }
         ],
-        "currentTab": 4
+        "currentTab": 8
       }
     ],
     "direction": "vertical"
@@ -240,9 +296,19 @@
       "bases:Create new base": false
     }
   },
-  "active": "11d91621b9e8a764",
+  "active": "6c94c9b475b69c52",
   "lastOpenFiles": [
+    "Testing/Platform Testing.md",
+    "Testing/Platform-Testing-Example.md.md",
+    "Infer title from date and let user edit details.md",
+    "v2.9 Dev Themes.md",
     "Releases/Stability Contract.md.md",
+    "Testing/v2.7 Mapping & Organize Freeze.md.md",
+    "Testing/Release Checklist.md.md",
+    "Architecture Hygiene.md.md",
+    "Design Decisions/10 - Code Boundaries.md.md",
+    "Untitled",
+    "Architecture Hygiene.md",
     "Releases/File Responsibilities (Design Contract).md.md",
     "readme.md.md",
     "Design Decisions/Why Mapping Is Informational.md.md",
@@ -254,16 +320,10 @@
     "Releases/Index.md.md",
     "Design Decisions/Index.md.md",
     "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
-    "Design Decisions/10 - Code Boundaries.md.md",
     "Design Decisions/07 - Pre‑Import Workflow.md.md",
     "Design Decisions/00 - Documentation Style.md.md",
     "Design Decisions/08 - Import Session Metadata.md.md",
     "Design Decisions/06 - Mapping.md",
-    "Design Decisions/05 - Why Mapping Is Informational.md.md",
-    "Design Decisions/04 - GPS Quality Classification.md.md",
-    "Design Decisions/03 - Date Suggestion Rules (Mapping).md",
-    "Design Decisions/02 - Known `ctx` Fields.md",
-    "Design Decisions/01 - CTX.md",
-    "Culling (Pre‑Import).md"
+    "Design Decisions/05 - Why Mapping Is Informational.md.md"
   ]
 }

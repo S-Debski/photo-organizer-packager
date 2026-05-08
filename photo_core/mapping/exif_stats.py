@@ -1,3 +1,5 @@
+# Role: Application module
+
 # Mapping: EXIF statistics analysis
 # Read-only analysis
 # Informational outputs only

@@ -1,3 +1,5 @@
+# Role: Application module
+
 # Mapping: GPS and quality signals
 # Read-only analysis
 # No filesystem mutation

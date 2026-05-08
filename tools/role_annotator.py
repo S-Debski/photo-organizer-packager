@@ -1,3 +1,5 @@
+# Role: Application module
+
 #!/usr/bin/env python3
 """
 Role Annotator
@@ -159,22 +161,52 @@ def process_file(
     except UnicodeDecodeError:
         return
 
+    # ✅ Already has header → skip
     if already_annotated(text, comment):
         return
 
+    # ✅ If in check mode → record and exit
     if check:
         missing.append(path)
         return
 
-    print(f"ADD  Role header → {path}")
-    if apply:
-        header = HEADER_TEMPLATE.format(comment=comment, role=role)
-        path.write_text(header + text, encoding="utf-8")
+    # ✅ Step 3: build header
+    header = f"{comment} Role: {role}\n\n"
 
+    # ✅ Apply or dry-run
+    if apply:
+        path.write_text(header + text, encoding="utf-8")
+        print(f"ADD  Role header → {path}")
+    else:
+        print(f"[DRY-RUN] Would update {path}")
 
 # =============================================================================
 # Scanning logic
 # =============================================================================
+# File filtering
+def should_consider_path(path: Path) -> bool:
+    if not path.is_file():
+        return False
+
+    path_str = str(path)
+
+    # ✅ Exclude unwanted directories
+    if any(ex in path_str for ex in EXCLUDE_DIRS):
+        return False
+
+    # ✅ ONLY annotate real source code
+    allowed_exts = {
+        ".py",
+        ".js",
+        ".ts",
+        ".ps1",
+        ".bat",
+        ".cmd",
+        ".sh",
+    }
+
+    return path.suffix.lower() in allowed_exts
+
 
 def scan_explicit_files(root: Path, *, apply: bool, check: bool, missing: list[Path]):
     for filename, role in ROLE_MAP.items():
@@ -184,23 +216,25 @@ def scan_explicit_files(root: Path, *, apply: bool, check: bool, missing: list[P
 
 
 def scan_stable_directories(root: Path, *, apply: bool, check: bool, missing: list[Path]):
-    for path in root.rglob("*"):
+    for path in root.rglob("*"):   # ✅ FIXED
+
         if not should_consider_path(path):
             continue
 
-        if path.name in ROLE_MAP:
-            continue  # explicit role already handled
+        # ✅ Determine role
+        role = ROLE_MAP.get(path.name)
 
-        suffix = path.suffix.lower()
-        if suffix in GENERIC_ROLES:
-            process_file(
-                path,
-                GENERIC_ROLES[suffix],
-                apply=apply,
-                check=check,
-                missing=missing,
-            )
+        if not role:
+            role = GENERIC_ROLES.get(path.suffix, "Application module")
 
+        # ✅ Step 4: call process_file()
+        process_file(
+            path,
+            role,
+            apply=apply,
+            check=check,
+            missing=missing,
+        )
 
 # =============================================================================
 # CLI entry point

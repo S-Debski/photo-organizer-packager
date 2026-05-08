@@ -1,3 +1,5 @@
+# Role: Application module
+
 # utils/fs_utils.py
 import os
 

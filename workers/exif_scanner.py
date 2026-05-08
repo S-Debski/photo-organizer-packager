@@ -1,3 +1,5 @@
+# Role: Application module
+
 # workers/exif_scanner.py
 # Background EXIF scanner worker
 # Orchestrates execution only – analysis delegated to Mapping

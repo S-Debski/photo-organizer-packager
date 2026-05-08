@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/thumbs.py
 import os
 from flask import jsonify, send_file

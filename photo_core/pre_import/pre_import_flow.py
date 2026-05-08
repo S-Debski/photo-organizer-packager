@@ -1,3 +1,5 @@
+# Role: Application module
+
 # photo_core/pre_import/pre_import_flow.py
 
 from pathlib import Path

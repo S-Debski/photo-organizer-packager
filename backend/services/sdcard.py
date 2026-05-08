@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/services/sdcard.py
 # ------------------------------------------------------------
 # Universal SD / CFexpress detection (Windows, macOS, Linux)

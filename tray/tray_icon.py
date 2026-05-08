@@ -1,3 +1,5 @@
+# Role: Application module
+
 from PIL import Image
 import pystray
 

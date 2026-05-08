@@ -208,7 +208,7 @@ async function fetchSDCards() {
 
     const showVirtual = document.querySelector('#showVirtualDrives')?.checked;
 
-   $('sdStatusText').innerHTML = `
+    $('sdStatusText').innerHTML = `
     ⏳ <strong>Detecting cards…</strong>
     <div class="small text-muted mt-1">
         This can take a moment depending on your card reader and system.
@@ -619,6 +619,12 @@ async function loadMap() {
     if (status) status.textContent = "";
 
     try {
+        if (status) {
+            status.innerHTML = `
+        ⏳ <strong>Loading GPS data…</strong><br>
+        Reading metadata from images.
+    `;
+        }
         const res = await fetch("/api/gps-data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -631,6 +637,16 @@ async function loadMap() {
 
         console.log("GPS RESPONSE:", gps); // ✅ DEBUG
 
+        if (status && gps.total_images) {
+            const count = gps.gps_count || 0;
+            const total = gps.total_images;
+
+            const icon = count > 0 ? "✅" : "⚠️";
+
+            status.innerHTML = `
+        ${icon} <strong>${count} / ${total} images contain GPS data</strong>
+    `;
+        }
         if (!gps.points || gps.points.length === 0) {
             if (status) {
                 status.innerHTML = `

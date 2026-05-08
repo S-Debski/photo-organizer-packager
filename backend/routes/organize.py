@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/organize.py
 import os
 import shutil

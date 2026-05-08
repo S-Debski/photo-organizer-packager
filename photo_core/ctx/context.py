@@ -1,3 +1,5 @@
+# Role: Application module
+
 # context.py
 import os
 import threading

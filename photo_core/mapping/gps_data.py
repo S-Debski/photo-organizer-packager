@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/gps_data.py
 
 def api_gps_data(ctx):

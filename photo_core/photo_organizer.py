@@ -1,3 +1,5 @@
+# Role: Application module
+
 """
 PhotoOrganizer – v2.7 FINAL
 Working version with:

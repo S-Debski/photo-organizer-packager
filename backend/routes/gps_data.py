@@ -1,3 +1,5 @@
+# Role: Application module
+
 # backend/routes/gps_data.py
 # HTTP API wrapper for GPS data
 
@@ -9,7 +11,6 @@ from utils.fs_utils import iter_jpegs
 # ✅ IMPORTANT: use the real EXIF reader your project uses
 from photo_core.exif.reader import read_exif
 
-
 def api_gps_data(ctx, path=None):
     """
     Return GPS point data for the selected folder.
@@ -17,6 +18,9 @@ def api_gps_data(ctx, path=None):
     Uses raw EXIF records (not aggregated stats).
     Falls back to loading EXIF if cache is missing.
     """
+
+    # ✅ Folder fallback location
+    folder_location = ctx.state.get("folder_location")
 
     # --------------------------------------------------
     # Resolve root folder
@@ -94,7 +98,17 @@ def api_gps_data(ctx, path=None):
             print("GPS RAW:", lat, lon)
 
         # ✅ Append valid points
+        if lat is None or lon is None:
+            # ✅ fallback to folder location
+            if folder_location:
+                lat, lon = folder_location
+
         if lat is not None and lon is not None:
+            points.append({
+                "lat": lat,
+                "lon": lon,
+                "quality": "fallback" if folder_location else "unknown"
+            })
             points.append({
                 "lat": lat,
                 "lon": lon,
@@ -107,4 +121,6 @@ def api_gps_data(ctx, path=None):
     return jsonify({
         "ready": True,
         "points": points,
+        "gps_count": len(points),
+        "total_images": len(exif_records)
     })

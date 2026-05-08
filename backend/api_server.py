@@ -1,3 +1,5 @@
+# Role: Backend service / IPC boundary
+
 # backend/api_server.py
 
 import threading

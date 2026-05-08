@@ -1,3 +1,5 @@
+# Role: Application module
+
 import time
 
 def api_log_stream(ctx):
