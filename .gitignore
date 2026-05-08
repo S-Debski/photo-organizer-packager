@@ -146,3 +146,31 @@ flist*.txt
 # Obsidian workspace state (machine-local)
 docs/**/.obsidian/workspace.json
 docs/**/.obsidian/app.json
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+.venv/
+env/
+venv/
+
+# ExifTool temp etc
+*.log
+
+# Build outputs
+dist/
+build/
+
+# PyInstaller
+*.spec
+
+# IDE
+.idea/
+.vscode/
+
+# Obsidian
+.obsidian/
+
+# Temp analysis files
+flist*.txt
