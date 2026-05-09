@@ -1,4 +1,4 @@
-// Role: JavaScript module
+// Role: JavaScript module (see Stability Contract)
 
 // ui/lib/inferOrganizationTitle.js
 

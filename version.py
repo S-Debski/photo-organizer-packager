@@ -1,4 +1,4 @@
-# Role: Version metadata (see Stability Contract)
+# Role: Application module (see Stability Contract)
 
 # version.py
 APP_NAME = "Photo Organizer"

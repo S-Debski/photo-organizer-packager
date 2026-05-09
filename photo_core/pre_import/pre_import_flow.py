@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # photo_core/pre_import/pre_import_flow.py
 

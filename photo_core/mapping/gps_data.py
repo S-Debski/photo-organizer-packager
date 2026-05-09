@@ -1,70 +1,58 @@
-# Role: Application module
+# Role: GPS data processing module (see Stability Contract)
 
-# backend/routes/gps_data.py
+import os
 
-def api_gps_data(ctx):
-    """
-    Return GPS points for the currently active folder
-    using cached EXIF data only.
-    NEVER touches the filesystem.
-    """
 
-    folder = ctx.state.get("current_active_folder")
-    if not folder:
-        return []
+def classify_gps_quality(record):
+    gps = record.get("gps")
 
-    # Cache GPS per folder so this is O(1) after first build
-    cache_key = f"gps::{folder}"
+    if not gps:
+        return "none"
 
-    if cache_key in ctx.state:
-        return ctx.state[cache_key]
-
-    gps_points = []
-
-    # exif_scanner_worker should already have populated this
-    exif_key = f"exif_stats::{folder}"
-    exif_data = ctx.exif_cache.get(exif_key)
-
-    if not exif_data:
-        # EXIF not ready yet — do NOT block
-        return []
-
-    # ✅ Example structure — adapt if your cache names differ
-    for item in exif_data.get("items", []):
-        lat = item.get("lat")
-        lon = item.get("lon")
-
-        if lat is not None and lon is not None:
-            gps_points.append({
-                "lat": lat,
-                "lon": lon,
-                "filename": item.get("filename", "")
-            })
-
-    # Store GPS cache
-    ctx.state[cache_key] = gps_points
-    return gps_points
-
-## Classify gps data quality ##
-def classify_gps_quality(exif: dict) -> str:
-    lat = exif.get("GPSLatitude")
-    lon = exif.get("GPSLongitude")
-    lat_ref = exif.get("GPSLatitudeRef")
-    lon_ref = exif.get("GPSLongitudeRef")
+    lat = gps.get("lat")
+    lon = gps.get("lon")
 
     if lat is None or lon is None:
         return "none"
 
-    if lat_ref not in ("N", "S") or lon_ref not in ("E", "W"):
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return "coarse"
 
-    try:
-        lat_f = float(lat)
-        lon_f = float(lon)
-    except (TypeError, ValueError):
-        return "coarse"
-
-    if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
-        return "coarse"
+    if gps.get("alt") is None:
+        return "basic"
 
     return "precise"
+
+
+# =============================================================================
+# File: photo_core/mapping/gps_data.py
+# Extract usable GPS points for mapping
+# =============================================================================
+
+def extract_gps_points(records):
+    points = []
+
+    for record in records:
+        gps = record.get("gps")
+
+        print("🔎 RECORD GPS:", gps)  # ✅ keep debug
+
+        if not gps:
+            continue
+
+        lat = gps.get("lat")
+        lon = gps.get("lon")
+
+        # ✅ FIX: explicit None check (NOT truthy check)
+        if lat is None or lon is None:
+            continue
+
+        points.append({
+            "lat": lat,
+            "lon": lon,
+            "path": record.get("path")
+        })
+
+    print("✅ TOTAL GPS POINTS:", len(points))  # ✅ debug
+
+    return points

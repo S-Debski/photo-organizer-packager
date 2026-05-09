@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 from PIL import Image
 import pystray

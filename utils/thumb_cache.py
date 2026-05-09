@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # utils/thumb_cache.py
 import os

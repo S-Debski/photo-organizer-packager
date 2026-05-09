@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # utils/raw_exif.py
 # Future RAW EXIF support via exiv2 or libraw

@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # workers/exif_scanner.py
 # Background worker for EXIF scanning

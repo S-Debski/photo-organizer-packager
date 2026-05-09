@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: EXIF statistics API route (see Stability Contract)
 
 # Mapping: EXIF statistics analysis
 # Read-only analysis

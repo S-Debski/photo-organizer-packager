@@ -480,3 +480,21 @@ body > .d-flex {
     height: 400px;
     width: 100%;
 }
+
+.sidebar-item.recommended {
+    border-left: 3px solid #0d6efd;
+    background: rgba(13, 110, 253, 0.1);
+}
+.folder-card {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.folder-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 12px rgba(255,255,255,0.08);
+}
+
+.folder-item.selected .folder-card {
+    border: 2px solid #0d6efd;
+}

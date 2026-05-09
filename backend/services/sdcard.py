@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # backend/services/sdcard.py
 # ------------------------------------------------------------

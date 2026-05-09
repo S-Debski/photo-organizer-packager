@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: SD card analysis engine (see Stability Contract)
 
 # Mapping: card structure analysis
 # Read-only analysis

@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: EXIF statistics API route (see Stability Contract)
 
 # backend/routes/exif_stats.py
 # HTTP API wrapper for EXIF statistics

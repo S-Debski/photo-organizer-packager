@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # backend/routes/pre_import.py
 from flask import jsonify, request

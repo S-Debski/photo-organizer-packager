@@ -1,43 +1,55 @@
-# Role: Application module
+# =============================================================================
+# File: backend/routes/thumbs.py
+# Role: Return thumbnail image paths for selected folder
+# =============================================================================
 
-# backend/routes/thumbs.py
 import os
 from flask import jsonify, send_file
+from urllib.parse import unquote
 
-from utils.fs_utils import iter_jpegs
-from utils.thumb_cache import build_thumb
-from utils.logging_bus import log_info
+def api_thumbs(ctx, payload):
 
+    folder = payload.get("folder") if payload else None
 
-def api_thumbs(ctx, path=None):
-    root = (
-        path
-        or ctx.state.get("current_active_folder")
-        or ctx.state.get("current_sd_root")
-    )
+    # ✅ fallback to active folder if not supplied
+    if not folder:
+        folder = ctx.state.get("current_active_folder")
 
-    if not root or not os.path.isdir(root):
-        return jsonify([])
+    if not folder:
+        print("⚠️ No folder available for thumbnails")
+        return []
 
-    # cache the jpeg list for faster UI
-    cache_key = f"thumb_list::{os.path.abspath(root)}"
-    cached = ctx.thumb_cache.get(cache_key)
-    if cached:
-        return jsonify(cached)
+from utils.fs_utils import iter_jpegs  # ✅ add at top if not already
 
-    images = list(iter_jpegs(root))
-    ctx.thumb_cache[cache_key] = images
+def api_thumbs(ctx, payload):
 
-    log_info(ctx, f"Thumbnail list: {len(images)} images")
-    return jsonify(images)
+        folder = payload.get("folder") if payload else None
 
+        if not folder:
+            folder = ctx.state.get("current_active_folder")
 
+        if not folder:
+            print("⚠️ No folder available for thumbnails")
+            return []
+
+        if not os.path.isdir(folder):
+            print("⚠️ Invalid folder:", folder)
+            return []
+
+        # ✅ FAST path: direct file scan (NO EXIF)
+        files = []
+
+        for path in iter_jpegs(folder):
+            files.append(path)
+
+        print("📸 FAST thumbnails:", len(files))
+
+        return files[:100]
 def api_photo_proxy(ctx, img_path):
     if not img_path:
         return jsonify({"success": False, "error": "No path"}), 400
 
-    img_path = os.path.normpath(img_path)
-
+    img_path = os.path.normpath(unquote(img_path))
     if not os.path.isfile(img_path):
         return jsonify({
             "success": False,
@@ -46,8 +58,7 @@ def api_photo_proxy(ctx, img_path):
         }), 404
 
     try:
-        thumb = build_thumb(ctx.cache_dir, img_path)
-
+        thumb = img_path  # ✅ just return original image for now
         if not os.path.isfile(thumb):
             return jsonify({
                 "success": False,
@@ -62,7 +73,7 @@ def api_photo_proxy(ctx, img_path):
         )
 
     except Exception as e:
-        log_info(ctx, f"Photo proxy error: {e}")
+        print(f"Photo proxy error: {e}")
         return jsonify({
             "success": False,
             "error": "Photo proxy failed",
@@ -91,7 +102,7 @@ def api_full_image(ctx, img_path):
             conditional=True
         )
     except Exception as e:
-        log_info(ctx, f"Full image error: {e}")
+        print(f"Full image error: {e}")
         return jsonify({
             "success": False,
             "error": "Failed to load image",

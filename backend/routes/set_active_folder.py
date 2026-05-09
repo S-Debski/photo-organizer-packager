@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # backend/routes/set_active_folder.py
 import os
@@ -6,7 +6,8 @@ from flask import jsonify
 
 def api_set_active_folder(ctx, payload):
     folder = payload.get("folder")
-
+    print("SET ACTIVE FOLDER:", folder)
+    print("SET_ACTIVE_FOLDER CTX ID:", id(ctx))
     if not folder or not os.path.isdir(folder):
         return jsonify({"success": False, "error": "Invalid folder"}), 400
 

@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # Mapping: EXIF date and camera metadata
 # Uses ExifTool via read_exif (single source of truth)

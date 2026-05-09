@@ -1,4 +1,4 @@
-# Role: Python environment setup (PowerShell) (see Stability Contract)
+# Role: Application module (see Stability Contract)
 
 Write-Host "=== Python 3.13 Environment Setup for Photo Organizer ==="
 

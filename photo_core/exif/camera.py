@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 from photo_core.exif.reader import read_exif
 from photo_core.exif.accessor import get_exif_value

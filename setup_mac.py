@@ -1,4 +1,4 @@
-# Role: macOS build environment setup (see Stability Contract)
+# Role: Application module (see Stability Contract)
 
 #!/usr/bin/env python3
 """

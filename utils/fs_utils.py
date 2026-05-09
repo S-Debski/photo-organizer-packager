@@ -1,5 +1,4 @@
-# Role: Application module
-
+# Role: Application module (see Stability Contract)
 # utils/fs_utils.py
 import os
 

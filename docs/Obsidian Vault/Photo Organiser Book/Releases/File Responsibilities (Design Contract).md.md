@@ -264,9 +264,18 @@ Project architecture is enforced through lightweight tooling.
 - Role headers are managed by `tools/role_annotator.py`.
 
 **Before committing changes that add or move files:**
-```bash
-python tools/role_annotator.py --check
-``
+```
 
-If missing roles are reported:
-python tools/role_annotator.py --apply
+# Dev check
+python tools/role_annotator.py --check
+
+# Fix issues
+python tools/role_annotator.py --fix --apply
+
+#Audit
+python tools/role_annotator.py --report
+
+# Recap
+python tools/role_annotator.py --report   ✅ audit
+python tools/role_annotator.py --check    ✅ enforce
+python tools/role_annotator.py --fix --apply  ✅ repair

@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 """
 PhotoOrganizer – v2.7 FINAL

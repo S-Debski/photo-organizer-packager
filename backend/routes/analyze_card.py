@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: SD card analysis engine (see Stability Contract)
 
 # backend/routes/analyze_card.py
 
@@ -45,8 +45,8 @@ def api_analyze_card(ctx, payload):
 
     # Required state updates
     ctx.state["current_sd_root"] = sd_root
-    ctx.state["current_active_folder"] = sd_root
-    # TEMP: hardcoded test location (Butley Village Hall)
+    # ❌ REMOVE this line entirely
+    # ctx.state["current_active_folder"] = sd_root    # TEMP: hardcoded test location (Butley Village Hall)
     ctx.state["folder_location"] = (52.1072, 1.4575)
 
     # ✅ Session metadata for Pre‑Import

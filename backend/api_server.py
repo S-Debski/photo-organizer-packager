@@ -1,141 +1,93 @@
-# Role: Backend service / IPC boundary
-
-# backend/api_server.py
+# =============================================================================
+# File: backend/api_server.py
+#
+# Role:
+#   Main Flask API server for Photo Organizer
+#
+# Responsibilities:
+#   - Define API endpoints
+#   - Route requests to backend modules
+#   - Maintain shared application context (ctx)
+#   - Start background worker threads
+#
+# Architecture:
+#   Frontend (index.html + main.js)
+#       → Flask routes (this file)
+#       → Worker (exif_scanner)
+#       → Mapping layer (photo_core)
+# =============================================================================
 
 import threading
 import webbrowser
-
-from flask import (
-    Flask,
-    jsonify,
-    request,
-    render_template,
-)
+from backend.routes.thumbs import api_thumbs
+from pathlib import Path
+from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
-import pythoncom
-
-# ------------------------------------------------------------
-# Version info (imported from app.py – single source of truth)
-# ------------------------------------------------------------
-from version import APP_NAME, APP_VERSION, APP_STAGE, APP_BUILD
-from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
-from backend.routes.pre_import import (
-    api_preview_directory,
-    api_confirm_pre_import,
-)
-## Check Exiftool is available ##
-from photo_core.exif.reader import exiftool_available
-
-if not exiftool_available():
-    print("ℹ️ ExifTool not found — advanced lens metadata disabled")
-##
-
-# ------------------------------------------------------------
-# Backend context + workers
-# ------------------------------------------------------------
 from photo_core.ctx.context import AppContext
+from workers.exif_scanner import exif_scanner_worker
 
 # Routes
 from backend.routes.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
-from backend.routes.exif_stats import api_exif_stats
-from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
 from backend.routes.gps_data import api_gps_data
-from backend.routes.organize import api_organize, api_job_status, api_open_pictures
-from backend.routes.pre_import import api_set_output_destination
 
-# ------------------------------------------------------------
-# Flask app (single instance)
-# ------------------------------------------------------------
-from pathlib import Path
-
+# -----------------------------------------------------------------------------
+# Paths (CRITICAL — DO NOT REMOVE)
+# -----------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 print("BASE_DIR =", BASE_DIR)
-print("STATIC_DIR =", BASE_DIR / "ui" / "static")
+print("TEMPLATES =", BASE_DIR / "templates")
+print("STATIC =", BASE_DIR / "ui" / "static")
 
-print("auto_select_sd_card signature:", auto_select_sd_card.__code__.co_argcount)
-
+# -----------------------------------------------------------------------------
+# Flask app (configured for your project layout)
+# -----------------------------------------------------------------------------
 app = Flask(
     __name__,
-    template_folder=str(BASE_DIR / "templates"),
-    static_folder=str(BASE_DIR / "ui" / "static"),
+    template_folder=str(BASE_DIR / "templates"),     # ✅ index.html lives here
+    static_folder=str(BASE_DIR / "ui" / "static"),   # ✅ JS/CSS here
     static_url_path="/static"
 )
 
-# Dev-friendly: disable aggressive caching
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-
 CORS(app)
 
-# Context is injected at runtime
+# Shared application context
 ctx: AppContext | None = None
 
-from backend.routes.pre_import import api_update_session_metadata
-# version data #
-@app.route("/api/pre-import/session", methods=["POST"])
-def pre_import_update_session():
-    touch_activity()
-    return api_update_session_metadata(ctx)
 
-# ------------------------------------------------------------
-# Helper: activity tracking (optional future use)
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Activity tracking
+# -----------------------------------------------------------------------------
 def touch_activity():
     if ctx:
         ctx.state["last_activity"] = ctx.state.get("last_activity", 0) + 1
 
 
-# ------------------------------------------------------------
-# Index
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Index route
+# -----------------------------------------------------------------------------
 @app.route("/")
 def index():
     touch_activity()
     return render_template("index.html")
-# ------------------------------------------------------------
-# Pre import routes
-# ------------------------------------------------------------
-@app.route("/api/pre-import/preview", methods=["POST"])
-def pre_import_preview():
-    touch_activity()
-    return api_preview_directory(ctx)
 
-@app.route("/api/pre-import/confirm", methods=["POST"])
-def pre_import_confirm():
-    touch_activity()
-    return api_confirm_pre_import(ctx)
-
-# Output routes
-@app.route("/api/pre-import/output-destination", methods=["POST"])
-def pre_import_set_output():
-    touch_activity()
-    return api_set_output_destination(ctx)
-
-# ------------------------------------------------------------
-# Version API
-# ------------------------------------------------------------
-@app.route("/api/version")
-def api_version():
-    return jsonify({
-        "name": APP_NAME,
-        "version": APP_VERSION,
-        "stage": APP_STAGE,
-        "build": APP_BUILD
-    })
-
-
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # SD card detection
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
+import pythoncom
+
 @app.route("/api/sd-cards")
 def api_sd_cards():
-    pythoncom.CoInitialize()
+    pythoncom.CoInitialize()   # ✅ Windows COM init
     touch_activity()
 
     try:
         drives = detect_sd_cards()
+
         return jsonify({
             "success": True,
             "drives": drives,
@@ -143,121 +95,81 @@ def api_sd_cards():
         })
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        print("❌ SD detect error:", e)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
-
-# ------------------------------------------------------------
-# Analyze card
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Analyze SD card
+# -----------------------------------------------------------------------------
 @app.route("/api/analyze-card", methods=["POST"])
 def analyze_card():
     touch_activity()
     return api_analyze_card(ctx, request.json)
 
 
-# ------------------------------------------------------------
-# Active folder
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Set active folder
+# -----------------------------------------------------------------------------
 @app.route("/api/set-active-folder", methods=["POST"])
 def set_active_folder():
     touch_activity()
     return api_set_active_folder(ctx, request.json)
 
-
-# ------------------------------------------------------------
-# EXIF statistics
-# ------------------------------------------------------------
-@app.route("/api/exif-stats", methods=["POST"])
-def exif_stats():
-    touch_activity()
-
-    data = request.get_json()
-    folder = data.get("folder")
-
-    return api_exif_stats(ctx, folder)
-
-# ------------------------------------------------------------
-# Thumbnails & images
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Thumbnails
+# -----------------------------------------------------------------------------
 @app.route("/api/thumbs", methods=["POST"])
 def thumbs():
     touch_activity()
+    return api_thumbs(ctx, request.json)
 
-    data = request.get_json()
-    folder = data.get("folder")
-
-    return api_thumbs(ctx, folder)
-
-
+# -----------------------------------------------------------------------------
+# Photo proxy (serve thumbnails / images)
+# -----------------------------------------------------------------------------
 @app.route("/api/photo-proxy")
 def photo_proxy():
+    touch_activity()
     path = request.args.get("path")
-
-    # ✅ Use the module-level AppContext
     return api_photo_proxy(ctx, path)
 
+
+# -----------------------------------------------------------------------------
+# Full image (for preview)
+# -----------------------------------------------------------------------------
 @app.route("/api/full-image")
 def full_image():
     touch_activity()
     path = request.args.get("path")
     return api_full_image(ctx, path)
 
-
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # GPS data
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
 @app.route("/api/gps-data", methods=["POST"])
 def gps_data():
     touch_activity()
-
-    data = request.get_json()
-    folder = data.get("folder") if data else None
-
-    return api_gps_data(ctx, folder)
-
-# ------------------------------------------------------------
-# Organize / copy job
-# ------------------------------------------------------------
-@app.route("/api/organize", methods=["POST"])
-def organize():
-    touch_activity()
-    return api_organize(ctx)
+    print("📡 /api/gps-data called")
+    return api_gps_data(ctx)
 
 
-@app.route("/api/job-status")
-def job_status():
-    touch_activity()
-    return api_job_status(ctx)
-
-
-@app.route("/api/pictures-open")
-def pictures_open():
-    return api_open_pictures(ctx)
-
-
-# ------------------------------------------------------------
-# Log stream (disabled – Windows safe)
-# ------------------------------------------------------------
-@app.route("/api/log-stream")
-def log_stream():
-    return ("", 204)
-
-
-# ------------------------------------------------------------
-# After-request: disable caching
-# ------------------------------------------------------------
-@app.after_request
-def no_cache(response):
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-# ------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Server runner (called from app.py)
-# ------------------------------------------------------------
-def run_api_server(app_ctx: AppContext):
+# -----------------------------------------------------------------------------
+def run_api_server(app_ctx):
     global ctx
     ctx = app_ctx
+
+    # ✅ Start EXIF scanner worker
+    threading.Thread(
+        target=exif_scanner_worker,
+        args=(ctx,),
+        daemon=True,
+    ).start()
+
+    print("✅ EXIF scanner worker started")
 
     # Optional: auto-open browser
     def open_browser():
@@ -265,10 +177,9 @@ def run_api_server(app_ctx: AppContext):
 
     threading.Timer(1.0, open_browser).start()
 
+    # Start Flask
     app.run(
         host="127.0.0.1",
         port=5000,
         debug=False,
-        use_reloader=False,
-        threaded=True
     )

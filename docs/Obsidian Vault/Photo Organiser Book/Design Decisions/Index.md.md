@@ -24,3 +24,21 @@ Documentation format follows [[Documentation Style (Canonical)]].
 ## Releases
 See [[Releases/Index]] for frozen behaviour per version.
 
+#How stuff works
+workers/exif_scanner.py       → background collection
+photo_core/exif/reader.py    → ExifTool interface ✅
+photo_core/exif/*            → structured metadata access
+photo_core/mapping/*         → analysis + transformation
+backend/routes/*             → API exposure
+ui                           → display
+
+Your `reader.py` :
+
+- calls ExifTool ✅
+- returns a dict ✅
+- maybe caches ✅
+
+EXIF extraction functions
+reader.py → raw EXIF ✅
+accessor.py → clean interface ✅
+mapping/* → business logic ✅

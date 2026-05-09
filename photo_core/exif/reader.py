@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: EXIF extraction interface (see Stability Contract)
 
 # photo_core/exif/reader.py
 # ------------------------------------------------------------

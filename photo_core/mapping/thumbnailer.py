@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # photo_core/mapping/thumbnailing.py
 # Mapping: image thumbnail generation

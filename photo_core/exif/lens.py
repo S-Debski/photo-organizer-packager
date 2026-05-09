@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Lens metadata resolver (see Stability Contract)
 
 # photo_core/exif/lens.py
 # ------------------------------------------------------------

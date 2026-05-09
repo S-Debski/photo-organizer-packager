@@ -1,4 +1,4 @@
-# Role: Application module
+# Role: Application module (see Stability Contract)
 
 # workers/exif_scanner.py
 # Background EXIF scanner worker
@@ -36,6 +36,12 @@ def exif_scanner_worker(ctx):
 
     while not ctx.shutdown_event.is_set():
         active = ctx.state.get("current_active_folder")
+        if not active:
+            time.sleep(SCAN_INTERVAL)
+            continue
+
+        print("ACTIVE FOLDER IN WORKER:", active)
+
         if not active or not os.path.isdir(active):
             time.sleep(SCAN_INTERVAL)
             continue
@@ -52,6 +58,14 @@ def exif_scanner_worker(ctx):
 
         for path in iter_jpegs(active):
             try:
+                gps = extract_exif_gps(path)
+                # ✅ DEBUG (add this)
+                print("📍 GPS RAW:", gps)
+                if gps:
+                    print("✅ GPS FOUND:", gps)
+                else:
+                    print("❌ NO GPS:", path)
+
                 records.append({
                     "path": path,
                     "datetime": extract_exif_datetime(path),
@@ -67,6 +81,7 @@ def exif_scanner_worker(ctx):
                 log_info(ctx, f"[EXIF] Failed EXIF for {path}: {e}")
 
         ctx.exif_cache[cache_key] = records
+        ctx.exif_records = records
         log_info(ctx, f"[EXIF] Completed: {count} JPEGs scanned")
 
         time.sleep(SCAN_INTERVAL)

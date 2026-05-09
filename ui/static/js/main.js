@@ -1,5 +1,18 @@
-// Role: JavaScript module (see Stability Contract)
-//ROLE_MAP["main.js"] = "Frontend application entry point"
+// ============================================================================
+// File: static/js/main.js
+//
+// Role:
+//   Frontend controller for Photo Organizer UI
+//
+// Responsibilities:
+//   - Handle user interactions (analyze, folder select, map)
+//   - Call backend APIs
+//   - Render folders, thumbnails, and map markers
+//
+// Notes:
+//   - Works with Flask backend endpoints (/api/*)
+// ============================================================================
+// Role: Frontend application entry point (see Stability Contract)
 // ====================================================================
 // Photo Organizer main.js – v2.8.0
 //
@@ -297,37 +310,94 @@ async function fetchSDCards() {
 // Remain in Analyze (Step 2) to allow folder selection
 // ====================================================================
 function renderAnalyzeFolders() {
-    const zone = $('foldersList');
-    if (!zone) return;
-
-    zone.innerHTML = '';
-
-    if (!Array.isArray(analyzedFolders) || analyzedFolders.length === 0) {
-        zone.innerHTML =
-            "<div class='text-warning'>No folders found.</div>";
+    const container = document.getElementById("foldersList");
+    if (!container) {
+        console.error("❌ analyzeFolders container not found");
         return;
     }
 
-    analyzedFolders.forEach(f => {
-        zone.innerHTML += `
-          <div class="col-12 mb-2">
-            <div class="folder-entry p-2 border rounded bg-dark-subtle"
-                 data-folder="${f.path}">
-              <b>${f.name}</b>
-              <span class="text-secondary">(${f.photo_count} photos)</span><br>
-              <small class="text-info">${f.path}</small><br>
-              <small class="text-warning">
-                ${f.camera_model || "Unknown"} — ${f.lens || "Unknown Lens"}
-              </small>
-            </div>
-          </div>`;
-    });
+    container.innerHTML = "";
 
-    // ✅ Attach click handlers AFTER rendering
-    zone.querySelectorAll('.folder-entry').forEach(el => {
-        el.addEventListener('click', () => {
-            selectFolder(el.dataset.folder);
-        });
+    if (!analyzedFolders || analyzedFolders.length === 0) {
+        console.warn("⚠️ No analyzed folders to render");
+        container.innerHTML = "<p>No folders found</p>";
+        return;
+    }
+
+    analyzedFolders.forEach(folder => {
+        const item = document.createElement("div");
+        item.classList.add("col-12", "mb-2", "folder-item");
+
+        item.innerHTML = `
+            <div class="card bg-dark border-secondary folder-card p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="fw-bold">
+                        📁 ${folder.name || "Unnamed Folder"}
+                    </div>
+                    <span class="badge bg-primary">
+                        ${folder.count || folder.photo_count || 0} photos
+                    </span>
+                </div>
+
+                <div class="small text-secondary mt-2">
+                    RAW: ${folder.raw || folder.raw_count || 0}
+                    &nbsp;|&nbsp;
+                    JPG: ${folder.jpg || folder.jpeg_count || 0}
+                </div>
+            </div>
+        `;
+
+        item.onclick = async () => {
+
+            const folderPath = folder.path;
+
+            if (!folderPath) {
+                console.error("❌ folder.path missing!", folder);
+                return;
+            }
+
+            selectedFolder = folderPath;
+
+            try {
+                const res = await fetch("/api/set-active-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folder: selectedFolder })
+                });
+
+                const data = await res.json();
+
+                if (!data.success) {
+                    console.error("❌ Set active folder failed:", data);
+                    return;
+                }
+
+                // ✅ Clear selection
+                document.querySelectorAll(".folder-item")
+                    .forEach(el => el.classList.remove("selected"));
+
+                item.classList.add("selected");
+
+                // ✅ Clear sidebar recommendations
+                document.querySelectorAll('#wizardNav .sidebar-item')
+                    .forEach(el => el.classList.remove('recommended'));
+
+                // ✅ Suggest mapping step
+                const mapStep = document.querySelector('[data-step="5"]');
+                mapStep?.classList.add('recommended');
+
+                // ✅ Status message
+                showGlobalStatus(`
+                    ✅ <strong>Folder selected.</strong><br>
+                    You can now view stats, thumbnails, or mapping.
+                `);
+
+            } catch (err) {
+                console.error("❌ Error setting active folder:", err);
+            }
+        };
+
+        container.appendChild(item);
     });
 }
 
@@ -523,7 +593,24 @@ toggleChartsBtn?.addEventListener('click', () => {
 // ====================================================================
 // STEP 4 — THUMBNAILS
 // ====================================================================
+function openFullImage(path) {
+
+    const modal = document.getElementById("imageModal");
+
+    // ✅ Set current index
+    currentPreviewIndex = thumbnails.indexOf(path);
+
+    updatePreviewImage();
+
+    modal.classList.remove("d-none");
+}
 async function loadThumbnails() {
+
+    if (!selectedFolder) {
+        console.warn("⚠️ No folder selected");
+        return;
+    }
+
     try {
         const res = await fetch("/api/thumbs", {
             method: "POST",
@@ -533,11 +620,48 @@ async function loadThumbnails() {
             })
         });
 
-        thumbnails = await res.json();
+        const data = await res.json();
+
+        // ✅ Waiting state
+        if (!data || data.length === 0) {
+            console.log("⏳ Waiting for EXIF cache...");
+
+            // ✅ Show user feedback
+            $("thumbnailGallery").innerHTML = `
+                <div class="text-muted text-center py-4">
+                    ⏳ Preparing thumbnails...
+                </div>
+            `;
+
+            // ✅ Retry until ready
+            setTimeout(loadThumbnails, 1000);
+            return;
+        }
+
+        // ✅ SUCCESS: render thumbnails
+        thumbnails = data;
+
         $("thumbnailGallery").innerHTML = "";
+
         renderThumbnailsChunked(thumbnails, 0, 6);
+
+        console.log("✅ Thumbnails loaded:", thumbnails.length);
+
     } catch (err) {
         console.error("Thumbnail load failed:", err);
+    }
+}
+function showNextImage() {
+    if (currentPreviewIndex < thumbnails.length - 1) {
+        currentPreviewIndex++;
+        updatePreviewImage();
+    }
+}
+
+function showPreviousImage() {
+    if (currentPreviewIndex > 0) {
+        currentPreviewIndex--;
+        updatePreviewImage();
     }
 }
 
@@ -585,12 +709,25 @@ function updatePreviewImage() {
 }
 
 // ====================================================================
-// STEP 5 – Mapping
+// STEP 5 – Mapping: FLOW CONTROL
+// Handles delayed navigation to mapping once EXIF worker has run
 // ====================================================================
+function triggerMappingAfterSelection() {
+    console.log("⏳ Waiting for EXIF worker before mapping...");
 
+    setTimeout(() => {
+        console.log("🗺️ Switching to Mapping step");
+        switchStep(5);
+    }, 1500);
+}
+
+
+// ====================================================================
+// STEP 5 – Mapping: MAP INITIALISATION
+// Responsible for creating and configuring Leaflet map instance
+// ====================================================================
 let map = null;
 
-// Map is initialised lazily when Step 5 becomes visible.
 function initMap() {
     const el = document.getElementById("map");
     if (!el) {
@@ -614,6 +751,10 @@ function initMap() {
     map.setView([51.5, -0.12], 5);
 }
 
+// ====================================================================
+// STEP 5 – Mapping: DATA LOAD + RENDER
+// Fetches GPS data and renders markers onto the map
+// ====================================================================
 async function loadMap() {
     const status = document.getElementById("mapStatus");
     if (status) status.textContent = "";
@@ -621,70 +762,49 @@ async function loadMap() {
     try {
         if (status) {
             status.innerHTML = `
-        ⏳ <strong>Loading GPS data…</strong><br>
-        Reading metadata from images.
-    `;
+                ⏳ <strong>Loading GPS data…</strong><br>
+                Reading metadata from images.
+            `;
         }
+
         const res = await fetch("/api/gps-data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                folder: selectedFolder
-            })
+            body: JSON.stringify({})
         });
 
         const gps = await res.json();
+        console.log("GPS RESPONSE:", gps);
 
-        console.log("GPS RESPONSE:", gps); // ✅ DEBUG
-
-        if (status && gps.total_images) {
-            const count = gps.gps_count || 0;
-            const total = gps.total_images;
-
-            const icon = count > 0 ? "✅" : "⚠️";
-
-            status.innerHTML = `
-        ${icon} <strong>${count} / ${total} images contain GPS data</strong>
-    `;
-        }
-        if (!gps.points || gps.points.length === 0) {
+        if (!gps || gps.length === 0) {
             if (status) {
                 status.innerHTML = `
-                    <i class="bi bi-geo-alt-slash text-secondary"></i>
-                    <strong>No GPS location data found</strong><br>
-                    These photos do not contain EXIF GPS coordinates.
-                `;
+            ⏳ <strong>Scanning for GPS data…</strong><br>
+            This can take a moment after selecting a folder.
+        `;
             }
+
+            // ✅ retry once (worker still processing)
+            setTimeout(loadMap, 1000);
+
             return;
         }
 
-        // ✅ FIX: use gps.points instead of gps
-        const hasPrecise = gps.points.some(p => p.quality === "precise");
-        const hasCoarse  = gps.points.some(p => p.quality === "coarse");
 
-        if (status) {
-            if (!hasPrecise && hasCoarse) {
-                status.innerHTML = `
-                    <i class="bi bi-exclamation-triangle text-warning"></i>
-                    <strong>Approximate location data</strong><br>
-                    Location information is low‑precision and may represent a region.
-                `;
-            } else if (hasPrecise && hasCoarse) {
-                status.innerHTML = `
-                    <i class="bi bi-geo text-info"></i>
-                    <strong>Mixed GPS accuracy</strong><br>
-                    Some photos have precise locations; others are approximate.
-                `;
-            } else {
-                status.innerHTML = `
-                    <i class="bi bi-geo-alt-fill text-success"></i>
-                    <strong>Showing photo locations</strong><br>
-                    Locations are based on EXIF GPS data from the camera.
-                `;
-            }
+        if (!map) {
+            console.warn("Map not initialised yet");
+            return;
         }
 
-        requestAnimationFrame(() => renderMapMarkers(gps.points));
+        if (status) {
+            status.innerHTML = `
+                <i class="bi bi-geo-alt-fill text-success"></i>
+                <strong>Showing ${gps.length} photo locations</strong><br>
+                Locations are based on EXIF GPS data.
+            `;
+        }
+
+        renderMapMarkers(gps);
 
     } catch (err) {
         console.warn("GPS load failed:", err);
@@ -699,9 +819,10 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
 
     for (let i = start; i < end; i++) {
         const p = points[i];
+
         L.marker([p.lat, p.lon])
             .addTo(map)
-            .bindPopup(`<b>${p.filename}</b>`);
+            .bindPopup(`<b>${p.filename || "Photo"}</b>`);
     }
 
     if (end < points.length) {
@@ -793,31 +914,64 @@ document.querySelector('[data-step="7"]')
 
 
 // ====================================================================
+// IMAGE PREVIEW – CLOSE HANDLER
+// Closes modal when clicking outside image
+// ====================================================================
+document.addEventListener("click", (e) => {
+    const modal = document.getElementById("imageModal");
+
+    if (!modal || modal.classList.contains("d-none")) return;
+
+    if (e.target.id === "imageModal") {
+        modal.classList.add("d-none");
+    }
+});
+
+// ✅ Global keyboard handler (outside)
+document.addEventListener("keydown", (e) => {
+    const modal = document.getElementById("imageModal");
+
+    if (!modal || modal.classList.contains("d-none")) return;
+
+    if (e.key === "ArrowRight") showNextImage();
+    if (e.key === "ArrowLeft") showPreviousImage();
+    if (e.key === "Escape") modal.classList.add("d-none");
+});
+
+// ====================================================================
+// INITIALIZE
+// ====================================================================
+// ====================================================================
 // INITIALIZE
 // ====================================================================
 document.addEventListener("DOMContentLoaded", () => {
-
     // ✅ Initial SD button state
     setSDButtonState('initial');
-
-    // ✅ Sidebar navigation
-    document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
-        item.addEventListener('click', e => {
-            e.preventDefault();
-            const step = item.getAttribute('data-step');
-            switchStep(step);
-        });
+    // ✅ Close preview (X button)
+    document.getElementById("closePreview")?.addEventListener("click", () => {
+        $("imageModal").classList.add("d-none");
     });
+    // ✅  (navigation buttons)
+    document.getElementById("nextBtn")?.addEventListener("click", showNextImage);
+    document.getElementById("prevBtn")?.addEventListener("click", showPreviousImage);
 
-    // ✅ Get analyze button
-    const analyzeBtn = document.getElementById("analyzeBtn");
+});
+// ✅ Sidebar navigation
+document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
+    item.addEventListener('click', e => {
+        e.preventDefault();
+        const step = item.getAttribute('data-step');
+        switchStep(step);
+    });
+});
 
-    if (!analyzeBtn) {
-        console.warn("Analyze button not found");
-        return;
-    }
+// ✅ Get analyze button
+const analyzeBtn = document.getElementById("analyzeBtn");
 
-    // ✅ Attach click handler (NO setTimeout wrapper)
+if (!analyzeBtn) {
+    console.warn("Analyze button not found");
+} else {
+
     analyzeBtn.onclick = async () => {
 
         console.log("✅ Analyze clicked");
@@ -834,10 +988,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         showAnalyzeStatus("⏳ Analyzing card…");
 
-        // ✅ Get SD value BEFORE try block
         let sd = document.getElementById("sdSelect")?.value;
 
-        // ✅ Basic validation
         if (!sd || !sd.includes(":")) {
             showGlobalStatus("⚠️ Please detect and select a valid SD card first.");
             analyzeInProgress = false;
@@ -845,13 +997,9 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // ✅ Normalise path
         if (!sd.endsWith("\\")) sd += "\\";
 
-        // Analyze Handler
         try {
-            console.log("→ Sending SD path:", sd);
-
             const res = await fetch("/api/analyze-card", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -860,41 +1008,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await res.json();
 
-            console.log("← Analyze response:", data);
-
             if (!data.success) {
                 showAnalyzeStatus("⚠️ Analysis failed.");
                 return;
             }
 
-// ✅ SPLIT RWA/JPG Section - store result
             imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
-
-            // ✅ Store results
             analyzedFolders = data.analysis.folders;
 
-            // ✅ Render list
             renderAnalyzeFolders();
-
-            // ✅ Move to Step 2
             switchStep(2);
-
-
-            showGlobalStatus(`
-    ✅ <strong>Analysis complete.</strong><br>
-    Found ${imageCounts.total} images (${imageCounts.raw} RAW, ${imageCounts.jpg} JPEG).<br>
-    👉 Select a folder below to continue.
-`);
-            setTimeout(clearGlobalStatus, 2000);
 
         } catch (err) {
             console.error("Analyze failed:", err);
             showAnalyzeStatus("⚠️ Analyze failed due to an error.");
-
         } finally {
             analyzeInProgress = false;
             analyzeBtn.disabled = false;
             clearAnalyzeStatus();
         }
+
     };
-});
+
+}
