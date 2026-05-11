@@ -1,3 +1,5 @@
+# Role: Application module (see Stability Contract)
+
 # =============================================================================
 # File: backend/routes/thumbs.py
 # Role: Return thumbnail image paths for selected folder

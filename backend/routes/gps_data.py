@@ -1,3 +1,5 @@
+# Role: GPS data API route (see Stability Contract)
+
 # =============================================================================
 # File: backend/routes/gps_data.py
 #

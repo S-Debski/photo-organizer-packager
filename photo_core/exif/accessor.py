@@ -1,4 +1,4 @@
-# Role: EXIF normalization interface (see Stability Contract)
+# Role: Application module (see Stability Contract)
 
 # photo_core/exif/accessor.py
 # ------------------------------------------------------------

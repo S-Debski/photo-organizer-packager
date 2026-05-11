@@ -1,4 +1,4 @@
-# Role: GPS data processing module (see Stability Contract)
+# Role: GPS data API route (see Stability Contract)
 
 import os
 

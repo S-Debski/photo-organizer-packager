@@ -1,3 +1,5 @@
+# Role: Application module (see Stability Contract)
+
 # =============================================================================
 # File: photo_core/mapping/quality_classification.py
 #

@@ -11,6 +11,13 @@ IMAGE_EXTS_RAW = {
     ".orf", ".rw2", ".dng"
 }
 
+def get_default_working_base():
+    return os.path.join(
+        os.path.expanduser("~"),
+        "PhotoOrganizer",
+        "sessions"
+    )
+
 
 def iter_jpegs(root):
     """Yield JPEGs only — these go to EXIF + preview."""

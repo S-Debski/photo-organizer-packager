@@ -1,3 +1,5 @@
+# Role: Backend service / IPC boundary (see Stability Contract)
+
 # =============================================================================
 # File: backend/api_server.py
 #
@@ -168,6 +170,17 @@ def gps_data():
     #print("📡 /api/gps-data called")
     return api_gps_data(ctx)
 
+### Let user choose own dir - default if not
+@app.route("/api/set-working-dir", methods=["POST"])
+def set_working_dir():
+    data = request.json
+    path = data.get("path")
+
+    if not os.path.isdir(path):
+        return jsonify({"error": "Invalid path"}), 400
+
+    ctx.working_base_dir = path
+    return jsonify({"success": True})
 
 # -----------------------------------------------------------------------------
 # Server runner (called from app.py)

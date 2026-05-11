@@ -9,6 +9,10 @@ import queue
 class AppContext:
     def __init__(self):
         self.shutdown_event = threading.Event()
+        self.working_base_dir = None  # user-selected base directory
+
+        self.working_dir = None
+        self.session_id = None
 
         self.task_queue = queue.Queue()
 

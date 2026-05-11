@@ -62,8 +62,11 @@ def exif_scanner_worker(ctx):
         records = []
         count = 0
 
-        files = list(iter_jpegs(active))  # ✅ materialise list once
+        files = ctx.state.get("working_files")
 
+        if not files:
+            files = list(iter_jpegs(active))  # ✅ fallback (safe)
+            
         progress_state["total"] = len(files)
         progress_state["processed"] = 0
         progress_state["active"] = True
