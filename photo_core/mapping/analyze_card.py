@@ -70,6 +70,16 @@ def analyze_card(sd_root):
             model = model or "Camera not resolved - no camera EXIF"
             lens = lens or "Unknown Lens"
 
+        # Get JPEGs first (preferred for thumbnails)
+        jpeg_files = list(iter_jpegs(folder))
+
+        if jpeg_files:
+            sample = jpeg_files[0]
+        else:
+            # fallback to RAW only if no JPEGs exist
+            raw_files = list(iter_raws(folder))
+            sample = raw_files[0] if raw_files else None
+
         folders.append({
             "name": os.path.basename(folder),
             "path": folder,
@@ -78,8 +88,10 @@ def analyze_card(sd_root):
             "raw_count": raw_count,
             "camera_model": model,
             "lens": lens,
-            "raw_only": raw_only
+            "raw_only": raw_only,
+            "sample": sample,  # ✅ ALWAYS a single string or None
         })
+
         total_raw = sum(f["raw_count"] for f in folders)
         total_jpg = sum(f["jpeg_count"] for f in folders)
         total_images = sum(f["photo_count"] for f in folders)

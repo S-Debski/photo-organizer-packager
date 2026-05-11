@@ -39,6 +39,8 @@ CAMERA_FOLDERS = {
 MIN_SD_SIZE = 512 * 1024 * 1024                 # 0.5 GB
 MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024     # 2 TB
 
+#Debug section
+DEBUG = False   # 🔁 flip to True when debugging drive detection
 
 # ------------------------------------------------------------
 # Shared helpers
@@ -146,29 +148,37 @@ def filter_windows_sd_cards(include_fixed: bool = False):
         size = v["size_bytes"]
         fs = v["filesystem"]
 
-        print("🔍 WINDOWS VOLUME:", path, "FS:", fs, "SIZE:", size)
+        if DEBUG:
+            print("🔍 WINDOWS VOLUME:", path, "FS:", fs, "SIZE:", size)
 
         # Exclude empty slots and nonsense
         if not size_within_sd_range(size):
-            print("  ⛔ excluded: size range")
+            if DEBUG:
+                print("  ⛔ excluded: size range")
             continue
 
         # Must be mounted media
         if fs is None:
-            print("  ⛔ excluded: no filesystem")
+            if DEBUG:
+                print("  ⛔ excluded: no filesystem")
             continue
 
         # Exclude cloud / virtual drives (unless explicitly enabled)
         if not include_fixed and is_cloud_or_virtual_drive_windows(v):
-            print("  ⛔ excluded: cloud / virtual drive")
+            if DEBUG:
+                print("  ⛔ excluded: cloud / virtual drive")
             continue
 
         # Camera structure is optional (empty cards allowed)
         if not has_camera_structure(Path(path)):
-            print("  ⚠ no camera structure (allowed)")
+            if DEBUG:
+                print("  ⚠ no camera structure (allowed)")
 
-        print("  ✅ accepted")
+        if DEBUG:
+            print("  ✅ accepted")
+
         results.append(v)
+    print(f"✅ Detected {len(results)} usable drive(s)")
 
     return results
 

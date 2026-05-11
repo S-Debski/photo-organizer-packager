@@ -13,6 +13,9 @@ def api_set_active_folder(ctx, payload):
 
     # Update global active folder
     ctx.state["current_active_folder"] = folder
+    # ✅ Clear EXIF cache when folder changes
+    ctx.exif_cache.clear()
+    ctx.exif_records = []
 
     # Clear cached thumbnails & EXIF for new context
     ctx.thumb_cache.clear()

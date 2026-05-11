@@ -29,20 +29,41 @@
 from flask import jsonify
 from photo_core.mapping.gps_data import extract_gps_points
 
+# ✅ Optional debug toggle (leave False for normal use)
+DEBUG = False
+
 
 def api_gps_data(ctx):
+    """
+    Return GPS points derived from EXIF data.
 
-    # ✅ CRITICAL FIX: use worker output
+    Behaviour:
+    - Silent while EXIF worker is still running
+    - Returns [] until data is ready
+    - Logs a single meaningful message when GPS data is available
+    """
+
+    # ✅ Use worker output
     records = getattr(ctx, "exif_records", [])
 
-    print("📦 RECORD COUNT:", len(records))  # debug
-
+    # ✅ Silent while waiting (no log spam during polling)
     if not records:
-        print("⚠️ No EXIF records available yet")
+        if DEBUG:
+            print("⏳ GPS request: no EXIF records yet")
         return jsonify([])
 
+    # ✅ Extract GPS points
     points = extract_gps_points(records)
 
-    print("📍 POINTS RETURNED:", len(points))  # debug
+    # ✅ Optional debug detail
+    if DEBUG:
+        print(f"📦 RECORD COUNT: {len(records)}")
+        print(f"📍 POINTS RETURNED: {len(points)}")
+
+    # ✅ Clean, meaningful runtime log (always shown)
+    if not points:
+        print("⚠️ No GPS data found")
+    else:
+        print(f"✅ GPS extraction complete: {len(points)} points")
 
     return jsonify(points)

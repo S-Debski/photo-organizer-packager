@@ -26,7 +26,30 @@ h2, h3, h4 {
 p.text-secondary {
     color: #aaaaaa !important;
 }
+/* ===== Status UI ===== */
 
+#globalStatus {
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: #e6e6e6;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+
+    border-left: 3px solid #0d6efd;  /* ✅ ADD THIS LINE HERE */
+}
+
+/* ✅ emphasise the main line */
+#globalStatus strong {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* ✅ soften secondary line */
+#globalStatus .small,
+#globalStatus span {
+    color: #b8c0c8;
+}
 /* ---------------------------------------------------------------
    SIDEBAR
 ---------------------------------------------------------------- */
@@ -82,6 +105,14 @@ p.text-secondary {
     transform: scale(1.05);
 }
 
+.thumb-label {
+    font-size: 0.7rem;
+    color: #aeb6bf;         /* subtle grey */
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 /* ---------------------------------------------------------------
    MAPPING UI (Step 5)
 ---------------------------------------------------------------- */
@@ -485,16 +516,35 @@ body > .d-flex {
     border-left: 3px solid #0d6efd;
     background: rgba(13, 110, 253, 0.1);
 }
+
 .folder-card {
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: all 0.15s ease;
+    width: 100%;
 }
 
 .folder-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 0 12px rgba(255,255,255,0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    border-color: #666;
 }
 
 .folder-item.selected .folder-card {
     border: 2px solid #0d6efd;
+}
+.map-status {
+    font-size: 0.95rem;
+    line-height: 1.4;
+}
+
+.map-status.success {
+    color: #a8e6a3;  /* soft green */
+}
+
+.map-status.warning {
+    color: #f0c36d;  /* soft amber */
+}
+
+.map-status.loading {
+    color: #9ecbff;  /* soft blue */
 }

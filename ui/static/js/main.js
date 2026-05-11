@@ -38,6 +38,7 @@ let thumbnails = [];
 let currentPreviewIndex = 0;
 let organizePreview = null;
 let imageCounts = { total: 0, raw: 0, jpg: 0 };
+let markerLayer = null;
 
 
 // ====================================================================
@@ -49,6 +50,13 @@ let inferOrganizationTitle = null;
     const mod = await import("/static/js/lib/inferOrganizationTitle.js");
     inferOrganizationTitle = mod.inferOrganizationTitle;
 })();
+
+// ====================================================================
+// Debug helper - shows progress status
+// ====================================================================
+function updateProgress(msg) {
+    showGlobalStatus(msg);
+}
 
 const organizeState = {
     inferredTitle: null,
@@ -195,9 +203,9 @@ $('refreshSdBtn')?.addEventListener('click', () => {
     if (btn) btn.disabled = true;
 
     showGlobalStatus(`
-        ⏳ <strong>Detecting cards…</strong><br>
-        This can take a moment depending on your card reader and system.
-    `);
+    ⏳ <strong>Detecting cards…</strong><br>
+    <span>Reading available drives</span>
+`);
 
     fetchSDCards();
 });
@@ -221,12 +229,11 @@ async function fetchSDCards() {
 
     const showVirtual = document.querySelector('#showVirtualDrives')?.checked;
 
-    $('sdStatusText').innerHTML = `
-    ⏳ <strong>Detecting cards…</strong>
-    <div class="small text-muted mt-1">
-        This can take a moment depending on your card reader and system.
-    </div>
-`;
+    // ✅ Use ONE consistent status system
+    showGlobalStatus(`
+        ⏳ <strong>Detecting cards…</strong><br>
+        Reading available drives
+    `);
 
     const timer = setInterval(() => {
         secs++;
@@ -243,6 +250,7 @@ async function fetchSDCards() {
 
         if (!data.success) {
             $('sdStatus').textContent = "⚠️ Error detecting cards.";
+            clearGlobalStatus();
             return;
         }
 
@@ -254,6 +262,7 @@ async function fetchSDCards() {
                 : "⚠️ No camera cards detected. Insert a card or enable additional drives.";
 
             setSDButtonState('initial');
+            clearGlobalStatus();
             return;
         }
 
@@ -265,29 +274,37 @@ async function fetchSDCards() {
             opt.textContent = `${d.path} — ${d.label || ''}`;
             sel.appendChild(opt);
         });
-// ✅ Auto-select first detected card
+
+        // ✅ Auto-select first detected card
         if (sel.options.length > 0) {
             sel.selectedIndex = 0;
         }
-// ✅ Enable Analyze button now that a valid card exists
+
+        // ✅ Enable Analyze button
         const analyzeBtn = $("analyzeBtn");
         if (analyzeBtn) analyzeBtn.disabled = false;
 
         setSDButtonState('loaded');
 
         const elapsed = Date.now() - startTime;
+
         setTimeout(() => {
             const durationText = secs > 0 ? `${secs}s` : "under 1s";
+
             $('sdStatus').textContent =
                 `✅ Card detected in ${durationText}. Click "Analyze Card" to continue or rescan if needed.`;
 
-            setTimeout(clearGlobalStatus, 500);
+            // ✅ clean success message
+            showGlobalStatus("✅ Card detected");
+            setTimeout(clearGlobalStatus, 1200);
+
         }, Math.max(0, MIN_VISIBLE_MS - elapsed));
 
     } catch (err) {
         clearInterval(timer);
         $('sdStatus').textContent = "⚠️ Failed to detect cards.";
         log("SD detection error: " + err);
+        clearGlobalStatus();
 
     } finally {
         // ✅ ALWAYS reset UI state
@@ -325,28 +342,52 @@ function renderAnalyzeFolders() {
     }
 
     analyzedFolders.forEach(folder => {
+
         const item = document.createElement("div");
-        item.classList.add("col-12", "mb-2", "folder-item");
+        item.classList.add("mb-2", "folder-item");
+        // temp debug
+        console.log("Folder:", folder.name);
+        console.log("Sample:", folder.sample);
+        const sample = folder.sample || "";
 
         item.innerHTML = `
-            <div class="card bg-dark border-secondary folder-card p-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div class="fw-bold">
-                        📁 ${folder.name || "Unnamed Folder"}
-                    </div>
-                    <span class="badge bg-primary">
-                        ${folder.count || folder.photo_count || 0} photos
-                    </span>
-                </div>
+<div class="card bg-dark border-secondary folder-card p-3 d-flex flex-row align-items-center">
 
-                <div class="small text-secondary mt-2">
-                    RAW: ${folder.raw || folder.raw_count || 0}
-                    &nbsp;|&nbsp;
-                    JPG: ${folder.jpg || folder.jpeg_count || 0}
-                </div>
+    <!-- Thumbnail -->
+    <div style="width:70px; height:70px; margin-right:12px; flex-shrink:0;">
+        ${
+            sample
+                ? `<img src="/api/photo-proxy?path=${encodeURIComponent(sample)}"
+                        style="width:100%; height:100%; object-fit:cover; border-radius:6px; display:block;">`
+                : `<div style="width:100%; height:100%; background:#333; border-radius:6px;"></div>`
+        }
+    </div>
+
+    <!-- Content -->
+    <div class="flex-grow-1 d-flex flex-column justify-content-center">
+
+        <div class="d-flex justify-content-between align-items-center">
+
+            <div class="fw-semibold">
+                📁 ${folder.name || "Unnamed Folder"}
             </div>
-        `;
 
+            <span class="badge bg-primary">
+                ${folder.photo_count || 0}
+            </span>
+
+        </div>
+
+        <div class="small text-secondary mt-1">
+            RAW: ${folder.raw_count || 0} • JPG: ${folder.jpeg_count || 0}
+            &nbsp;•&nbsp;
+            ${folder.camera_model || ""}
+        </div>
+
+    </div>
+
+</div>
+`;
         item.onclick = async () => {
 
             const folderPath = folder.path;
@@ -357,6 +398,11 @@ function renderAnalyzeFolders() {
             }
 
             selectedFolder = folderPath;
+// ✅ Reset map + GPS state
+            gpsRetryCount = 0;
+
+            const status = document.getElementById("mapStatus");
+            if (status) status.innerHTML = "";
 
             try {
                 const res = await fetch("/api/set-active-folder", {
@@ -372,21 +418,17 @@ function renderAnalyzeFolders() {
                     return;
                 }
 
-                // ✅ Clear selection
                 document.querySelectorAll(".folder-item")
                     .forEach(el => el.classList.remove("selected"));
 
                 item.classList.add("selected");
 
-                // ✅ Clear sidebar recommendations
                 document.querySelectorAll('#wizardNav .sidebar-item')
                     .forEach(el => el.classList.remove('recommended'));
 
-                // ✅ Suggest mapping step
                 const mapStep = document.querySelector('[data-step="5"]');
                 mapStep?.classList.add('recommended');
 
-                // ✅ Status message
                 showGlobalStatus(`
                     ✅ <strong>Folder selected.</strong><br>
                     You can now view stats, thumbnails, or mapping.
@@ -399,39 +441,6 @@ function renderAnalyzeFolders() {
 
         container.appendChild(item);
     });
-}
-
-function selectFolder(folderPath) {
-    selectedFolder = folderPath;
-    const selectedLabel = $("selectedFolderLabel");
-    const btn = $("analyzeBtn");
-    if (btn) btn.disabled = false;
-    if (selectedLabel) {
-        selectedLabel.textContent = `Selected: ${folderPath}`;
-        selectedLabel.classList.remove("d-none");
-    }
-
-
-    // ✅ Visual selection state
-    document.querySelectorAll('.folder-entry')
-        .forEach(e => e.classList.remove('active'));
-
-    document
-        .querySelector(`.folder-entry[data-folder="${folderPath}"]`)
-        ?.classList.add('active');
-
-    // ✅ User feedback
-    showGlobalStatus(`
-        ✅ <strong>Folder selected.</strong><br>
-        You can now view stats, thumbnails, or organize photos.
-    `);
-
-    setTimeout(clearGlobalStatus, 3000); // or remove entirely
-    // ✅ Suggest next step (visual nudge only)
-    const statsStep = document.querySelector('[data-step="3"]');
-    if (statsStep) {
-        statsStep.classList.add('recommended');
-    }
 }
 // ====================================================================
 // STEP 3 – Camera + Lens Stats (READ‑ONLY)
@@ -593,6 +602,25 @@ toggleChartsBtn?.addEventListener('click', () => {
 // ====================================================================
 // STEP 4 — THUMBNAILS
 // ====================================================================
+function updateProgressBar(processed, total) {
+
+    const container = document.getElementById("progressContainer");
+    const bar = document.getElementById("progressBar");
+    const text = document.getElementById("progressText");
+
+    if (!container || !bar) return;
+
+    container.style.display = "block";
+
+    const pct = total ? Math.floor((processed / total) * 100) : 0;
+
+    bar.style.width = pct + "%";
+
+    if (text) {
+        text.textContent = `${processed} / ${total} images (${pct}%)`;
+    }
+}
+
 function openFullImage(path) {
 
     const modal = document.getElementById("imageModal");
@@ -622,21 +650,30 @@ async function loadThumbnails() {
 
         const data = await res.json();
 
-        // ✅ Waiting state
+// ✅ waiting
         if (!data || data.length === 0) {
             console.log("⏳ Waiting for EXIF cache...");
 
-            // ✅ Show user feedback
             $("thumbnailGallery").innerHTML = `
-                <div class="text-muted text-center py-4">
-                    ⏳ Preparing thumbnails...
-                </div>
-            `;
+        <div class="text-muted text-center py-4">
+            ⏳ Preparing thumbnails…<br>
+            <small>This can take a few seconds on first load</small>
+        </div>
+    `;
 
-            // ✅ Retry until ready
             setTimeout(loadThumbnails, 1000);
             return;
         }
+
+// ✅ success
+        thumbnails = data;
+
+        $("thumbnailGallery").innerHTML = "";
+
+        renderThumbnailsChunked(thumbnails, 0, 6);
+
+        console.log("✅ Thumbnails loaded:", thumbnails.length);
+
 
         // ✅ SUCCESS: render thumbnails
         thumbnails = data;
@@ -652,17 +689,14 @@ async function loadThumbnails() {
     }
 }
 function showNextImage() {
-    if (currentPreviewIndex < thumbnails.length - 1) {
-        currentPreviewIndex++;
-        updatePreviewImage();
-    }
+    currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
+    updatePreviewImage();
 }
 
 function showPreviousImage() {
-    if (currentPreviewIndex > 0) {
-        currentPreviewIndex--;
-        updatePreviewImage();
-    }
+    currentPreviewIndex =
+        (currentPreviewIndex - 1 + thumbnails.length) % thumbnails.length;
+    updatePreviewImage();
 }
 
 function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
@@ -672,23 +706,39 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
     for (let i = start; i < end; i++) {
         const t = items[i];
 
+        // ✅ Wrapper
         const div = document.createElement("div");
         div.className = "thumbnail-item col-3";
+        div.style.textAlign = "center";
 
+        // ✅ Image
         const img = document.createElement("img");
         img.src = `/api/photo-proxy?path=${encodeURIComponent(t)}`;
         img.className = "img-fluid";
         img.loading = "lazy";
         img.decoding = "async";
 
+        // ✅ Click handler
         const open = () => openFullImage(items[i]);
         div.onclick = open;
         img.onclick = open;
 
+        // ✅ Filename extraction
+        const filename = t.split("\\").pop() || t.split("/").pop();
+
+        // ✅ Label
+        const label = document.createElement("div");
+        label.textContent = filename;
+        label.className = "thumb-label";  // ✅ use CSS
+        label.title = filename;           // ✅ full name on hover
+
+        // ✅ Assemble
         div.appendChild(img);
+        div.appendChild(label);
         grid.appendChild(div);
     }
 
+    // ✅ Continue chunking
     if (end < items.length) {
         setTimeout(() => {
             renderThumbnailsChunked(items, end, chunkSize);
@@ -721,12 +771,8 @@ function triggerMappingAfterSelection() {
     }, 1500);
 }
 
-
-// ====================================================================
-// STEP 5 – Mapping: MAP INITIALISATION
-// Responsible for creating and configuring Leaflet map instance
-// ====================================================================
 let map = null;
+let manualLocation = null;   // ✅ MOVE HERE
 
 function initMap() {
     const el = document.getElementById("map");
@@ -743,27 +789,70 @@ function initMap() {
 
     map = L.map(el);
 
+    markerLayer = L.layerGroup().addTo(map);
+
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
         maxZoom: 18
     }).addTo(map);
 
     map.setView([51.5, -0.12], 5);
+
+map.on("click", function (e) {
+    const { lat, lng } = e.latlng;
+
+    manualLocation = { lat, lng };
+
+    console.log("📍 Selected manual location:", manualLocation);
+
+    // ✅ Clear previous marker
+    markerLayer.clearLayers();
+
+    // ✅ Add new marker
+    L.marker([lat, lng])
+        .addTo(markerLayer)
+        .bindPopup("Manual location")
+        .openPopup();
+
+    // ✅ Zoom to selected point (THIS is where it goes ✅)
+    map.setView([lat, lng], 14);
+
+    // ✅ Show / update details panel
+    const panel = document.getElementById("locationDetails");
+    if (panel) panel.style.display = "block";
+
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
+
+    if (latInput && lonInput) {
+        latInput.value = lat.toFixed(6);
+        lonInput.value = lng.toFixed(6);
+    }
+
+    showManualLocation(lat, lng);
+});
+
+
 }
 
-// ====================================================================
-// STEP 5 – Mapping: DATA LOAD + RENDER
-// Fetches GPS data and renders markers onto the map
-// ====================================================================
+let gpsRetryCount = 0;
+
 async function loadMap() {
     const status = document.getElementById("mapStatus");
-    if (status) status.textContent = "";
+
+    // ✅ Clear markers once at start
+    if (markerLayer) {
+        markerLayer.clearLayers();
+    }
 
     try {
-        if (status) {
+        // ✅ First call only → show loading
+        if (gpsRetryCount === 0 && status) {
             status.innerHTML = `
-                ⏳ <strong>Loading GPS data…</strong><br>
-                Reading metadata from images.
+                <div class="map-status loading">
+                    ⏳ <strong>Loading GPS data…</strong><br>
+                    Reading metadata from images.
+                </div>
             `;
         }
 
@@ -774,33 +863,59 @@ async function loadMap() {
         });
 
         const gps = await res.json();
-        console.log("GPS RESPONSE:", gps);
 
+        // ✅ EMPTY GPS CASE
         if (!gps || gps.length === 0) {
-            if (status) {
-                status.innerHTML = `
-            ⏳ <strong>Scanning for GPS data…</strong><br>
-            This can take a moment after selecting a folder.
-        `;
+
+            let prog = { active: false };
+
+            try {
+                const progRes = await fetch("/api/progress");
+                prog = await progRes.json();
+            } catch {}
+
+            // ✅ STILL SCANNING
+            if (prog.active) {
+                if (status) {
+                    status.innerHTML = `
+                        <div class="map-status loading">
+                            ⏳ <strong>Scanning for GPS data…</strong><br>
+                            Extracting metadata from images.
+                        </div>
+                    `;
+                }
+
+                setTimeout(loadMap, 1000);
+                return;
             }
 
-            // ✅ retry once (worker still processing)
-            setTimeout(loadMap, 1000);
+            // ✅ DONE → NO GPS → FINAL STATE
+            if (status) {
+
+                status.innerHTML = `
+    <div class="map-status warning">
+        ⚠️ <strong>No GPS data found</strong><br>
+        Click on the map to choose a location.
+    </div>
+`;
+
+            }
 
             return;
         }
 
+        // ✅ SUCCESS
+        gpsRetryCount = 0;
 
-        if (!map) {
-            console.warn("Map not initialised yet");
-            return;
-        }
+        if (!map) return;
 
         if (status) {
             status.innerHTML = `
-                <i class="bi bi-geo-alt-fill text-success"></i>
-                <strong>Showing ${gps.length} photo locations</strong><br>
-                Locations are based on EXIF GPS data.
+                <div class="map-status success">
+                    <i class="bi bi-geo-alt-fill"></i>
+                    <strong>Showing ${gps.length} photo locations</strong><br>
+                    Locations are based on EXIF GPS data.
+                </div>
             `;
         }
 
@@ -808,8 +923,80 @@ async function loadMap() {
 
     } catch (err) {
         console.warn("GPS load failed:", err);
-        if (status) status.textContent = "Unable to load GPS data.";
+
+        if (status) {
+            status.innerHTML = `
+                <div class="map-status warning">
+                    ⚠️ <strong>Unable to load GPS data</strong>
+                </div>
+            `;
+        }
     }
+}
+
+function showManualLocation(lat, lng) {
+    const status = document.getElementById("mapStatus");
+
+    if (!status) return;
+
+    status.innerHTML = `
+        <div class="map-status info">
+            📍 <strong>Selected location</strong><br>
+            ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>
+
+            <button id="applyGpsBtn"
+                    class="btn btn-sm btn-primary mt-2">
+                Apply to all images
+            </button>
+        </div>
+    `;
+
+    document.getElementById("applyGpsBtn").onclick = applyManualGPS;
+}
+
+function applyManualGPS() {
+    if (!manualLocation) return;
+
+    console.log("✅ Applying manual GPS:", manualLocation);
+
+    const lat = manualLocation.lat;
+    const lon = manualLocation.lng;
+
+    // ✅ Clear current markers
+    markerLayer.clearLayers();
+
+    // ✅ ADD NEW MARKERS (this is the missing piece)
+    // Simulate all photos now being at this location
+    for (let i = 0; i < thumbnails.length; i++) {
+        L.marker([lat, lon])
+            .addTo(markerLayer)
+            .bindPopup("Manual location");
+    }
+
+    // ✅ Update UI
+    const status = document.getElementById("mapStatus");
+    if (status) {
+        status.innerHTML = `
+            <div class="map-status success">
+                ✅ <strong>Manual location applied</strong><br>
+                ${lat.toFixed(5)}, ${lon.toFixed(5)}
+            </div>
+        `;
+    }
+    // ✅ Show EXIFTool command (real-world use)
+    showExifCommand(lat, lon);
+}
+function showExifCommand(lat, lon) {
+    const status = document.getElementById("mapStatus");
+
+    const cmd = `exiftool -GPSLatitude=${lat} -GPSLongitude=${lon} "*.JPG"`;
+
+    status.innerHTML += `
+        <div class="map-status mt-2">
+            🛠 <strong>EXIFTool command:</strong><br>
+            <code>${cmd}</code>
+        </div>
+    `;
 }
 
 function renderMapMarkers(points, start = 0, chunkSize = 25) {
@@ -820,9 +1007,11 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
     for (let i = start; i < end; i++) {
         const p = points[i];
 
-        L.marker([p.lat, p.lon])
-            .addTo(map)
-            .bindPopup(`<b>${p.filename || "Photo"}</b>`);
+        const marker = L.marker([p.lat, p.lon]);
+        marker.bindPopup(`<b>${p.filename || "Photo"}</b>`);
+
+        markerLayer.addLayer(marker);   // ✅ IMPORTANT
+
     }
 
     if (end < points.length) {
@@ -941,9 +1130,6 @@ document.addEventListener("keydown", (e) => {
 // ====================================================================
 // INITIALIZE
 // ====================================================================
-// ====================================================================
-// INITIALIZE
-// ====================================================================
 document.addEventListener("DOMContentLoaded", () => {
     // ✅ Initial SD button state
     setSDButtonState('initial');
@@ -981,10 +1167,10 @@ if (!analyzeBtn) {
         analyzeInProgress = true;
         analyzeBtn.disabled = true;
 
-        showGlobalStatus(
-            "⏳ <strong>Analyzing card…</strong><br>" +
-            "Reading folders and metadata. This may take a moment."
-        );
+        updateProgress(`
+    ⏳ <strong>Scanning folders…</strong><br>
+    Detecting folder structure on the card
+`);
 
         showAnalyzeStatus("⏳ Analyzing card…");
 
@@ -1007,6 +1193,11 @@ if (!analyzeBtn) {
             });
 
             const data = await res.json();
+            updateProgress(`
+    📊 <strong>Folders found:</strong> ${data.analysis.folders.length}<br>
+    Preparing photo overview
+`);
+
 
             if (!data.success) {
                 showAnalyzeStatus("⚠️ Analysis failed.");
@@ -1016,8 +1207,16 @@ if (!analyzeBtn) {
             imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
             analyzedFolders = data.analysis.folders;
 
+            updateProgress(`
+    📸 <strong>Preparing thumbnails…</strong><br>
+    Loading preview images
+`);
+
             renderAnalyzeFolders();
             switchStep(2);
+
+            showGlobalStatus("✅ Analysis complete");
+            setTimeout(clearGlobalStatus, 1500);
 
         } catch (err) {
             console.error("Analyze failed:", err);
@@ -1027,7 +1226,5 @@ if (!analyzeBtn) {
             analyzeBtn.disabled = false;
             clearAnalyzeStatus();
         }
-
     };
-
 }

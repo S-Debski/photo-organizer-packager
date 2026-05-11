@@ -125,12 +125,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Design Decisions/Index.md.md",
+                "file": "Design Decisions/10 - Code Boundaries.md.md",
                 "mode": "source",
                 "source": true
               },
               "icon": "lucide-file",
-              "title": "Index.md"
+              "title": "10 - Code Boundaries.md"
             }
           }
         ],
@@ -298,6 +298,7 @@
   },
   "active": "6c94c9b475b69c52",
   "lastOpenFiles": [
+    "Design Decisions/Index.md.md",
     "Releases/File Responsibilities (Design Contract).md.md",
     "readme.md.md",
     "Testing/Platform-Testing-Example.md.md",
@@ -318,7 +319,6 @@
     "Design Decisions/CTX.md",
     "What the files do.md",
     "Releases/Index.md.md",
-    "Design Decisions/Index.md.md",
     "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
     "Design Decisions/07 - Pre‑Import Workflow.md.md",
     "Design Decisions/00 - Documentation Style.md.md",

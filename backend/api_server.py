@@ -33,6 +33,10 @@ from backend.routes.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
 from backend.routes.gps_data import api_gps_data
 
+#Logging
+import logging
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
 # -----------------------------------------------------------------------------
 # Paths (CRITICAL — DO NOT REMOVE)
 # -----------------------------------------------------------------------------
@@ -127,6 +131,16 @@ def thumbs():
     return api_thumbs(ctx, request.json)
 
 # -----------------------------------------------------------------------------
+# EXIF progress tracking
+# -----------------------------------------------------------------------------
+from workers.exif_scanner import progress_state
+
+@app.route("/api/progress")
+def api_progress():
+    touch_activity()
+    return jsonify(progress_state)
+
+# -----------------------------------------------------------------------------
 # Photo proxy (serve thumbnails / images)
 # -----------------------------------------------------------------------------
 @app.route("/api/photo-proxy")
@@ -151,7 +165,7 @@ def full_image():
 @app.route("/api/gps-data", methods=["POST"])
 def gps_data():
     touch_activity()
-    print("📡 /api/gps-data called")
+    #print("📡 /api/gps-data called")
     return api_gps_data(ctx)
 
 

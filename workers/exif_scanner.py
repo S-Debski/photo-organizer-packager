@@ -18,7 +18,11 @@ from photo_core.mapping.exif_dates import (
 from photo_core.mapping.quality_classification import extract_exif_gps
 
 SCAN_INTERVAL = 5  # seconds between idle checks
-
+progress_state = {
+    "total": 0,
+    "processed": 0,
+    "active": False
+}
 
 def exif_scanner_worker(ctx):
     """
@@ -40,7 +44,8 @@ def exif_scanner_worker(ctx):
             time.sleep(SCAN_INTERVAL)
             continue
 
-        print("ACTIVE FOLDER IN WORKER:", active)
+        # DEBUG ONLY
+        # print("ACTIVE FOLDER IN WORKER:", active)
 
         if not active or not os.path.isdir(active):
             time.sleep(SCAN_INTERVAL)
@@ -49,6 +54,7 @@ def exif_scanner_worker(ctx):
         cache_key = f"exif::{os.path.abspath(active)}"
         if cache_key in ctx.exif_cache:
             time.sleep(SCAN_INTERVAL)
+            progress_state["active"] = False
             continue
 
         log_info(ctx, f"[EXIF] Scanning JPEGs in {active}")
@@ -56,15 +62,22 @@ def exif_scanner_worker(ctx):
         records = []
         count = 0
 
-        for path in iter_jpegs(active):
+        files = list(iter_jpegs(active))  # ✅ materialise list once
+
+        progress_state["total"] = len(files)
+        progress_state["processed"] = 0
+        progress_state["active"] = True
+
+        for i, path in enumerate(files):
             try:
                 gps = extract_exif_gps(path)
-                # ✅ DEBUG (add this)
-                print("📍 GPS RAW:", gps)
-                if gps:
-                    print("✅ GPS FOUND:", gps)
-                else:
-                    print("❌ NO GPS:", path)
+                # ✅ DEBUG
+                if False:  # DEBUG
+                    print("📍 GPS RAW:", gps)
+                    if gps:
+                        print("✅ GPS FOUND:", gps)
+                    else:
+                        print("❌ NO GPS:", path)
 
                 records.append({
                     "path": path,
@@ -74,7 +87,7 @@ def exif_scanner_worker(ctx):
                     "gps": extract_exif_gps(path),
                 })
                 count += 1
-
+                progress_state["processed"] = i + 1
                 if count % 250 == 0:
                     log_info(ctx, f"[EXIF] Scanned {count} images...")
             except Exception as e:
@@ -83,6 +96,7 @@ def exif_scanner_worker(ctx):
         ctx.exif_cache[cache_key] = records
         ctx.exif_records = records
         log_info(ctx, f"[EXIF] Completed: {count} JPEGs scanned")
+        progress_state["active"] = False
 
         time.sleep(SCAN_INTERVAL)
 

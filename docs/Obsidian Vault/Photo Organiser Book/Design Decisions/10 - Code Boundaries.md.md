@@ -169,3 +169,80 @@ Pre-Import may derive but must not create directories or modify source files.
   - No partial selection applied
   - Operation aborts safely
 ---
+
+Files structure:
+🟦 1. Frontend (UI layer)
+📂 ui/static/js/main.js   ← ⭐ your main control file
+ui/static/css/styles.css
+templates/index.html
+
+✅ Responsibilities
+
+Step navigation (wizard)
+Detect cards
+Analyze trigger
+Thumbnail loading
+Progress UI (what we just added)
+
+
+🟩 2. Backend API layer
+📂 backend/api_server.py
+backend/routes/
+    analyze_card.py
+    thumbs.py
+    gps_data.py
+    set_active_folder.py
+    log_stream.py
+
+✅ Responsibilities
+
+exposes /api/... endpoints
+acts as controller layer
+passes requests to core logic
+
+
+🟨 3. Core logic (this is the important bit)
+📂 photo_core/mapping/
+    analyze_card.py
+    exif_scanner.py   ← ⭐ IMPORTANT
+    gps_data.py
+    thumbnailer.py
+
+
+👉 This is where:
+
+folders are analyzed ✅
+EXIF is read ✅
+thumbnails are prepared ✅
+
+
+🟥 4. Workers (background processing)
+📂 workers/exif_scanner.py   ← ⭐ ALSO IMPORTANT
+workers/thumbnailer.py
+
+
+👉 This is where:
+
+long-running EXIF work actually happens
+your progress tracking must hook in
+
+
+
+DATA FLOW:
+Full data flow (this is the important map)
+[ main.js ]
+   ↓
+POST /api/analyze-card
+   ↓
+backend/routes/analyze_card.py
+   ↓
+photo_core/mapping/analyze_card.py
+   ↓
+workers/exif_scanner.py   ← ✅ EXIF LOOP (progress lives here)
+   ↓
+(progress state updated)
+   ↑
+GET /api/progress
+   ↑
+main.js → pollExifProgress()
+

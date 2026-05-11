@@ -35,7 +35,8 @@ def extract_gps_points(records):
     for record in records:
         gps = record.get("gps")
 
-        print("🔎 RECORD GPS:", gps)  # ✅ keep debug
+        # DEBUG ONLY
+        # print("🔎 RECORD GPS:", gps)
 
         if not gps:
             continue
@@ -43,7 +44,7 @@ def extract_gps_points(records):
         lat = gps.get("lat")
         lon = gps.get("lon")
 
-        # ✅ FIX: explicit None check (NOT truthy check)
+        # ✅ explicit None check
         if lat is None or lon is None:
             continue
 
@@ -53,6 +54,7 @@ def extract_gps_points(records):
             "path": record.get("path")
         })
 
-    print("✅ TOTAL GPS POINTS:", len(points))  # ✅ debug
+    # ✅ Optional debug (quiet by default)
+    # print("✅ TOTAL GPS POINTS:", len(points))
 
     return points
