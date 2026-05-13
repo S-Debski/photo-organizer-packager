@@ -1,16 +1,33 @@
-# Role: Application module (see Stability Contract)
-# utils/fs_utils.py
+# ============================================================================
+# Role: File system utilities (see Stability Contract)
+# File: utils/fs_utils.py
+#
+# Responsibilities:
+#   - Iterate image files (RAW + JPG)
+#   - Provide specialised iterators for UI and processing
+# ============================================================================
+
 import os
 
-# JPEG for EXIF + thumbnails (fast & safe)
-IMAGE_EXTS_JPEG = {".jpg", ".jpeg"}
+# ✅ Define extensions ONCE
+IMAGE_EXTS_JPEG = (".jpg", ".jpeg")
+IMAGE_EXTS_RAW = (
+    ".raf",                 # Fuji ✅
+    ".cr2", ".cr3", ".crw", # Canon ✅ (incl 5D classic era)
+    ".nef", ".nrw",         # Nikon ✅ (future-safe)
+    ".arw", ".sr2", ".srf", # Sony ✅
+    ".orf",                 # Olympus ✅ (E-500)
+    ".pef",                 # Pentax ✅ (K10D)
+    ".rw2",                 # Panasonic ✅
+    ".dng"                  # Adobe ✅
+)
 
-# RAW formats for fallback
-IMAGE_EXTS_RAW = {
-    ".cr2", ".cr3", ".nef", ".arw", ".raf",
-    ".orf", ".rw2", ".dng"
-}
+IMAGE_EXTS_ALL = IMAGE_EXTS_JPEG + IMAGE_EXTS_RAW
+DEBUG_COPY = False
 
+# -----------------------------------------------------------------------------
+# Working directory default
+# -----------------------------------------------------------------------------
 def get_default_working_base():
     return os.path.join(
         os.path.expanduser("~"),
@@ -19,32 +36,48 @@ def get_default_working_base():
     )
 
 
-def iter_jpegs(root):
-    """Yield JPEGs only — these go to EXIF + preview."""
-    for base, _, files in os.walk(root):
-        for fn in files:
-
-            # ✅ Ignore macOS AppleDouble metadata files
-            if fn.startswith("._"):
+# -----------------------------------------------------------------------------
+# Core iterator (ALL images)
+# -----------------------------------------------------------------------------
+def iter_images(folder):
+    """Yield ALL supported images (JPG + RAW)."""
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.startswith("._"):
                 continue
 
-            if os.path.splitext(fn)[1].lower() in IMAGE_EXTS_JPEG:
-                yield os.path.join(base, fn)
+            ext = os.path.splitext(f)[1].lower()
+            if ext in IMAGE_EXTS_ALL:
+                yield os.path.join(root, f)
 
 
+# -----------------------------------------------------------------------------
+# JPEG iterator (UI / thumbnails)
+# -----------------------------------------------------------------------------
+def iter_jpegs(folder):
+    """Yield JPEG preview files only."""
+    for path in iter_images(folder):
+        ext = os.path.splitext(path)[1].lower()
 
-def iter_raws(root):
-    """Yield RAW files — fallback when no JPEGs exist."""
-    for base, _, files in os.walk(root):
-        for fn in files:
+        if ext in IMAGE_EXTS_JPEG:
+            yield path
 
-            # ✅ Ignore macOS AppleDouble metadata files
-            if fn.startswith("._"):
-                continue
 
-            if os.path.splitext(fn)[1].lower() in IMAGE_EXTS_RAW:
-                yield os.path.join(base, fn)
+# -----------------------------------------------------------------------------
+# RAW iterator (advanced / fallback)
+# -----------------------------------------------------------------------------
+def iter_raws(folder):
+    """Yield RAW source files only."""
+    for path in iter_images(folder):
+        ext = os.path.splitext(path)[1].lower()
 
+        if ext in IMAGE_EXTS_RAW:
+            yield path
+
+
+# -----------------------------------------------------------------------------
+# Cleanup utilities
+# -----------------------------------------------------------------------------
 def cleanup_card_metadata(root):
     """
     Remove OS-generated metadata files from camera cards.
@@ -62,7 +95,6 @@ def cleanup_card_metadata(root):
                 except Exception:
                     pass
 
-        # macOS metadata dirs
         for d in (".Spotlight-V100", ".Trashes"):
             if d in dirs:
                 try:
@@ -73,29 +105,25 @@ def cleanup_card_metadata(root):
 
     return removed
 
+
+# -----------------------------------------------------------------------------
+# Folder discovery
+# -----------------------------------------------------------------------------
 def list_candidate_folders(sd_root):
     """
     Prefer camera folders inside DCIM.
     If no DCIM, fallback to top-level folders.
     """
     dcim = os.path.join(sd_root, "DCIM")
+
     if os.path.isdir(dcim):
-        # Camera standard: DCIM/100xxxx, 101xxxx, etc.
         for name in os.listdir(dcim):
             p = os.path.join(dcim, name)
             if os.path.isdir(p):
                 yield p
         return
 
-    # Fall back to root-level folders
     for name in os.listdir(sd_root):
         p = os.path.join(sd_root, name)
         if os.path.isdir(p):
             yield p
-
-    def iter_images(root):
-        """
-        Backward‑compatible alias for modules still expecting iter_images().
-        JPEG‑only for performance and safety.
-        """
-        yield from iter_jpegs(root)

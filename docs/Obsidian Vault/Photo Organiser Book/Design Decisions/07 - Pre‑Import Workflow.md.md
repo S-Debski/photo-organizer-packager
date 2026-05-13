@@ -119,3 +119,25 @@ Diagnostics only.
 ```text
 
 {destination_confirmed:true,culling_applied:false}
+
+
+## Metadata Intent (GPS)
+
+Pre-Import may capture metadata intent but must not apply it.
+
+Example:
+- Manual GPS selection from Mapping step
+
+Stored as:
+- `ctx.manual_gps = { lat, lon }`
+
+### Rules
+- Must be explicit user input
+- Must be previewable
+- Must be mutable until execution starts
+- Must be frozen before Organize executes
+- Must not trigger file mutation
+
+### Notes
+- This is informational at this stage
+- Actual EXIF writing occurs post-organize

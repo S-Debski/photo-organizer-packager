@@ -8,6 +8,30 @@ Its primary goal is to move photos out of temporary or removable media and into 
 If unsure, it does less — not more.
 
 ---
+### Organize
+
+- Requires completed analysis and explicit confirmation
+- Only step allowed to prepare files for mutation
+- Progress must be visible
+- Must not auto-start or run silently
+
+### Responsibilities
+- Copy files to working directory
+- Prepare dataset for execution stage
+- Emit progress and completion state
+
+### Must
+- Operate only on ctx.input_files
+- Respect mutex locking
+- Produce deterministic output
+
+### Must Not
+- Modify source files
+- Perform analysis or decision-making
+
+### Output
+- Files exist in working directory
+- Ready for metadata mutation stage
 
 ## Behaviour
 

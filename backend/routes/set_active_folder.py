@@ -8,14 +8,15 @@ from datetime import datetime
 from flask import jsonify
 
 from utils.fs_utils import get_default_working_base
-
+from utils.fs_utils import IMAGE_EXTS_ALL
 
 def copy_to_working(src_folder, dst_folder):
     copied_files = []
 
     for root, _, files in os.walk(src_folder):
         for f in files:
-            if f.lower().endswith((".jpg", ".jpeg")):
+            from utils.fs_utils import IMAGE_EXTS_ALL
+            if f.lower().endswith(IMAGE_EXTS_ALL):
                 src_path = os.path.join(root, f)
 
                 # ✅ preserve subfolder structure
@@ -27,6 +28,9 @@ def copy_to_working(src_folder, dst_folder):
 
                 shutil.copy2(src_path, dst_path)
                 copied_files.append(dst_path)
+##   for root, _, files in os.walk(src_folder):
+##        for f in files:
+##            print("FOUND:", f)
 
     return copied_files
 

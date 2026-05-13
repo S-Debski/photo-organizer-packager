@@ -246,3 +246,15 @@ GET /api/progress
    ↑
 main.js → pollExifProgress()
 
+
+## Mutation Boundary
+
+File mutation (EXIF, GPS, metadata) is isolated to:
+
+- Post‑Organize stage only
+
+UI → API → Mapping → Pre‑Import → Organize  
+→ ✅ Mutation happens ONLY after this point
+
+Any mutation earlier is a contract violation.
+

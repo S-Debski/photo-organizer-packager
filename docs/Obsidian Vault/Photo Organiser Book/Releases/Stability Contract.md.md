@@ -26,6 +26,9 @@ Backlink reference (for feature notes, PRs, and refactors):
 - No background jobs start without explicit user intent
 - UI reflects state; UI actions alone do not change state
 - Heavy work is gated by explicit prerequisites
+- Metadata mutation is strictly post-organize
+- Mapping and Pre‑Import remain mutation-free
+
 
 ---
 
@@ -241,6 +244,10 @@ This section anchors the contract to code ownership.
 - Job creation & execution
 - `bindOrganizeEvents`
 - Progress reporting
+- Rules:
+	  - Organize is the final preparation step before mutation
+- No metadata mutation occurs during Organize
+- All metadata mutation occurs in Post‑Organize stage
 
 ### Async Jobs
 - Job lifecycle model

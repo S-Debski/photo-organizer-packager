@@ -163,3 +163,25 @@ These responsibilities are intentionally kept separate.
     
     - Expanded classification capabilities
     - Core read‑only and non‑destructive guarantees remain unchanged
+  ## GPS Selection Behaviour
+
+Mapping may allow the user to select or assign a location.
+
+### Responsibilities
+- Display detected GPS data
+- Allow manual location selection via map UI
+
+### Must
+- Provide visual feedback only (markers, previews)
+- Expose selected location to Pre‑Import layer
+
+### Must Not
+- Write GPS data to files
+- Trigger EXIF updates
+- Modify working directory or source files
+
+### Output
+- Manual selection passed as:
+  - `ctx.manual_gps = { lat, lon }`
+- 
+      

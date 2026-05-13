@@ -161,6 +161,21 @@ Backlink:
 - Run implicitly
 - Be triggered from navigation alone
 
+### Organize (extended)
+- Consumes fully resolved ctx
+- Copies files only
+- Applies metadata mutations (e.g. GPS)
+- No interpretation or prompting
+
+Must:
+- Apply all mutations to working directory only
+- Use ctx as immutable input
+- Emit progress and failures
+
+Must Not:
+- Read from source paths
+- Perform analysis or inference
+
 ---
 
 ## Build & Packaging

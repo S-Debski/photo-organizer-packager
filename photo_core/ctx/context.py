@@ -1,16 +1,21 @@
 # Role: Application module (see Stability Contract)
 
 # context.py
-import os
 import threading
 import queue
-
+import os
 
 class AppContext:
     def __init__(self):
         self.shutdown_event = threading.Event()
-        self.working_base_dir = None  # user-selected base directory
+        # ------------------------------------------------------------
+        # Scan/write coordination lock
+        # ------------------------------------------------------------
+        # Ensures EXIF scan and GPS write never run at the same time
+        #
+        self.scan_lock = threading.Lock()
 
+        self.working_base_dir = None  # user-selected base directory
         self.working_dir = None
         self.session_id = None
 
@@ -20,10 +25,31 @@ class AppContext:
         self.thumb_cache = {}
 
         self.config = {}
+        self.scan_enabled = True
+
+        # ------------------------------------------------------------
+        # Unified progress tracking (scan + write)
+        # ------------------------------------------------------------
+        # Used across:
+        # - EXIF scanner (read phase)
+        # - GPS write (mutation phase)
+        #
+        # This replaces fragmented progress systems and provides
+        # a single source of truth for UI progress display.
+        #
+        self.progress = {
+            "stage": "idle",  # "scan" | "write" | "idle"
+            "total": 0,
+            "done": 0,
+            "active": False,
+            "message": ""
+        }
+
         self.state = {
             "current_sd_root": None,
             "current_active_folder": None,
             "job": {"active": False, "progress": 0, "status": "Idle"}
+
         }
 
         # Logging bus for SSE (currently unused / deferred)

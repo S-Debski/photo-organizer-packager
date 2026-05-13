@@ -133,14 +133,29 @@ def thumbs():
     return api_thumbs(ctx, request.json)
 
 # -----------------------------------------------------------------------------
-# EXIF progress tracking
+# EXIF progress tracking (read Phase)
 # -----------------------------------------------------------------------------
-from workers.exif_scanner import progress_state
-
 @app.route("/api/progress")
 def api_progress():
     touch_activity()
-    return jsonify(progress_state)
+    return jsonify(getattr(ctx, "progress", {
+        "stage": "idle",
+        "total": 0,
+        "done": 0,
+        "active": False,
+        "message": ""
+    }))
+
+# -----------------------------------------------------------------------------
+# EXIF progress tracking (write Phase)
+# -----------------------------------------------------------------------------
+@app.route("/api/write-progress")
+def get_write_progress():
+    return jsonify(getattr(ctx, "write_progress", {
+        "total": 0,
+        "done": 0,
+        "active": False
+    }))
 
 # -----------------------------------------------------------------------------
 # Photo proxy (serve thumbnails / images)
@@ -169,6 +184,12 @@ def gps_data():
     touch_activity()
     #print("📡 /api/gps-data called")
     return api_gps_data(ctx)
+# Write GPS back to original files in working dir
+from backend.routes.write_gps import api_write_gps
+
+@app.route("/api/write-gps", methods=["POST"])
+def write_gps():
+    return api_write_gps(ctx, request.json)
 
 ### Let user choose own dir - default if not
 @app.route("/api/set-working-dir", methods=["POST"])

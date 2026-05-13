@@ -4,11 +4,11 @@ Documentation format follows [[Documentation Style (Canonical)]].
 
 ---
 ## Pipeline
-
 1. CTX
 2. Mapping
-3. Pre-Import
+3. Pre‑Import
 4. Organize
+5. Post‑Organize (Metadata Mutation)
 ---
 ## Core Concepts
 - [[06 - Mapping]]
@@ -18,6 +18,33 @@ Documentation format follows [[Documentation Style (Canonical)]].
 - [[05 - Why Mapping Is Informational]]
   
 ---
+## Post‑Organize (Metadata Mutation)
+
+- Applies metadata updates (e.g. GPS, EXIF)
+- Operates strictly on working directory files
+- Consumes immutable ctx
+- Runs only after Organize completes
+
+### Responsibilities
+- Apply user‑defined metadata (manual GPS, etc.)
+- Ensure all mutations occur on copied files only
+- Maintain deterministic, repeatable behaviour
+
+### Must
+- Operate on `ctx.input_files` only
+- Use working directory paths exclusively
+- Be idempotent (safe to re-run)
+
+### Must Not
+- Access source (SD card) files
+- Perform analysis or inference
+- Modify selection or structure
+
+### Invariants
+- No mutation occurs before Organize
+- Source files remain untouched
+- All mutations are applied post-copy only
+
 ## Supporting Decisions
 - [[04 - GPS Quality Classification]]
 ---

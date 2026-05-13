@@ -111,20 +111,6 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "v2.9 Dev Themes.md",
-                "mode": "source",
-                "source": true
-              },
-              "icon": "lucide-file",
-              "title": "v2.9 Dev Themes"
-            }
-          },
-          {
-            "id": "6c94c9b475b69c52",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
                 "file": "Design Decisions/10 - Code Boundaries.md.md",
                 "mode": "source",
                 "source": true
@@ -134,7 +120,7 @@
             }
           }
         ],
-        "currentTab": 8
+        "currentTab": 7
       }
     ],
     "direction": "vertical"
@@ -296,34 +282,34 @@
       "bases:Create new base": false
     }
   },
-  "active": "6c94c9b475b69c52",
+  "active": "83df029bc5579d5d",
   "lastOpenFiles": [
+    "Releases/Stability Contract.md.md",
+    "Design Decisions/11 - Post-Organize (Metadata Mutation).md.md",
+    "Design Decisions/08 - Import Session Metadata.md.md",
+    "Design Decisions/Organize – Behaviour & Guarantees.md.md",
+    "Design Decisions/06 - Mapping.md",
+    "Design Decisions/07 - Pre‑Import Workflow.md.md",
     "Design Decisions/Index.md.md",
     "Releases/File Responsibilities (Design Contract).md.md",
+    "Releases/Index.md.md",
+    "Infer title from date and let user edit details.md",
+    "Testing/Organize Testing Checklist (v2.7).md.md",
+    "Design Decisions/10 - Code Boundaries.md.md",
+    "What the files do.md",
+    "v2.9 Dev Themes.md",
     "readme.md.md",
+    "Architecture Hygiene.md.md",
+    "Design Decisions/01 - CTX.md",
+    "Design Decisions/00 - Documentation Style.md.md",
     "Testing/Platform-Testing-Example.md.md",
     "Testing/Platform Testing.md",
-    "Infer title from date and let user edit details.md",
-    "v2.9 Dev Themes.md",
-    "Releases/Stability Contract.md.md",
     "Testing/v2.7 Mapping & Organize Freeze.md.md",
     "Testing/Release Checklist.md.md",
-    "Architecture Hygiene.md.md",
-    "Design Decisions/10 - Code Boundaries.md.md",
     "Untitled",
     "Architecture Hygiene.md",
     "Design Decisions/Why Mapping Is Informational.md.md",
     "Design Decisions/Mapping.md",
-    "Design Decisions/Known `ctx` Fields.md",
-    "Design Decisions/GPS Quality Classification.md.md",
-    "Design Decisions/CTX.md",
-    "What the files do.md",
-    "Releases/Index.md.md",
-    "Design Decisions/09 - Directory Template Resolution (Pre‑Import).md",
-    "Design Decisions/07 - Pre‑Import Workflow.md.md",
-    "Design Decisions/00 - Documentation Style.md.md",
-    "Design Decisions/08 - Import Session Metadata.md.md",
-    "Design Decisions/06 - Mapping.md",
-    "Design Decisions/05 - Why Mapping Is Informational.md.md"
+    "Design Decisions/Known `ctx` Fields.md"
   ]
 }
