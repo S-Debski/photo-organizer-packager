@@ -46,7 +46,10 @@ let folderGPS = {};
 let folderGroups = {};
 let selectedFolder = null;       // "USB" / "Medburn"
 let selectedFolderPath = null;   // full path → F:\DCIM\929_FUJI
+let cameraChart = null;
+let lensChart = null;
 
+const $ = id => document.getElementById(id);
 // ====================================================================
 // UTILITIES (shared across all steps)
 // ====================================================================
@@ -130,8 +133,6 @@ function setSDButtonState(state) {
         if (hint) hint.textContent = 'Cards detected. Click to rescan.';
     }
 }
-
-function $(id) { return document.getElementById(id); }
 
 function log(msg) {
     const area = $("log");
@@ -574,20 +575,22 @@ function renderAnalyzeFolders() {
 
                 item.classList.add("selected");
 
-                // ✅ Mark mapping as next step
+// ✅ Mark mapping (or next step) as recommended
                 document.querySelectorAll('#wizardNav .sidebar-item')
                     .forEach(el => el.classList.remove('recommended'));
 
-                const mapStep = document.querySelector('[data-step="5"]');
-                mapStep?.classList.add('recommended');
+                const nextStep = document.querySelector('[data-step="5"]');
+                nextStep?.classList.add('recommended');
 
-                // ✅ Show confirmed working directory (read‑only)
-                showGlobalStatus(`
-                    ✅ <strong>Folder selected.</strong><br>
-                    Working directory: ${data.working_dir}<br>
-                    You can now view stats, thumbnails, or mapping.
-                `);
+// ✅ Update working directory inline (preferred UX)
+                const wdEl = document.getElementById("workingDirDisplay");
+                if (wdEl) {
+                    wdEl.textContent = data.working_dir;
+                }
 
+// ✅ Optional: subtle, temporary confirmation instead of big popup
+                showGlobalStatus("✅ Folder ready.");
+                setTimeout(() => showGlobalStatus(""), 2000);
             } catch (err) {
                 console.error("❌ Error setting active folder:", err);
             }
@@ -608,127 +611,307 @@ let lensStats = {};
 function gatherStats() {
     cameraStats = {};
     lensStats = {};
-
-    // ✅ Guard: do nothing if no folder selected
-    if (!selectedFolder) {
-        showGlobalStatus("⚠️ No folder selected.");
+    console.log("Analyzed folders:", analyzedFolders);
+    if (!analyzedFolders || analyzedFolders.length === 0) {
+        showGlobalStatus("⚠️ No folders analysed.");
         return;
     }
+    const statsSummary = document.getElementById("statsSummary");
 
-    const folder = analyzedFolders.find(f => f.path === selectedFolder);
+    if (statsSummary) {
+        const totalPhotos = analyzedFolders.reduce(
+            (sum, f) => sum + (f.photo_count || 0),
+            0
+        );
 
-    if (!folder) return;
+        statsSummary.innerHTML = `
+        <div class="mb-2 text-muted">
+            Total photos: <strong>${totalPhotos}</strong> across ${analyzedFolders.length} folders
+        </div>
+    `;
+    } else {
+        console.warn("⚠️ statsSummary element not found");
+    }
 
-    const cam = folder.camera_model || "Unknown";
-    const lens = folder.lens || "Unknown Lens";
 
-    cameraStats[cam] = folder.photo_count;
-    lensStats[lens] = folder.photo_count;
-}
+    analyzedFolders.forEach(folder => {
+        const cam = folder.camera_model || "Unknown";
+        const lens = folder.lens || "Unknown Lens";
 
-document.querySelector('[data-step="3"]')
-    ?.addEventListener("click", () => {
-        gatherStats();
-        renderCameraStats();
-        renderLensStats();
-        renderCharts();
+        const folderName = folder.path.split(/[\\/]/).pop();
+        const count = folder.photo_count || 0;
+
+        // ✅ CAMERA
+        if (!cameraStats[cam]) {
+            cameraStats[cam] = {
+                total: 0,
+                folders: {}
+            };
+        }
+
+        cameraStats[cam].total += count;
+        cameraStats[cam].folders[folderName] = count;
+
+        // ✅ LENS
+        if (!lensStats[lens]) {
+            lensStats[lens] = {
+                total: 0,
+                folders: {}
+            };
+        }
+
+        lensStats[lens].total += count;
+        lensStats[lens].folders[folderName] = count;
     });
 
+    console.log("📊 Aggregated camera stats:", cameraStats);
+    console.log("📊 Aggregated lens stats:", lensStats);
+}
 function renderCameraStats() {
-    const total = Object.values(cameraStats).reduce((a, b) => a + b, 0);
+
+    const grandTotal = Object.values(cameraStats)
+        .reduce((sum, c) => sum + c.total, 0);
 
     $('cameraStats').innerHTML =
         Object.entries(cameraStats)
-            .sort((a, b) => b[1] - a[1])
-            .map(([cam, count]) => {
-                const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
-                const folder = analyzedFolders.find(f => f.path === selectedFolder);
-                const raw = folder?.raw_count || 0;
-                const jpg = folder?.jpeg_count || 0;
-                const meta = `
-    <div class="small text-muted mt-1">
-        RAW: ${raw} · JPEG: ${jpg}
-    </div>
-`;
+            .sort((a, b) => b[1].total - a[1].total)
+            .map(([cam, data]) => {
+
+                const pctTotal = grandTotal
+                    ? ((data.total / grandTotal) * 100).toFixed(1)
+                    : "0.0";
+
+                const folderBreakdown = Object.entries(data.folders)
+                    .map(([folder, count]) => {
+                        const pct = data.total
+                            ? ((count / data.total) * 100).toFixed(1)
+                            : "0.0";
+
+                        return `
+                            <div class="small text-muted ms-3">
+                                ${folder}: ${count} (${pct}%)
+                            </div>
+                        `;
+                    })
+                    .join("");
 
                 return `
-  <div class="list-group-item bg-dark-subtle text-light">
-    <strong>${cam}</strong>
-    <span class="text-secondary">
-      — ${count} photos (${pct}%)
-    </span>
-    ${meta}
-  </div>`;
-
+                <div class="list-group-item bg-dark-subtle text-light">
+                    <strong>${cam}</strong>
+                    <span class="text-secondary">
+                        — ${data.total} photos (${pctTotal}%)
+                    </span>
+                    ${folderBreakdown}
+                </div>`;
             })
             .join('');
 }
 
 function renderLensStats() {
-    const total = Object.values(lensStats).reduce((a, b) => a + b, 0);
 
-    // ✅ Get selected folder counts
-    const folder = analyzedFolders.find(f => f.path === selectedFolder);
-    const raw = folder?.raw_count || 0;
-    const jpg = folder?.jpeg_count || 0;
+    const grandTotal = Object.values(lensStats)
+        .reduce((sum, l) => sum + l.total, 0);
 
     $('lensStats').innerHTML =
         Object.entries(lensStats)
-            .sort((a, b) => b[1] - a[1])
-            .map(([lens, count]) => {
-                const pct = total ? ((count / total) * 100).toFixed(1) : "0.0";
+            .sort((a, b) => b[1].total - a[1].total)
+            .map(([lens, data]) => {
 
-                const meta = `
-                  <div class="small text-muted mt-1">
-                      RAW: ${raw} · JPEG: ${jpg}
-                  </div>
-                `;
+                const pctTotal = grandTotal
+                    ? ((data.total / grandTotal) * 100).toFixed(1)
+                    : "0.0";
+
+                const folderBreakdown = Object.entries(data.folders)
+                    .map(([folder, count]) => {
+                        const pct = data.total
+                            ? ((count / data.total) * 100).toFixed(1)
+                            : "0.0";
+
+                        return `
+                            <div class="small text-muted ms-3">
+                                ${folder}: ${count} (${pct}%)
+                            </div>
+                        `;
+                    })
+                    .join("");
 
                 return `
-                  <div class="list-group-item bg-dark-subtle text-light">
+                <div class="list-group-item bg-dark-subtle text-light">
                     <strong>${lens}</strong>
                     <span class="text-secondary">
-                      — ${count} photos (${pct}%)
+                        — ${data.total} photos (${pctTotal}%)
                     </span>
-                    ${meta}
-                  </div>`;
+                    ${folderBreakdown}
+                </div>`;
             })
             .join('');
 }
 
-let cameraChart = null;
-let lensChart = null;
-
 function renderCharts() {
+    console.log("Camera stats for chart:", cameraStats);
+    const usePercent = document.getElementById("togglePercent")?.checked;
+
+
     if (cameraChart) cameraChart.destroy();
     if (lensChart) lensChart.destroy();
+
+    const useStacked = document.getElementById("toggleStacked")?.checked;
+
+    const cameraLabels = Object.keys(cameraStats);
+    const lensLabels = Object.keys(lensStats);
+
+    // ✅ SIMPLE MODE
+    if (!useStacked) {
+
+        cameraChart = new Chart($('chartCameras'), {
+            type: "bar",
+            data: {
+                labels: cameraLabels,
+                datasets: [{
+                    label: "Photos per Camera",
+                    data: Object.values(cameraStats).map(c => c.total),
+                    backgroundColor: "#4dc9f6"
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    x: { stacked: false },
+                    y: { stacked: false }
+                }
+            }
+        });
+
+        lensChart = new Chart($('chartLenses'), {
+            type: "bar",
+            data: {
+                labels: lensLabels,
+                datasets: [{
+                    label: "Photos per Lens",
+                    data: Object.values(lensStats).map(l => l.total),
+                    backgroundColor: "#f67019"
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    x: { stacked: false },
+                    y: { stacked: false }
+                }
+            }
+        });
+
+        return;
+    }
+
+    // ✅ ✅ STACKED MODE
+
+    const folders = [...new Set(
+        analyzedFolders.map(f => f.path.split(/[\\/]/).pop())
+    )];
+
+    const colors = [
+        "#4dc9f6", "#f67019", "#f53794",
+        "#537bc4", "#acc236", "#166a8f"
+    ];
+
+    const cameraDatasets = folders.map((folderName, i) => ({
+        label: folderName,
+        backgroundColor: colors[i % colors.length],
+        borderColor: "#111",
+        borderWidth: 1,
+        data: cameraLabels.map(cam => {
+            const value = cameraStats[cam].folders[folderName] || 0;
+
+            if (!usePercent) return value;
+
+            const total = cameraStats[cam].total || 1;
+            return (value / total) * 100;
+        })
+    }));
 
     cameraChart = new Chart($('chartCameras'), {
         type: "bar",
         data: {
-            labels: Object.keys(cameraStats),
-            datasets: [{
-                label: "Photos per Camera",
-                data: Object.values(cameraStats),
-                backgroundColor: "#4dc9f6"
-            }]
+            labels: cameraLabels,
+            datasets: cameraDatasets
         },
-        options: { responsive: true }
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: { stacked: true },
+                y: {
+                    stacked: true,
+                    max: usePercent ? 100 : undefined,
+                    ticks: {
+                        callback: value => usePercent ? value + "%" : value
+                    }
+                }
+            }
+        }
     });
+
+    // ✅ LENS STACKED
+
+    const lensDatasets = folders.map((folderName, i) => ({
+        label: folderName,
+        backgroundColor: colors[i % colors.length],
+        borderColor: "#111",
+        borderWidth: 1,
+        data: lensLabels.map(l => {
+            const value = lensStats[l].folders[folderName] || 0;
+
+            if (!usePercent) return value;
+
+            const total = lensStats[l].total || 1;
+            return (value / total) * 100;
+        })
+
+    }));
 
     lensChart = new Chart($('chartLenses'), {
         type: "bar",
         data: {
-            labels: Object.keys(lensStats),
-            datasets: [{
-                label: "Photos per Lens",
-                data: Object.values(lensStats),
-                backgroundColor: "#f67019"
-            }]
+            labels: lensLabels,
+            datasets: lensDatasets
         },
-        options: { responsive: true }
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: { stacked: true },
+                y: {
+                    stacked: true,
+                    max: usePercent ? 100 : undefined,
+                    ticks: {
+                        callback: value => usePercent ? value + "%" : value
+                    }
+                }
+
+            }
+        }
     });
 }
+
 //=====================================================================
 // Chart toggle
 //=====================================================================
@@ -752,6 +935,16 @@ toggleChartsBtn?.addEventListener('click', () => {
 
     }
 });
+
+// Re-render charts when stacked toggle changes
+document.getElementById("toggleStacked")
+    ?.addEventListener("change", () => {
+        // Only re-render if charts are visible (important!)
+        if (!chartsContainer.classList.contains('d-none')) {
+            renderCharts();
+        }
+    });
+
 
 // ====================================================================
 // STEP 4 — THUMBNAILS
@@ -792,7 +985,7 @@ function openFullImage(path) {
 }
 async function loadThumbnails() {
 
-    if (!selectedFolder) {
+    if (!analyzedFolders || analyzedFolders.length === 0) {
         console.warn("⚠️ No folder selected");
         return;
     }
@@ -1215,7 +1408,7 @@ async function applyManualGPS() {
 
     let targetImages;
 
-    if (!selectedFolder) {
+    if (!analyzedFolders || analyzedFolders.length === 0) {
         console.warn("❌ No folder selected — refusing to apply GPS globally");
         alert("Please select a folder before applying GPS");
         return;
