@@ -66,6 +66,54 @@ let inferOrganizationTitle = null;
 function updateProgress(msg) {
     showGlobalStatus(msg);
 }
+
+// ====================================================================
+// GPS Status helper - shows via badge - needed or done
+// ====================================================================
+function updateHeaderStatus() {
+    const badge = document.getElementById("gpsStatusBadge");
+
+    if (!badge || !selectedFolder) return;
+
+    if (folderGPS[selectedFolder]) {
+        badge.textContent = "📍 GPS set";
+        badge.classList.remove("text-muted");
+        badge.classList.add("text-success");
+    } else {
+        badge.textContent = "⚪ No GPS";
+        badge.classList.remove("text-success");
+        badge.classList.add("text-muted");
+    }
+}
+
+// ====================================================================
+// GPS Set lat and lon variables throughout
+// ====================================================================
+function getFolderGPS(folderName) {
+    const rawGPS = folderGPS[folderName];
+
+const gps = rawGPS ? {
+    lat: rawGPS.lat,
+    lon: rawGPS.lon ?? rawGPS.lng
+} : null;
+
+    if (!gps) return null;
+
+    return {
+        lat: gps.lat,
+        lon: gps.lon ?? gps.lng   // fallback for older entries
+    };
+}
+
+// ====================================================================
+// Folder Indicator helper -
+// ====================================================================
+function updateFolderIndicators() {
+    // just re-render selector
+    if (currentImages) {
+        renderFolderSelector(currentImages);
+    }
+}
 // ====================================================================
 // Pairing helper - keeps jpg and Raw of same photo together
 // ====================================================================
@@ -409,16 +457,31 @@ function renderFolderSelector(images) {
     // ✅ clear existing UI
     container.innerHTML = "";
 
-    // ✅ create a button per folder
     Object.keys(folderGroups).forEach(folder => {
-        const btn = document.createElement("button");
 
+        const btn = document.createElement("button");
         btn.className = "btn btn-sm btn-outline-secondary m-1";
-        btn.textContent = `${folder} (${folderGroups[folder].length})`;
+
+        const rawGPS = folderGPS[folder];
+        const hasGPS = rawGPS && (rawGPS.lon != null || rawGPS.lng != null);
+
+        btn.innerHTML = `
+        📁 ${folder} (${folderGroups[folder].length})
+        <span class="ms-2 small ${hasGPS ? 'text-success' : 'text-secondary'}">
+            ${hasGPS ? '📍 GPS set' : '⚪ No GPS'}
+        </span>
+    `;
 
         btn.onclick = () => {
 
             selectedFolder = folder;
+
+            const folderNameEl = document.getElementById("currentFolderName");
+            if (folderNameEl) {
+                folderNameEl.textContent = folder;
+            }
+
+            updateHeaderStatus();
 
             const group = folderGroups[folder];
             selectedFolderGroup = group;
@@ -439,27 +502,53 @@ function renderFolderSelector(images) {
                 selectedFolderPath = null;
             }
 
-            // ✅ highlight button
             container.querySelectorAll("button")
                 .forEach(b => b.classList.remove("active"));
 
             btn.classList.add("active");
 
-            // Show gps co-ords on folder click
-            const gps = folderGPS[selectedFolder];
+            const gpsRaw = folderGPS[selectedFolder];
 
-            if (gps) {
-                manualLocation = gps;
+            const gps = gpsRaw ? {
+                lat: gpsRaw.lat,
+                lon: gpsRaw.lon ?? gpsRaw.lng
+            } : null;
 
-                document.getElementById("latInput").value = gps.lat.toFixed(6);
-                document.getElementById("lonInput").value = gps.lon.toFixed(6);
+            if (gps && gps.lat != null && gps.lon != null) {
 
-                updateFromInputs();
+                manualLocation = {lat: gps.lat, lon: gps.lon};
+
+                const latInput = document.getElementById("latInput");
+                const lonInput = document.getElementById("lonInput");
+
+                if (latInput && lonInput) {
+                    latInput.value = gps.lat.toFixed(6);
+                    lonInput.value = gps.lon.toFixed(6);
+                }
+
+                if (map) {
+                    map.setView([gps.lat, gps.lon], 14);
+                }
+
+                if (markerLayer) {
+                    markerLayer.clearLayers();
+
+                    L.marker([gps.lat, gps.lon])
+                        .addTo(markerLayer)
+                        .bindPopup(folder + " location")
+                        .openPopup();
+                }
             }
         };
 
         container.appendChild(btn);
+
     });
+}
+    // ✅ auto-select first folder
+if (!selectedFolder && Object.keys(folderGroups).length > 0) {
+    const firstBtn = container.querySelector("button");
+    if (firstBtn) firstBtn.click();
 }
 function renderAnalyzeFolders() {
     const container = document.getElementById("foldersList");
@@ -1018,18 +1107,20 @@ async function loadThumbnails() {
         }
 
 // ✅ SUCCESS: render thumbnails
-        thumbnails = data;
-        currentImages = data;   // keep full dataset
+// ✅ Ensure arrays only - keep full dataset
+// ✅ Handle both response shapes safely
+        thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
+        currentImages = Array.isArray(data) ? data : (data.images || []);
 
         $("thumbnailGallery").innerHTML = "";
 
         renderThumbnailsChunked(thumbnails, 0, 6);
 
         console.log("✅ Thumbnails loaded:", thumbnails.length);
+        console.log("✅ currentImages length:", currentImages?.length);
 
-// ✅ ✅ STEP 3: prepare folder grouping (NEW)
-        window.folderGroups = groupByFolder(currentImages);
-
+// ✅ ✅ STEP 3: prepare folder grouping
+        prepareFolderGrouping(currentImages);
     } catch (err) {
         console.error("Thumbnail load failed:", err);
     }
@@ -1041,9 +1132,10 @@ function prepareFolderGrouping(images) {
     console.log("📂 Preparing folder groups for mapping...");
 
     // ✅ ALWAYS use working directory images
-    window.folderGroups = groupByFolder(currentImages);
+    folderGroups = groupByFolder(images);
 
-    console.log("✅ Folder groups:", Object.keys(window.folderGroups));
+
+    console.log("✅ Folder groups:", Object.keys(folderGroups));
 }
 function showNextImage() {
     currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
@@ -1119,6 +1211,9 @@ Object.keys(folderGroups).forEach(folder => {
 
     const btn = document.createElement("button");
 
+    btn.className = "btn btn-sm btn-outline-secondary me-2";
+    btn.textContent = folder;
+
     btn.onclick = () => {
 
         selectedFolder = folder;
@@ -1142,17 +1237,19 @@ Object.keys(folderGroups).forEach(folder => {
             selectedFolderPath = null;
         }
 
-        console.log("📂 Selected folder:", selectedFolder);
-        console.log("📁 Folder path:", selectedFolderPath);
-
         container.querySelectorAll("button")
             .forEach(b => b.classList.remove("active"));
 
         btn.classList.add("active");
+
+        // ✅ map sync block goes here...
+
     };
 
+    // ✅ ✅ THIS IS REQUIRED
     container.appendChild(btn);
 });
+
 
 function triggerMappingAfterSelection() {
     console.log("⏳ Waiting for EXIF worker before mapping...");
@@ -1191,40 +1288,47 @@ function initMap() {
     map.setView([51.5, -0.12], 5);
 
     map.on("click", function (e) {
-        const { lat, lng } = e.latlng;
 
-        manualLocation = { lat, lng };
+    // ✅ Extract from Leaflet
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng;   // ✅ convert here
 
-        console.log("📍 Selected manual location:", manualLocation);
+    // ✅ STORE in canonical format (lat, lon)
+    manualLocation = { lat, lon };
 
-        // ✅ Clear previous marker
+    console.log("📍 Selected manual location:", manualLocation);
+
+    // ✅ Clear previous marker
+    if (markerLayer) {
         markerLayer.clearLayers();
+    }
 
-        // ✅ Add new marker
-        L.marker([lat, lng])
-            .addTo(markerLayer)
-            .bindPopup("Manual location")
-            .openPopup();
+    // ✅ Add new marker
+    L.marker([lat, lon])
+        .addTo(markerLayer)
+        .bindPopup("Manual location")
+        .openPopup();
 
-        // ✅ Zoom to selected point (THIS is where it goes ✅)
-        map.setView([lat, lng], 14);
+    // ✅ Move map
+    if (map) {
+        map.setView([lat, lon], 14);
+    }
 
-        // ✅ Show / update details panel
-        const panel = document.getElementById("locationDetails");
-        if (panel) panel.style.display = "block";
+    // ✅ Show / update panel
+    const panel = document.getElementById("locationDetails");
+    if (panel) panel.style.display = "block";
 
-        const latInput = document.getElementById("latInput");
-        const lonInput = document.getElementById("lonInput");
+    // ✅ Update input fields
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
 
-        if (latInput && lonInput) {
-            latInput.value = lat.toFixed(6);
-            lonInput.value = lng.toFixed(6);
-        }
+    if (latInput && lonInput) {
+        latInput.value = lat.toFixed(6);
+        lonInput.value = lon.toFixed(6);
+    }
 
-        showManualLocation(lat, lng);
-    });
-
-
+    showManualLocation(lat, lon);
+});
 }
 
 let gpsRetryCount = 0;
@@ -1343,7 +1447,7 @@ async function loadMap() {
     }
 }
 
-function showManualLocation(lat, lng) {
+function showManualLocation(lat, lon) {
     console.log("currentImages length:", currentImages?.length);
     console.log("selectedFolderGroup:", selectedFolderGroup);
 
@@ -1354,7 +1458,7 @@ function showManualLocation(lat, lng) {
     status.innerHTML = `
         <div class="map-status info">
             📍 <strong>Selected location</strong><br>
-            ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>
+            ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>
 
             <button id="applyGpsBtn"
                     class="btn btn-sm btn-primary mt-2">
@@ -1396,11 +1500,15 @@ function updateFromInputs() {
 }
 
 async function applyManualGPS() {
+    if (folderGPS[selectedFolder]) {
+        const ok = confirm("⚠️ This folder already has GPS.\nOverwrite?");
+        if (!ok) return;
+    }
     updateFromInputs();   // ✅ ensures latest values used
 
     if (!manualLocation) return;
     const lat = manualLocation.lat;
-    const lon = manualLocation.lon ?? manualLocation.lng;
+   const lon = manualLocation.lon;
     if (selectedFolder) {
         folderGPS[selectedFolder] = { lat, lon };
         console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
@@ -1436,7 +1544,12 @@ async function applyManualGPS() {
     }*/
 
     // when user switches folder
-    const gps = folderGPS[selectedFolder];
+    const rawGPS = folderGPS[selectedFolder];  // or folderName
+
+const gps = rawGPS ? {
+    lat: rawGPS.lat,
+    lon: rawGPS.lon ?? rawGPS.lng
+} : null;
     if (gps) {
         console.log("📍 Using saved GPS for", selectedFolder);
     }
@@ -1528,6 +1641,15 @@ async function applyManualGPS() {
         const status = document.getElementById("mapStatus");
 
         if (data.success) {
+            if (selectedFolder) {
+                folderGPS[selectedFolder] = {
+    lat: manualLocation.lat,
+    lon: manualLocation.lon   // ✅ GOOD
+};
+
+                updateFolderIndicators();
+                updateHeaderStatus();
+            }
             status.innerHTML = `
                 <div class="map-status success">
                     ✅ <strong>GPS written to EXIF</strong><br>
