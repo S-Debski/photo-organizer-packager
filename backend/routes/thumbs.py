@@ -2,13 +2,28 @@
 
 # =============================================================================
 # File: backend/routes/thumbs.py
-# Role: Return thumbnail image paths for selected folder
+#
+# Role:
+#   Return thumbnail image paths for selected folder
+#
+# Responsibilities:
+#   - Scan folder for supported image files
+#   - Return list of image paths for frontend
+#   - Provide proxy + full image endpoints
+#
+# Notes:
+#   - FAST path: no EXIF scanning
+#   - Now supports RAW + JPG pairing
 # =============================================================================
 
 import os
 from flask import jsonify, send_file
 from urllib.parse import unquote
 
+
+# =============================================================================
+# THUMBNAILS API
+# =============================================================================
 def api_thumbs(ctx, payload):
 
     folder = payload.get("folder") if payload else None
@@ -21,37 +36,35 @@ def api_thumbs(ctx, payload):
         print("⚠️ No folder available for thumbnails")
         return []
 
-from utils.fs_utils import iter_jpegs  # ✅ add at top if not already
+    if not os.path.isdir(folder):
+        print("⚠️ Invalid folder:", folder)
+        return []
 
-def api_thumbs(ctx, payload):
+    # ✅ ✅ INCLUDE BOTH JPG AND RAW
+    SUPPORTED_EXTS = (".jpg", ".jpeg", ".raf")
 
-        folder = payload.get("folder") if payload else None
+    files = []
 
-        if not folder:
-            folder = ctx.state.get("current_active_folder")
+    for root, _, filenames in os.walk(folder):
+        for f in filenames:
+            if f.lower().endswith(SUPPORTED_EXTS):
+                full_path = os.path.join(root, f)
+                files.append(full_path)
 
-        if not folder:
-            print("⚠️ No folder available for thumbnails")
-            return []
+    print(f"📸 FAST thumbnails (JPG + RAW): {len(files)}")
 
-        if not os.path.isdir(folder):
-            print("⚠️ Invalid folder:", folder)
-            return []
+    return files[:100]  # limit for UI performance
 
-        # ✅ FAST path: direct file scan (NO EXIF)
-        files = []
 
-        for path in iter_jpegs(folder):
-            files.append(path)
-
-        print("📸 FAST thumbnails:", len(files))
-
-        return files[:100]
+# =============================================================================
+# PHOTO PROXY (thumbnails / images)
+# =============================================================================
 def api_photo_proxy(ctx, img_path):
     if not img_path:
         return jsonify({"success": False, "error": "No path"}), 400
 
     img_path = os.path.normpath(unquote(img_path))
+
     if not os.path.isfile(img_path):
         return jsonify({
             "success": False,
@@ -60,17 +73,10 @@ def api_photo_proxy(ctx, img_path):
         }), 404
 
     try:
-        thumb = img_path  # ✅ just return original image for now
-        if not os.path.isfile(thumb):
-            return jsonify({
-                "success": False,
-                "error": "Thumbnail generation failed",
-                "path": img_path
-            }), 500
-
+        # ✅ Currently returning original image
         return send_file(
-            thumb,
-            mimetype="image/jpeg",
+            img_path,
+            mimetype="image/jpeg",  # safe default for JPG
             max_age=3600
         )
 
@@ -84,6 +90,9 @@ def api_photo_proxy(ctx, img_path):
         }), 500
 
 
+# =============================================================================
+# FULL IMAGE (preview modal)
+# =============================================================================
 def api_full_image(ctx, img_path):
     if not img_path:
         return jsonify({"success": False, "error": "No path"}), 400

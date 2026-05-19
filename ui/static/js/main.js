@@ -33,6 +33,10 @@
 // UI logic is bound lazily as steps become active.
 // ====================================================================
 // Globals here //
+import { pairFiles } from './lib/pairing.js';
+let currentImages = [];
+let pairedImages = [];
+let pairingMap = new Map();
 let analyzedFolders = [];
 let analyzeInProgress = false;
 let thumbnails = [];
@@ -40,7 +44,6 @@ let currentPreviewIndex = 0;
 let organizePreview = null;
 let imageCounts = { total: 0, raw: 0, jpg: 0 };
 let markerLayer = null;
-let currentImages = [];
 let selectedFolderGroup = null;
 let folderGPS = {};
 let folderGroups = {};
@@ -49,7 +52,9 @@ let selectedFolderPath = null;   // full path → F:\DCIM\929_FUJI
 let cameraChart = null;
 let lensChart = null;
 
+
 const $ = id => document.getElementById(id);
+
 // ====================================================================
 // UTILITIES (shared across all steps)
 // ====================================================================
@@ -92,10 +97,10 @@ function updateHeaderStatus() {
 function getFolderGPS(folderName) {
     const rawGPS = folderGPS[folderName];
 
-const gps = rawGPS ? {
-    lat: rawGPS.lat,
-    lon: rawGPS.lon ?? rawGPS.lng
-} : null;
+    const gps = rawGPS ? {
+        lat: rawGPS.lat,
+        lon: rawGPS.lon ?? rawGPS.lng
+    } : null;
 
     if (!gps) return null;
 
@@ -545,7 +550,7 @@ function renderFolderSelector(images) {
 
     });
 }
-    // ✅ auto-select first folder
+// ✅ auto-select first folder
 if (!selectedFolder && Object.keys(folderGroups).length > 0) {
     const firstBtn = container.querySelector("button");
     if (firstBtn) firstBtn.click();
@@ -1112,12 +1117,47 @@ async function loadThumbnails() {
         thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
         currentImages = Array.isArray(data) ? data : (data.images || []);
 
+// ✅ Pair JPG + RAW files into logical images
+        pairedImages = pairFiles(thumbnails);
+
+// ✅ Build lookup // ✅ update global map
+        pairingMap = new Map();
+        pairedImages.forEach(p => {
+            pairingMap.set(p.baseName, p);
+        });
+
+// ✅ Stats
+        const stats = {
+            total: pairedImages.length,
+            paired: pairedImages.filter(i => i.jpg && i.raw).length,
+            jpgOnly: pairedImages.filter(i => i.jpg && !i.raw).length,
+            rawOnly: pairedImages.filter(i => i.raw && !i.jpg).length,
+            rawTotal: pairedImages.filter(i => i.raw).length   // ✅ NEW
+        };
+
+        console.log("DEBUG currentImages sample:", currentImages[0]);
+        console.log("DEBUG pairedImages:", pairedImages);
+        console.log("📊 Pairing stats:", stats);
+
+// ✅ UI Status Bar
+        $('globalStatus').innerHTML = `
+<b>${stats.total}</b> images —
+✅ ${stats.paired} paired —
+🖼️ ${stats.jpgOnly} JPG —
+📷 ${stats.rawTotal} RAW
+`;
+
+// ✅ Clear once
         $("thumbnailGallery").innerHTML = "";
 
-        renderThumbnailsChunked(thumbnails, 0, 6);
+// ✅ Render grouped images ONLY
+        renderThumbnailsChunked(pairedImages, 0, 6);
 
+// ✅ Logs
         console.log("✅ Thumbnails loaded:", thumbnails.length);
         console.log("✅ currentImages length:", currentImages?.length);
+        console.log("✅ pairedImages length:", pairedImages?.length);
+
 
 // ✅ ✅ STEP 3: prepare folder grouping
         prepareFolderGrouping(currentImages);
@@ -1153,33 +1193,52 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
     const end = Math.min(start + chunkSize, items.length);
 
     for (let i = start; i < end; i++) {
-        const t = items[i];
+        const item = items[i];   // ✅ now using pairedImages
 
         // ✅ Wrapper
         const div = document.createElement("div");
-        div.className = "thumbnail-item col-3";
+        div.className = "thumbnail-item col-3 position-relative";
         div.style.textAlign = "center";
+
+        // ✅ Choose preview image
+        let previewPath = item.jpg || item.raw;
 
         // ✅ Image
         const img = document.createElement("img");
-        img.src = `/api/photo-proxy?path=${encodeURIComponent(t)}`;
+        img.src = `/api/photo-proxy?path=${encodeURIComponent(previewPath)}`;
         img.className = "img-fluid";
         img.loading = "lazy";
         img.decoding = "async";
 
         // ✅ Click handler
-        const open = () => openFullImage(items[i]);
+        const openPath = previewPath;
+        const open = () => openFullImage(openPath);
+
         div.onclick = open;
         img.onclick = open;
 
-        // ✅ Filename extraction
-        const filename = t.split("\\").pop() || t.split("/").pop();
-
-        // ✅ Label
+        // ✅ Filename label (use base name)
         const label = document.createElement("div");
-        label.textContent = filename;
-        label.className = "thumb-label";  // ✅ use CSS
-        label.title = filename;           // ✅ full name on hover
+        label.textContent = item.baseName;
+        label.className = "thumb-label";
+        label.title = item.baseName;
+
+        // ✅ Badge logic
+        let badge = "";
+        if (item.jpg && item.raw) {
+            badge = "✅";
+        } else if (item.jpg) {
+            badge = "🖼️";
+        } else if (item.raw) {
+            badge = "📷";
+        }
+
+        if (badge) {
+            const badgeEl = document.createElement("div");
+            badgeEl.className = "pair-badge";
+            badgeEl.innerHTML = badge;
+            div.appendChild(badgeEl);
+        }
 
         // ✅ Assemble
         div.appendChild(img);
@@ -1194,7 +1253,6 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
         }, 0);
     }
 }
-
 function updatePreviewImage() {
     const img = $("previewImage");
     img.src = `/api/full-image?path=${encodeURIComponent(
@@ -1289,46 +1347,46 @@ function initMap() {
 
     map.on("click", function (e) {
 
-    // ✅ Extract from Leaflet
-    const lat = e.latlng.lat;
-    const lon = e.latlng.lng;   // ✅ convert here
+        // ✅ Extract from Leaflet
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;   // ✅ convert here
 
-    // ✅ STORE in canonical format (lat, lon)
-    manualLocation = { lat, lon };
+        // ✅ STORE in canonical format (lat, lon)
+        manualLocation = { lat, lon };
 
-    console.log("📍 Selected manual location:", manualLocation);
+        console.log("📍 Selected manual location:", manualLocation);
 
-    // ✅ Clear previous marker
-    if (markerLayer) {
-        markerLayer.clearLayers();
-    }
+        // ✅ Clear previous marker
+        if (markerLayer) {
+            markerLayer.clearLayers();
+        }
 
-    // ✅ Add new marker
-    L.marker([lat, lon])
-        .addTo(markerLayer)
-        .bindPopup("Manual location")
-        .openPopup();
+        // ✅ Add new marker
+        L.marker([lat, lon])
+            .addTo(markerLayer)
+            .bindPopup("Manual location")
+            .openPopup();
 
-    // ✅ Move map
-    if (map) {
-        map.setView([lat, lon], 14);
-    }
+        // ✅ Move map
+        if (map) {
+            map.setView([lat, lon], 14);
+        }
 
-    // ✅ Show / update panel
-    const panel = document.getElementById("locationDetails");
-    if (panel) panel.style.display = "block";
+        // ✅ Show / update panel
+        const panel = document.getElementById("locationDetails");
+        if (panel) panel.style.display = "block";
 
-    // ✅ Update input fields
-    const latInput = document.getElementById("latInput");
-    const lonInput = document.getElementById("lonInput");
+        // ✅ Update input fields
+        const latInput = document.getElementById("latInput");
+        const lonInput = document.getElementById("lonInput");
 
-    if (latInput && lonInput) {
-        latInput.value = lat.toFixed(6);
-        lonInput.value = lon.toFixed(6);
-    }
+        if (latInput && lonInput) {
+            latInput.value = lat.toFixed(6);
+            lonInput.value = lon.toFixed(6);
+        }
 
-    showManualLocation(lat, lon);
-});
+        showManualLocation(lat, lon);
+    });
 }
 
 let gpsRetryCount = 0;
@@ -1443,7 +1501,7 @@ async function loadMap() {
                     ⚠️ <strong>Unable to load GPS data</strong>
                 </div>
             `;
-        }
+        }this
     }
 }
 
@@ -1508,7 +1566,7 @@ async function applyManualGPS() {
 
     if (!manualLocation) return;
     const lat = manualLocation.lat;
-   const lon = manualLocation.lon;
+    const lon = manualLocation.lon;
     if (selectedFolder) {
         folderGPS[selectedFolder] = { lat, lon };
         console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
@@ -1546,10 +1604,10 @@ async function applyManualGPS() {
     // when user switches folder
     const rawGPS = folderGPS[selectedFolder];  // or folderName
 
-const gps = rawGPS ? {
-    lat: rawGPS.lat,
-    lon: rawGPS.lon ?? rawGPS.lng
-} : null;
+    const gps = rawGPS ? {
+        lat: rawGPS.lat,
+        lon: rawGPS.lon ?? rawGPS.lng
+    } : null;
     if (gps) {
         console.log("📍 Using saved GPS for", selectedFolder);
     }
@@ -1643,9 +1701,9 @@ const gps = rawGPS ? {
         if (data.success) {
             if (selectedFolder) {
                 folderGPS[selectedFolder] = {
-    lat: manualLocation.lat,
-    lon: manualLocation.lon   // ✅ GOOD
-};
+                    lat: manualLocation.lat,
+                    lon: manualLocation.lon   // ✅ GOOD
+                };
 
                 updateFolderIndicators();
                 updateHeaderStatus();
