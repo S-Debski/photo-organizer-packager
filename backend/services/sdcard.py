@@ -16,12 +16,76 @@ import platform
 from pathlib import Path
 
 # ------------------------------------------------------------
-# Platform-specific imports
+# Universal SD / CFexpress detection (Windows, macOS, Linux)
 # ------------------------------------------------------------
+
+import os
+import platform
+
+# Windows-specific imports
 if os.name == "nt":
     import win32api
     import win32file
-    import pythoncom
+
+    try:
+        import pythoncom
+    except ImportError:
+        pythoncom = None
+
+
+
+def detect_sd_cards():
+    system = platform.system()
+    drives = []
+
+    try:
+        # ✅ Windows
+        if system == "Windows":
+            for drive in win32api.GetLogicalDriveStrings().split('\000')[:-1]:
+                drive_type = win32file.GetDriveType(drive)
+
+                # 2 = removable, 3 = fixed
+                if drive_type in (win32file.DRIVE_REMOVABLE, win32file.DRIVE_FIXED):
+                    drives.append({
+                        "path": drive,
+                        "label": win32api.GetVolumeInformation(drive)[0]
+                    })
+
+        # ✅ macOS
+        elif system == "Darwin":
+            base = "/Volumes"
+
+            if os.path.exists(base):
+                for name in os.listdir(base):
+                    path = os.path.join(base, name)
+
+                    if os.path.isdir(path):
+                        drives.append({
+                            "path": path,
+                            "label": name
+                        })
+
+        # ✅ Linux
+        else:
+            for base in ["/media", "/mnt"]:
+                if os.path.exists(base):
+                    for user in os.listdir(base):
+                        user_path = os.path.join(base, user)
+
+                        if os.path.isdir(user_path):
+                            for name in os.listdir(user_path):
+                                path = os.path.join(user_path, name)
+
+                                if os.path.isdir(path):
+                                    drives.append({
+                                        "path": path,
+                                        "label": name
+                                    })
+
+    except Exception as e:
+        print("SD detection error:", e)
+
+    return drives
 
 # ------------------------------------------------------------
 # Constants
@@ -70,7 +134,11 @@ def detect_windows_volumes():
     """
     Enumerate all Windows logical drives with size + filesystem + label.
     """
-    pythoncom.CoInitialize()
+    if pythoncom:
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
 
     drives = win32api.GetLogicalDriveStrings().split("\x00")
     volumes = []
@@ -163,11 +231,14 @@ def filter_windows_sd_cards(include_fixed: bool = False):
                 print("  ⛔ excluded: no filesystem")
             continue
 
-        # Exclude cloud / virtual drives (unless explicitly enabled)
-        if not include_fixed and is_cloud_or_virtual_drive_windows(v):
+        # Exclude cloud / virtual drives (unless explicitly enabled) or
+        # ✅ Flag cloud / virtual drives, but don't exclude yet
+        if is_cloud_or_virtual_drive_windows(v):
+            v["is_virtual"] = True
             if DEBUG:
-                print("  ⛔ excluded: cloud / virtual drive")
-            continue
+                print("  ⚠ marked as virtual drive")
+        else:
+            v["is_virtual"] = False
 
         # Camera structure is optional (empty cards allowed)
         if not has_camera_structure(Path(path)):

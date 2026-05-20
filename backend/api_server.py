@@ -23,7 +23,14 @@
 import threading
 import webbrowser
 import os
+import platform
 from pathlib import Path
+
+
+try:
+    from tkinter import Tk, filedialog
+except ImportError:
+    Tk = None
 
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
@@ -92,31 +99,49 @@ def index():
     touch_activity()
     return render_template("index.html")
 
+# -----------------------------------------------------------------------------
+# filter cloud drives etc
+# -----------------------------------------------------------------------------
+def filter_drives(drives):
+    filtered = []
+
+    for d in drives:
+        # ✅ Use flag from sdcard.py
+        if d.get("is_virtual"):
+            continue
+
+        filtered.append(d)
+
+    return filtered
 
 # -----------------------------------------------------------------------------
 # SD card detection
 # -----------------------------------------------------------------------------
-@app.route("/api/sd-cards")
+@app.route("/api/sd-cards", methods=["GET"])
 def api_sd_cards():
-    pythoncom.CoInitialize()
-    touch_activity()
-
     try:
+        # ✅ Read checkbox flag from frontend
+        include_virtual = request.args.get("includeVirtual") == "true"
+
+        # ✅ Get ALL drives (no filtering here)
         drives = detect_sd_cards()
+
+        # ✅ Apply filtering only if needed
+        if not include_virtual:
+            drives = filter_drives(drives)
 
         return jsonify({
             "success": True,
-            "drives": drives,
-            "auto_select": auto_select_sd_card(drives)
+            "drives": drives
         })
 
     except Exception as e:
-        print("❌ SD detect error:", e)
+        print("SD detection error:", e)
         return jsonify({
             "success": False,
-            "error": str(e)
-        }), 500
-
+            "error": str(e),
+            "drives": []
+        })
 
 # -----------------------------------------------------------------------------
 # Analyze SD card
@@ -126,7 +151,27 @@ def analyze_card():
     touch_activity()
     return api_analyze_card(ctx, request.json)
 
+# -----------------------------------------------------------------------------
+# Working Dir Browser
+# -----------------------------------------------------------------------------
+@app.route("/api/select-folder", methods=["GET"])
+def select_folder():
 
+    if Tk is None:
+        return {"path": None, "error": "Folder dialog not available on this system"}
+
+    try:
+        root = Tk()
+        root.withdraw()
+
+        path = filedialog.askdirectory()
+
+        root.destroy()
+
+        return {"path": path}
+
+    except Exception as e:
+        return {"path": None, "error": str(e)}
 # -----------------------------------------------------------------------------
 # Set active folder
 # -----------------------------------------------------------------------------

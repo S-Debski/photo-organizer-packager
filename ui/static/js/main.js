@@ -85,7 +85,7 @@ function updateHeaderStatus() {
         badge.classList.remove("text-muted");
         badge.classList.add("text-success");
     } else {
-        badge.textContent = "⚪ No GPS";
+        badge.textContent = "⚪ No location data (optional — add in Mapping if needed)";
         badge.classList.remove("text-success");
         badge.classList.add("text-muted");
     }
@@ -212,6 +212,19 @@ function switchStep(step) {
 
     // IMPORTANT: coerce step to number
     step = Number(step);
+// ✅ Clear status when changing step (clean UI)
+    clearGlobalStatus();
+
+// ✅ hide / show GPS legend depending on step
+    const gpsBadge = document.getElementById("gpsStatusBadge");
+
+    if (gpsBadge) {
+        if (step === 1) {
+            gpsBadge.style.display = "none";   // ✅ hide on Select Card
+        } else {
+            gpsBadge.style.display = "block";  // ✅ show elsewhere
+        }
+    }
 
     // Require folder selection before proceeding
     if ((step === 3 || step === 4 || step === 5 || step === 6) && !selectedFolder) {
@@ -239,15 +252,28 @@ function switchStep(step) {
     // Step-specific behaviour
     switch (step) {
         case 3:
-            gatherStats();
-            renderCameraStats();
-            renderLensStats();
-            requestAnimationFrame(renderCharts);
+            // ✅ Thumbnails first (visual feedback)
+            loadThumbnails();
+            showGlobalStatus(`
+⏳ <strong>Loading thumbnails…</strong><br>
+<small>Click “Thumbnails” in the menu to view when ready</small>
+`);
             break;
 
         case 4:
-            loadThumbnails();
+            // ✅ Protect against early access
+            if (!pairedImages || pairedImages.length === 0) {
+                showGlobalStatus("⏳ Load thumbnails first to generate stats");
+                return;
+            }
+
+            // ✅ Build + render stats
+            gatherPairedStats();
+            renderCameraStats();
+            renderLensStats();
+            renderCharts();
             break;
+
 
         case 5:
             initMap();
@@ -288,6 +314,24 @@ function clearGlobalStatus() {
     el.innerHTML = "";
 }
 
+$("browseWorkingDirBtn")?.addEventListener("click", async () => {
+
+    try {
+        const res = await fetch("/api/select-folder");
+        const data = await res.json();
+
+        if (data?.path) {
+            $("workingDirInput").value = data.path;
+        } else {
+            alert("Folder picker not available.");
+        }
+
+    } catch (err) {
+        console.error("Folder selection failed:", err);
+    }
+
+});
+
 $('refreshSdBtn')?.addEventListener('click', () => {
     const spinner = $("sdSpinner");
     const text = $("sdBtnText");
@@ -325,27 +369,36 @@ async function fetchSDCards() {
 
     const showVirtual = document.querySelector('#showVirtualDrives')?.checked;
 
-    // ✅ Use ONE consistent status system
+    // ✅ Global status
     showGlobalStatus(`
         ⏳ <strong>Detecting cards…</strong><br>
         Reading available drives
     `);
 
+    // ✅ Live timer
     const timer = setInterval(() => {
         secs++;
         $("sdTimer").textContent = `(${secs}s)`;
+        $("sdStatusText").textContent = "⏳ Detecting cards...";
     }, 1000);
 
     try {
-        const res = await fetch('/api/sd-cards');
-        const data = await res.json();
-        clearInterval(timer);
+    // ✅ Build URL safely (prevents malformed requests)
+    const url = new URL("/api/sd-cards", window.location.origin);
+    url.searchParams.set("includeVirtual", showVirtual);
 
-        console.log("[SD-CARDS raw response]", data);
-        console.log("[SD-CARDS drives]", data.drives);
+    console.log("Fetching:", url.toString()); // ✅ debug
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    clearInterval(timer);
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
         if (!data.success) {
-            $('sdStatus').textContent = "⚠️ Error detecting cards.";
+            $("sdStatusText").textContent = "⚠️ Error detecting cards.";
+            $("sdTimer").textContent = "";
             clearGlobalStatus();
             return;
         }
@@ -353,15 +406,17 @@ async function fetchSDCards() {
         const visibleDrives = data.drives || [];
 
         if (visibleDrives.length === 0) {
-            $('sdStatus').textContent = showVirtual
+            $("sdStatusText").textContent = showVirtual
                 ? "⚠️ No drives detected."
                 : "⚠️ No camera cards detected. Insert a card or enable additional drives.";
 
+            $("sdTimer").textContent = "";
             setSDButtonState('initial');
             clearGlobalStatus();
             return;
         }
 
+        // ✅ Populate dropdown
         sel.innerHTML = '';
 
         visibleDrives.forEach(d => {
@@ -384,26 +439,30 @@ async function fetchSDCards() {
 
         const elapsed = Date.now() - startTime;
 
+        // ✅ Final message
         setTimeout(() => {
-            const durationText = secs > 0 ? `${secs}s` : "under 1s";
 
-            $('sdStatus').textContent =
-                `✅ Card detected in ${durationText}. Click "Analyze Card" to continue or rescan if needed.`;
+            $("sdStatusText").innerHTML =
+                `✅ ${visibleDrives.length} ${visibleDrives.length === 1 ? "card" : "cards"} detected in ${duration}s`;
 
-            // ✅ clean success message
-            showGlobalStatus("✅ Card detected");
+            $("sdTimer").textContent = "";
+
+            showGlobalStatus("✅ Cards detected");
             setTimeout(clearGlobalStatus, 1200);
 
         }, Math.max(0, MIN_VISIBLE_MS - elapsed));
 
     } catch (err) {
         clearInterval(timer);
-        $('sdStatus').textContent = "⚠️ Failed to detect cards.";
+
+        $("sdStatusText").textContent = "⚠️ Failed to detect cards.";
+        $("sdTimer").textContent = "";
+
         log("SD detection error: " + err);
         clearGlobalStatus();
 
     } finally {
-        // ✅ ALWAYS reset UI state
+        // ✅ Reset UI state
         const spinner = $("sdSpinner");
         const text = $("sdBtnText");
         const btn = $("refreshSdBtn");
@@ -471,11 +530,11 @@ function renderFolderSelector(images) {
         const hasGPS = rawGPS && (rawGPS.lon != null || rawGPS.lng != null);
 
         btn.innerHTML = `
-        📁 ${folder} (${folderGroups[folder].length})
-        <span class="ms-2 small ${hasGPS ? 'text-success' : 'text-secondary'}">
-            ${hasGPS ? '📍 GPS set' : '⚪ No GPS'}
-        </span>
-    `;
+    📁 ${folder} (${folderGroups[folder].length})
+    <span class="ms-2 small ${hasGPS ? 'text-success' : 'text-secondary'}">
+        ${hasGPS ? '📍 Location assigned' : '⚪ No location data (optional — add in Mapping if needed)'}
+    </span>
+`;
 
         btn.onclick = () => {
 
@@ -520,8 +579,7 @@ function renderFolderSelector(images) {
             } : null;
 
             if (gps && gps.lat != null && gps.lon != null) {
-
-                manualLocation = {lat: gps.lat, lon: gps.lon};
+                manualLocation = { lat: gps.lat, lon: gps.lon };
 
                 const latInput = document.getElementById("latInput");
                 const lonInput = document.getElementById("lonInput");
@@ -544,6 +602,10 @@ function renderFolderSelector(images) {
                         .openPopup();
                 }
             }
+
+            // ✅ ✅ ✅ THESE MUST BE INSIDE onclick
+            loadThumbnails();
+            switchStep(3);
         };
 
         container.appendChild(btn);
@@ -693,6 +755,9 @@ function renderAnalyzeFolders() {
         container.appendChild(item);
     });
 }
+
+let metadataMap = new Map();
+
 // ====================================================================
 // STEP 3 – Camera + Lens Stats (READ‑ONLY)
 // Summary derived from analyzed folders.
@@ -720,7 +785,9 @@ function gatherStats() {
 
         statsSummary.innerHTML = `
         <div class="mb-2 text-muted">
-            Total photos: <strong>${totalPhotos}</strong> across ${analyzedFolders.length} folders
+     // Old version      Total photos: <strong>${totalPhotos}</strong> across ${analyzedFolders.length} folders
+     Total images: ${pairedImages.length}
+
         </div>
     `;
     } else {
@@ -761,6 +828,88 @@ function gatherStats() {
     console.log("📊 Aggregated camera stats:", cameraStats);
     console.log("📊 Aggregated lens stats:", lensStats);
 }
+// Pair Raw and Jpg photos where the same
+function gatherPairedStats() {
+    cameraStats = {};
+    lensStats = {};
+
+    if (!pairedImages || pairedImages.length === 0) {
+        console.warn("⚠️ No paired images available");
+        return;
+    }
+
+    pairedImages.forEach(img => {
+
+        // ✅ choose representative file (prefer JPG)
+        const file = img.jpg || img.raw;
+
+        if (!file) return;
+
+        // ✅ Extract folder path from file
+        const folderPath = file.split(/[\\/]/).slice(0, -1).join("\\");
+
+        // ✅ Find matching analyzed folder
+        const normalise = p => p.replace(/\\/g, "/").toLowerCase();
+
+        const normalFile = normalise(file);
+
+        const folderMeta = analyzedFolders.find(f =>
+            normalFile.startsWith(normalise(f.path))
+        );
+
+
+
+        const camera = folderMeta?.camera_model || "Unknown";
+        const lens   = folderMeta?.lens || "Unknown Lens";
+
+        // ✅ Folder name (for display) — ONLY ONCE
+        const folderName = file.split(/[\\/]/).slice(-2, -1)[0] || "Unknown";
+
+        // ✅ CAMERA
+        if (!cameraStats[camera]) {
+            cameraStats[camera] = {
+                total: 0,
+                folders: {},
+                paired: 0,
+                jpgOnly: 0,
+                rawOnly: 0
+            };
+        }
+
+
+        cameraStats[camera].total++;
+
+        // ✅ pairing breakdown
+        if (img.jpg && img.raw) cameraStats[camera].paired++;
+        else if (img.jpg) cameraStats[camera].jpgOnly++;
+        else if (img.raw) cameraStats[camera].rawOnly++;
+
+        const camFolder = cameraStats[camera].folders;
+        camFolder[folderName] = (camFolder[folderName] || 0) + 1;
+
+        // ✅ LENS
+        if (!lensStats[lens]) {
+            lensStats[lens] = {
+                total: 0,
+                folders: {},
+                paired: 0,
+                jpgOnly: 0,
+                rawOnly: 0
+            };
+        }
+
+        lensStats[lens].total++;
+
+        if (img.jpg && img.raw) lensStats[lens].paired++;
+        else if (img.jpg) lensStats[lens].jpgOnly++;
+        else if (img.raw) lensStats[lens].rawOnly++;
+
+        const lensFolder = lensStats[lens].folders;
+        lensFolder[folderName] = (lensFolder[folderName] || 0) + 1;
+    });
+}
+
+
 function renderCameraStats() {
 
     const grandTotal = Object.values(cameraStats)
@@ -783,7 +932,7 @@ function renderCameraStats() {
 
                         return `
                             <div class="small text-muted ms-3">
-                                ${folder}: ${count} (${pct}%)
+                                ${folder}: ${count} images (${pct}%)
                             </div>
                         `;
                     })
@@ -791,12 +940,22 @@ function renderCameraStats() {
 
                 return `
                 <div class="list-group-item bg-dark-subtle text-light">
+
                     <strong>${cam}</strong>
                     <span class="text-secondary">
-                        — ${data.total} photos (${pctTotal}%)
+                        — ${data.total} images (${pctTotal}%)
                     </span>
+
+                    <div class="small mt-1">
+                        ✅ ${data.paired} paired —
+                        🖼️ ${data.jpgOnly} JPG —
+                        📷 ${data.rawOnly} RAW
+                    </div>
+
                     ${folderBreakdown}
-                </div>`;
+
+                </div>
+                `;
             })
             .join('');
 }
@@ -823,7 +982,7 @@ function renderLensStats() {
 
                         return `
                             <div class="small text-muted ms-3">
-                                ${folder}: ${count} (${pct}%)
+                                ${folder}: ${count} images (${pct}%)
                             </div>
                         `;
                     })
@@ -831,11 +990,21 @@ function renderLensStats() {
 
                 return `
                 <div class="list-group-item bg-dark-subtle text-light">
+
                     <strong>${lens}</strong>
                     <span class="text-secondary">
-                        — ${data.total} photos (${pctTotal}%)
+                        — ${data.total} images (${pctTotal}%)
                     </span>
+
+                    <!-- ✅ ADD THIS BLOCK -->
+                    <div class="small mt-1">
+                        ✅ ${data.paired} paired —
+                        🖼️ ${data.jpgOnly} JPG —
+                        📷 ${data.rawOnly} RAW
+                    </div>
+
                     ${folderBreakdown}
+
                 </div>`;
             })
             .join('');
@@ -1079,8 +1248,8 @@ function openFullImage(path) {
 }
 async function loadThumbnails() {
 
-    if (!analyzedFolders || analyzedFolders.length === 0) {
-        console.warn("⚠️ No folder selected");
+    if (!selectedFolderPath) {
+        console.warn("❌ No folder selected — aborting thumbnail load");
         return;
     }
 
@@ -1094,78 +1263,63 @@ async function loadThumbnails() {
                 folder: selectedFolderPath
             })
         });
+
         const data = await res.json();
 
-// ✅ waiting
+        // ✅ ✅ REMOVE infinite retry loop — handle empty safely
         if (!data || data.length === 0) {
-            console.log("⏳ Waiting for EXIF cache...");
+            console.warn("⚠️ No thumbnails returned");
 
             $("thumbnailGallery").innerHTML = `
-        <div class="text-muted text-center py-4">
-            ⏳ Preparing thumbnails…<br>
-            <small>This can take a few seconds on first load</small>
-        </div>
-    `;
+                <div class="text-muted text-center py-4">
+                    ⚠️ No images found in this folder<br>
+                    <small>Check folder selection or contents</small>
+                </div>
+            `;
 
-            setTimeout(loadThumbnails, 1000);
-            return;
+            return;   // ✅ STOP — no retry
         }
 
-// ✅ SUCCESS: render thumbnails
-// ✅ Ensure arrays only - keep full dataset
-// ✅ Handle both response shapes safely
+        // ✅ SUCCESS: render thumbnails
         thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
-        currentImages = Array.isArray(data) ? data : (data.images || []);
+        currentImages = thumbnails;
 
-// ✅ Pair JPG + RAW files into logical images
+        // ✅ Pair JPG + RAW files into logical images
         pairedImages = pairFiles(thumbnails);
 
-// ✅ Build lookup // ✅ update global map
-        pairingMap = new Map();
-        pairedImages.forEach(p => {
-            pairingMap.set(p.baseName, p);
-        });
-
-// ✅ Stats
-        const stats = {
-            total: pairedImages.length,
-            paired: pairedImages.filter(i => i.jpg && i.raw).length,
-            jpgOnly: pairedImages.filter(i => i.jpg && !i.raw).length,
-            rawOnly: pairedImages.filter(i => i.raw && !i.jpg).length,
-            rawTotal: pairedImages.filter(i => i.raw).length   // ✅ NEW
-        };
-
-        console.log("DEBUG currentImages sample:", currentImages[0]);
-        console.log("DEBUG pairedImages:", pairedImages);
-        console.log("📊 Pairing stats:", stats);
-
-// ✅ UI Status Bar
-        $('globalStatus').innerHTML = `
-<b>${stats.total}</b> images —
-✅ ${stats.paired} paired —
-🖼️ ${stats.jpgOnly} JPG —
-📷 ${stats.rawTotal} RAW
-`;
-
-// ✅ Clear once
+        // ✅ Render grouped images
         $("thumbnailGallery").innerHTML = "";
-
-// ✅ Render grouped images ONLY
         renderThumbnailsChunked(pairedImages, 0, 6);
+        showGlobalStatus(`
+✅ <strong>Thumbnails ready</strong><br>
+<small>
+Viewing: <b>${selectedFolder}</b><br>
+Select another folder or go back to Analyse to choose a different card
+</small>
+`);
 
-// ✅ Logs
+        // ✅ Logs
         console.log("✅ Thumbnails loaded:", thumbnails.length);
         console.log("✅ currentImages length:", currentImages?.length);
         console.log("✅ pairedImages length:", pairedImages?.length);
 
-
-// ✅ ✅ STEP 3: prepare folder grouping
+        // ✅ Prepare folder grouping
         prepareFolderGrouping(currentImages);
+
+        // ✅ Pre-warm stats
+        gatherPairedStats();
+
     } catch (err) {
         console.error("Thumbnail load failed:", err);
+
+        $("thumbnailGallery").innerHTML = `
+            <div class="text-danger text-center py-4">
+                ❌ Failed to load thumbnails<br>
+                <small>Check connection or try again</small>
+            </div>
+        `;
     }
 }
-
 function prepareFolderGrouping(images) {
     if (!images || images.length === 0) return;
 
@@ -1250,7 +1404,23 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
     if (end < items.length) {
         setTimeout(() => {
             renderThumbnailsChunked(items, end, chunkSize);
-        }, 0);
+        });
+    } else {
+        // ✅ ✅ ONLY once when ALL thumbnails finished
+
+        const hasMissingGPS = !folderGPS[selectedFolder];
+
+        if (hasMissingGPS) {
+            showGlobalStatus(`
+⚠️ <strong>No GPS data for ${selectedFolder}</strong><br>
+<small>You can add a location in the Mapping step</small>
+`);
+        } else {
+            showGlobalStatus(`
+✅ <strong>Viewing: ${selectedFolder}</strong><br>
+<small>Location assigned</small>
+`);
+        }
     }
 }
 function updatePreviewImage() {
@@ -1950,18 +2120,40 @@ if (!analyzeBtn) {
 
             imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
             analyzedFolders = data.analysis.folders;
+// ✅ Build metadata lookup map (ONCE after analyze)
+            metadataMap = new Map();
 
+            analyzedFolders.forEach(folder => {
+                const camera = folder.camera_model || "Unknown";
+                const lens = folder.lens || "Unknown Lens";
+
+                (folder.files || []).forEach(path => {
+                    metadataMap.set(path, {
+                        camera_model: camera,
+                        lens: lens
+                    });
+                });
+            });
+
+
+            console.log("✅ metadataMap built:", metadataMap.size);
             updateProgress(`
     📸 <strong>Preparing thumbnails…</strong><br>
     Loading preview images
 `);
 
             renderAnalyzeFolders();
+
+// ✅ stay on folder selection step
             switchStep(2);
 
+// ✅ correct message for manual selection
             showGlobalStatus(`
-    ✅ <strong>Analysis complete</strong><br>
-    <span>Select a folder below to continue</span>
+✅ <strong>Analysis complete</strong><br>
+<small>
+Select a folder to view thumbnails<br>
+⚠️ Some folders may not have GPS data — use Mapping to assign locations
+</small>
 `);
 
         } catch (err) {
