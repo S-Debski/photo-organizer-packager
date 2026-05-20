@@ -19,6 +19,7 @@
 #       → Mapping layer (photo_core)
 
 # =============================================================================
+from version import APP_VERSION, APP_NAME
 
 import threading
 import webbrowser
@@ -97,7 +98,15 @@ def touch_activity():
 @app.route("/")
 def index():
     touch_activity()
-    return render_template("index.html")
+    from version import APP_VERSION, APP_NAME  # (add this at top if not already)
+
+    ...
+
+    return render_template(
+        'index.html',
+        version=APP_VERSION,
+        app_name=APP_NAME
+    )
 
 # -----------------------------------------------------------------------------
 # filter cloud drives etc
