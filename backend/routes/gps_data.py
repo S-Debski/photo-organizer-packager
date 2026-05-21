@@ -1,26 +1,56 @@
-# Role: GPS data API route (see Stability Contract)
-
 # =============================================================================
 # File: backend/routes/gps_data.py
 #
 # Role:
-#   API route for returning GPS coordinates derived from EXIF data
+#   API route for returning GPS coordinates for mapping (Step 5).
 #
 # Responsibilities:
-#   - Access EXIF records produced by the background EXIF scanner worker
-#   - Extract usable GPS points via the mapping layer
-#   - Return GPS data as JSON for frontend (Leaflet map)
+#   - Access EXIF records produced by the background EXIF scanner
+#   - Extract usable GPS points via mapping layer
+#   - Merge manual GPS points provided by frontend
+#   - Return unified GPS dataset for Leaflet map rendering
 #
 # Data Flow:
 #   EXIF Scanner Worker
 #       → ctx.exif_records
 #       → extract_gps_points(records)
-#       → JSON response to frontend
+#       → EXIF GPS points
+#
+#   Frontend (manual mapping)
+#       → metadataMap (lat/lon assigned via UI)
+#       → POST /api/gps-data (manualGPS[])
+#
+#   API Route
+#       → merge EXIF + manual GPS
+#       → JSON response → frontend
+#
+# Input (POST JSON):
+#   {
+#       "folder": "F:\\DCIM\\...",
+#       "manualGPS": [
+#           {
+#               "path": "...",
+#               "lat": ...,
+#               "lon": ...
+#           }
+#       ]
+#   }
+#
+# Output (JSON):
+#   [
+#       {
+#           "lat": float,
+#           "lon": float,
+#           "quality": "exif" | "manual",
+#           "filename": "... (optional)"
+#       }
+#   ]
 #
 # Notes:
-#   - Read-only: does not access filesystem directly
-#   - Depends on worker having populated ctx.exif_records
-#   - Uses mapping logic in photo_core/mapping/gps_data.py
+#   - EXIF GPS is read-only from worker cache
+#   - Manual GPS is injected from frontend (not persisted yet)
+#   - Silent while EXIF scan is in progress
+#   - Mapping supports mixed precision (EXIF + manual)
 #
 # Used By:
 #   - /api/gps-data endpoint
@@ -28,8 +58,10 @@
 #
 # =============================================================================
 
+
 from flask import jsonify
 from photo_core.mapping.gps_data import extract_gps_points
+from flask import jsonify, request
 
 # ✅ Optional debug toggle (leave False for normal use)
 DEBUG = False
@@ -37,35 +69,47 @@ DEBUG = False
 
 def api_gps_data(ctx):
     """
-    Return GPS points derived from EXIF data.
-
-    Behaviour:
-    - Silent while EXIF worker is still running
-    - Returns [] until data is ready
-    - Logs a single meaningful message when GPS data is available
+    Return GPS points derived from EXIF data + manual mapping.
     """
 
-    # ✅ Use worker output
+    # ✅ Read request body (new)
+    data = request.json or {}
+    manual = data.get("manualGPS", [])
+
+    # ✅ Existing EXIF logic
     records = getattr(ctx, "exif_records", [])
 
-    # ✅ Silent while waiting (no log spam during polling)
     if not records:
         if DEBUG:
             print("⏳ GPS request: no EXIF records yet")
-        return jsonify([])
+        exif_points = []
+    else:
+        exif_points = extract_gps_points(records)
 
-    # ✅ Extract GPS points
-    points = extract_gps_points(records)
+    # ✅ Convert EXIF to standard format
+    points = [
+        {
+            "lat": p.get("lat"),
+            "lon": p.get("lon"),
+            "quality": p.get("quality", "exif")
+        }
+        for p in exif_points
+    ]
 
-    # ✅ Optional debug detail
-    if DEBUG:
-        print(f"📦 RECORD COUNT: {len(records)}")
-        print(f"📍 POINTS RETURNED: {len(points)}")
+    # ✅ NEW: merge manual GPS
+    for m in manual:
+        if m.get("lat") and m.get("lon"):
+            points.append({
+                "lat": m.get("lat"),
+                "lon": m.get("lon"),
+                "quality": "manual",
+                "filename": m.get("path")
+            })
 
-    # ✅ Clean, meaningful runtime log (always shown)
+    # ✅ Logging
     if not points:
         print("⚠️ No GPS data found")
     else:
-        print(f"✅ GPS extraction complete: {len(points)} points")
+        print(f"✅ GPS combined: {len(points)} points")
 
     return jsonify(points)

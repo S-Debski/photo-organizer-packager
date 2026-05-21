@@ -71,6 +71,72 @@ let inferOrganizationTitle = null;
 function updateProgress(msg) {
     showGlobalStatus(msg);
 }
+// =============================================================================
+// UI Handler: Organize Button (Start Import)
+//
+// Role:
+//   Trigger import of files from selected SD card to working directory.
+//
+// Responsibilities:
+//   - Reads selected SD card path from dropdown
+//   - Reads working directory input
+//   - Sends organize request to backend (/api/organize)
+//   - Displays success or error feedback to user
+//
+// Input:
+//   - sdSelect (source path)
+//   - workingDirInput (destination path)
+//
+// Output:
+//   - Alert showing number of imported files OR error message
+//
+// Notes:
+//   - Requires valid source and destination
+//   - Backend handles actual copying + safety checks
+// =============================================================================
+$("organizeBtn")?.addEventListener("click", async () => {
+
+    const source = $("sdSelect")?.value;
+    const destinationInput = $("workingDirInput")?.value;
+
+    const destination = destinationInput && destinationInput.trim()
+        ? destinationInput
+        : "";  // backend can decide default later if needed
+
+    if (!source) {
+        alert("Please select a card first.");
+        return;
+    }
+
+    if (!destination) {
+        alert("Please select a working directory.");
+        return;
+    }
+
+    const res = await fetch("/api/organize", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+            files: files,
+            lat: lat,
+            lon: lon
+        })
+
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+        alert(`✅ Imported ${data.count} files`);
+    } else {
+        alert("❌ Import failed: " + data.error);
+    }
+});
+
+
 
 // ====================================================================
 // GPS Status helper - shows via badge - needed or done
@@ -383,16 +449,16 @@ async function fetchSDCards() {
     }, 1000);
 
     try {
-    // ✅ Build URL safely (prevents malformed requests)
-    const url = new URL("/api/sd-cards", window.location.origin);
-    url.searchParams.set("includeVirtual", showVirtual);
+        // ✅ Build URL safely (prevents malformed requests)
+        const url = new URL("/api/sd-cards", window.location.origin);
+        url.searchParams.set("includeVirtual", showVirtual);
 
-    console.log("Fetching:", url.toString()); // ✅ debug
+        console.log("Fetching:", url.toString()); // ✅ debug
 
-    const res = await fetch(url);
-    const data = await res.json();
+        const res = await fetch(url);
+        const data = await res.json();
 
-    clearInterval(timer);
+        clearInterval(timer);
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
@@ -489,17 +555,18 @@ function groupByFolder(images) {
     const groups = {};
 
     images.forEach(img => {
-        const folder = getFolderName(img.path || img);
+        const folderName = getFolderName(img.path || img);
 
-        if (!groups[folder]) {
-            groups[folder] = [];
+        if (!groups[folderName]) {
+            groups[folderName] = [];
         }
 
-        groups[folder].push(img);
+        groups[folderName].push(img);
     });
 
     return groups;
 }
+
 function renderFolderSelector(images) {
     const container = document.getElementById("folderSelector");
 
@@ -603,9 +670,16 @@ function renderFolderSelector(images) {
                 }
             }
 
-            // ✅ ✅ ✅ THESE MUST BE INSIDE onclick
-            loadThumbnails();
-            switchStep(3);
+
+            // ✅ Only run when Mapping step is NOT active
+            const mappingActive =
+                document.querySelector('[data-step="5"]')
+                    ?.classList.contains('d-none') === false;
+
+            if (!mappingActive) {
+                loadThumbnails();
+                switchStep(3);
+            }
         };
 
         container.appendChild(btn);
@@ -755,6 +829,39 @@ function renderAnalyzeFolders() {
         container.appendChild(item);
     });
 }
+// =============================================================================
+// Data Builder: metadataMap (Post-Thumbnail Load)
+//
+// Role:
+//   Build a lookup map for all images currently loaded into the UI,
+//   providing a central store for metadata used throughout the app.
+//
+// Responsibilities:
+//   - Initialize metadata entries for each image path
+//   - Store camera, lens, and GPS data (updated later)
+//   - Provide data for mapping, stats, and thumbnails
+//
+// Input:
+//   - currentImages[] (populated after thumbnail load)
+//
+// Output:
+//   - metadataMap (Map)
+//       key   = file path
+//       value = {
+//           camera_model,
+//           lens,
+//           lat,
+//           lon
+//       }
+//
+// Notes:
+//   - Must run AFTER thumbnails are loaded
+//   - GPS values start as null and are updated via mapping
+//   - Used by:
+//       • mapping (GPS markers)
+//       • manual GPS assignment
+//       • stats and UI display
+// =============================================================================
 
 let metadataMap = new Map();
 
@@ -1283,6 +1390,20 @@ async function loadThumbnails() {
         // ✅ SUCCESS: render thumbnails
         thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
         currentImages = thumbnails;
+        // ✅ Build metadataMap AFTER images are loaded
+        metadataMap = new Map();
+
+        (currentImages || []).forEach(path => {
+            metadataMap.set(path, {
+                camera_model: "Unknown",
+                lens: "Unknown Lens",
+                lat: null,
+                lon: null
+            });
+        });
+
+        console.log("✅ metadataMap built:", metadataMap.size);
+
 
         // ✅ Pair JPG + RAW files into logical images
         pairedImages = pairFiles(thumbnails);
@@ -1519,34 +1640,35 @@ function initMap() {
 
         // ✅ Extract from Leaflet
         const lat = e.latlng.lat;
-        const lon = e.latlng.lng;   // ✅ convert here
+        const lon = e.latlng.lng;
 
-        // ✅ STORE in canonical format (lat, lon)
+        // ✅ Store variable
         manualLocation = { lat, lon };
 
         console.log("📍 Selected manual location:", manualLocation);
+        console.log("✅ Manual GPS applied to images");
 
         // ✅ Clear previous marker
         if (markerLayer) {
             markerLayer.clearLayers();
         }
 
-        // ✅ Add new marker
+        // ✅ Add marker
         L.marker([lat, lon])
             .addTo(markerLayer)
             .bindPopup("Manual location")
             .openPopup();
 
-        // ✅ Move map
+        // ✅ Move map (MUST be inside)
         if (map) {
             map.setView([lat, lon], 14);
         }
 
-        // ✅ Show / update panel
+        // ✅ Show panel
         const panel = document.getElementById("locationDetails");
         if (panel) panel.style.display = "block";
 
-        // ✅ Update input fields
+        // ✅ Update inputs
         const latInput = document.getElementById("latInput");
         const lonInput = document.getElementById("lonInput");
 
@@ -1569,36 +1691,74 @@ async function loadMap() {
     const status = document.getElementById("mapStatus");
     const folderContainer = document.getElementById("folderSelector");
 
-    // ✅ Clear markers once at start
+    // ✅ Clear markers
     if (markerLayer) {
         markerLayer.clearLayers();
     }
 
-    // ✅ Clear folder selector (important when switching folders)
-    if (folderContainer) {
-        folderContainer.innerHTML = "";
+    // ✅ ALWAYS render folder selector (critical fix)
+    if (currentImages && currentImages.length && folderContainer) {
+        console.log("Rendering folder selector with:", currentImages.length);
+        renderFolderSelector(currentImages);
     }
 
     try {
-        // ✅ First call only → show loading
+        // ✅ Show loading state first time
         if (gpsRetryCount === 0 && status) {
             status.innerHTML = `
-                <div class="map-status loading">
-                    ⏳ <strong>Loading GPS data…</strong><br>
-                    Reading metadata from images.
-                </div>
-            `;
+            <div class="map-status loading">
+                ⏳ <strong>Loading GPS data…</strong><br>
+                Reading metadata from images.
+            </div>
+        `;
         }
 
+        // ✅ Selected folder
+        const folder = selectedFolderPath || $("sdSelect")?.value;
+        console.log("DEBUG currentImages:", currentImages);
+        console.log("DEBUG folderContainer:", folderContainer);
+
+        console.log("Mapping folder:", folder);
+        console.log("selectedFolderPath:", selectedFolderPath);
+
+        // ✅ Build manual GPS list from metadataMap
+        const manualGPS = [];
+
+        metadataMap.forEach((value, path) => {
+            if (value.lat && value.lon) {
+                manualGPS.push({
+                    path: path,
+                    lat: value.lat,
+                    lon: value.lon
+                });
+            }
+        });
+
+        console.log("manualGPS:", manualGPS);
+
+// ✅ Get backend EXIF GPS (clean baseline)
         const res = await fetch("/api/gps-data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({})
+            body: JSON.stringify({
+                folder: folder
+            })
         });
 
         const gps = await res.json();
+// ✅ merge manual GPS into backend GPS
+        const combinedGPS = [...gps, ...manualGPS];
+        console.log("Combined GPS:", combinedGPS);
+        console.log("GPS points:", gps);
+// temp
+        gps.push({
+            lat: 51.5074,
+            lon: -0.1278,
+            filename: "Test"
+        });
 
-        // ✅ EMPTY GPS CASE
+
+        // ✅ EMPTY CASE
         if (!gps || gps.length === 0) {
 
             let prog = { active: false };
@@ -1608,7 +1768,7 @@ async function loadMap() {
                 prog = await progRes.json();
             } catch {}
 
-            // ✅ STILL SCANNING
+            // ✅ Worker still scanning
             if (prog.active) {
                 if (status) {
                     status.innerHTML = `
@@ -1623,7 +1783,7 @@ async function loadMap() {
                 return;
             }
 
-            // ✅ DONE → NO GPS → FINAL STATE
+            // ✅ No GPS final state
             if (status) {
                 status.innerHTML = `
                     <div class="map-status warning">
@@ -1633,19 +1793,13 @@ async function loadMap() {
                 `;
             }
 
-            // ✅ Show input panel immediately (UX fix)
             const panel = document.getElementById("locationDetails");
             if (panel) panel.style.display = "block";
-
-// ✅ render folder buttons
-            if (currentImages && currentImages.length && folderContainer) {
-                renderFolderSelector(currentImages);
-            }
 
             return;
         }
 
-        // ✅ SUCCESS (GPS exists)
+        // ✅ SUCCESS
         gpsRetryCount = 0;
 
         if (!map) return;
@@ -1655,12 +1809,23 @@ async function loadMap() {
                 <div class="map-status success">
                     <i class="bi bi-geo-alt-fill"></i>
                     <strong>Showing ${gps.length} photo locations</strong><br>
-                    Locations are based on EXIF GPS data.
+                    Includes EXIF + manual GPS data.
                 </div>
             `;
         }
 
-        renderMapMarkers(gps);
+        // ✅ Render markers
+        let displayPoints = combinedGPS;
+
+        if (selectedFolder) {
+            displayPoints = combinedGPS.filter(p => {
+                return p.filename && p.filename.includes(selectedFolder);
+            });
+        }
+
+        console.log("Displaying points:", displayPoints);
+
+        renderMapMarkers(displayPoints);
 
     } catch (err) {
         console.warn("GPS load failed:", err);
@@ -1671,7 +1836,7 @@ async function loadMap() {
                     ⚠️ <strong>Unable to load GPS data</strong>
                 </div>
             `;
-        }this
+        }
     }
 }
 
@@ -1684,17 +1849,16 @@ function showManualLocation(lat, lon) {
     if (!status) return;
 
     status.innerHTML = `
-        <div class="map-status info">
-            📍 <strong>Selected location</strong><br>
-            ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>
+    <div class="map-status info">
+        📍 <strong>Selected location</strong><br>
+        ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>
 
-            <button id="applyGpsBtn"
-                    class="btn btn-sm btn-primary mt-2">
-                Apply to all images
-            </button>
-        </div>
-    `;
-
+        <button id="applyGpsBtn"
+                class="btn btn-sm btn-primary mt-2">
+            Apply to images
+        </button>
+    </div>
+`;
     document.getElementById("applyGpsBtn").onclick = applyManualGPS;
 }
 
@@ -1728,21 +1892,24 @@ function updateFromInputs() {
 }
 
 async function applyManualGPS() {
+
     if (folderGPS[selectedFolder]) {
         const ok = confirm("⚠️ This folder already has GPS.\nOverwrite?");
         if (!ok) return;
     }
-    updateFromInputs();   // ✅ ensures latest values used
+
+    updateFromInputs();
 
     if (!manualLocation) return;
+
     const lat = manualLocation.lat;
     const lon = manualLocation.lon;
+
+    // ✅ Save folder-level GPS (UI state)
     if (selectedFolder) {
         folderGPS[selectedFolder] = { lat, lon };
         console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
     }
-
-    let targetImages;
 
     if (!analyzedFolders || analyzedFolders.length === 0) {
         console.warn("❌ No folder selected — refusing to apply GPS globally");
@@ -1753,78 +1920,102 @@ async function applyManualGPS() {
     console.log("🔍 APPLY CLICK");
     console.log("Selected folder:", selectedFolder);
 
+    let targetImages;
+
+    // ✅ Prefer grouped folder
     const group = folderGroups[selectedFolder];
 
-    if (!group || group.length === 0) {
-        console.warn("⚠️ No group for folder:", selectedFolder);
-        return;
+    if (group && group.length > 0) {
+        targetImages = group;
+        console.log("✅ Using folder group");
+    } else {
+        console.warn("⚠️ No group found — using all images");
+        targetImages = currentImages || [];
     }
-
-    targetImages = group;
 
     console.log("✅ Applying GPS to:", targetImages.length, "images");
 
-    /*if (targetImages.length === 0) {
-        console.warn("⚠️ No matching images for folder:", selectedFolder);
-        return;
-
-        redundant - to be removed later
-    }*/
-
-    // when user switches folder
-    const rawGPS = folderGPS[selectedFolder];  // or folderName
-
-    const gps = rawGPS ? {
-        lat: rawGPS.lat,
-        lon: rawGPS.lon ?? rawGPS.lng
-    } : null;
-    if (gps) {
-        console.log("📍 Using saved GPS for", selectedFolder);
-    }
-    console.log("✅ Applying GPS to:", targetImages.length, "images");
-    console.log("Selected folder:", selectedFolder);
-    console.log("Images matched:", targetImages.length);
-    console.log("Selected folder:", selectedFolder);
-    console.log("Matches:", targetImages.length);
-
-    // might be wrong place
+    // ✅ Debug
     targetImages.forEach(img => {
-        console.log("MATCH:", img.path);
+        console.log("MATCH:", (img && img.path) ? img.path : img);
     });
 
+    // ✅ Clear markers before redraw
+    if (markerLayer) markerLayer.clearLayers();
 
-    // ✅ Clear markers
-    markerLayer.clearLayers();
-
-    // ✅ Update markers visually
+    // ✅ Apply GPS to metadataMap (ONLY place this happens)
     targetImages.forEach(img => {
-//        img.manualGPS = { lat, lng: lon };
-        img.manualGPS = { lat: lat, lon: lon };
-        L.marker([lat, lon])
-            .addTo(markerLayer)
-            .bindPopup(getFilename(img));
+
+        const pathKey = (img && img.path) ? img.path : img;
+
+        let matched = false;
+
+        // ✅ Direct match
+        if (metadataMap.has(pathKey)) {
+
+            const existing = metadataMap.get(pathKey) || {};
+
+            metadataMap.set(pathKey, {
+                ...existing,
+                lat: lat,
+                lon: lon
+            });
+
+            console.log("✅ UPDATED (direct):", pathKey);
+            matched = true;
+        }
+
+        // ✅ Fallback match by filename
+        if (!matched && pathKey) {
+            const fileName = pathKey.split(/[\\/]/).pop();
+
+            metadataMap.forEach((val, key) => {
+
+                if (key.endsWith(fileName)) {
+
+                    const existing = metadataMap.get(key) || {};
+
+                    metadataMap.set(key, {
+                        ...existing,
+                        lat: lat,
+                        lon: lon
+                    });
+
+                    console.log("✅ UPDATED (fallback):", key);
+                    matched = true;
+                }
+            });
+        }
+
+        if (!matched) {
+            console.warn("❌ NO MATCH:", pathKey);
+        }
+
     });
 
+    // ✅ Refresh map
+    console.log("✅ metadataMap updated for all images");
+    setTimeout(() => loadMap(), 100);
 
-// ✅ Prepare file list for backend
+    // ============================
+    // EXIF WRITE LOGIC (unchanged)
+    // ============================
+
     const flatFiles = (targetImages || [])
-        .map(img => typeof img === "string" ? img : img.path)
+        .map(img => (img && img.path) ? img.path : img)
         .filter(Boolean);
 
-// ✅ Pair them
     const groups = pairImages(flatFiles);
 
-// ✅ Expand back to files, but grouped
     const files = [];
 
     groups.forEach(g => {
         if (g.jpg) files.push(g.jpg);
         if (g.raw) files.push(g.raw);
     });
-    console.log("📤 File count:", files.length);
-    console.log(`📷 ${groups.length} image groups (${files.length} files)`);
 
-// Show exif write progress
+    console.log("📤 File count:", files.length);
+
     function pollWriteProgress() {
         fetch("/api/write-progress")
             .then(res => res.json())
@@ -1842,7 +2033,7 @@ async function applyManualGPS() {
                 showGlobalStatus(`
                 ⏳ Writing GPS to images...<br>
                 ${data.done} / ${data.total} (${pct}%)
-            `);
+                `);
 
                 setTimeout(pollWriteProgress, 300);
             });
@@ -1850,6 +2041,7 @@ async function applyManualGPS() {
 
     showGlobalStatus("⏳ Writing GPS to images...");
     pollWriteProgress();
+
     const btn = document.getElementById("applyGpsBtn");
     if (btn) btn.disabled = true;
 
@@ -1870,14 +2062,11 @@ async function applyManualGPS() {
 
         if (data.success) {
             if (selectedFolder) {
-                folderGPS[selectedFolder] = {
-                    lat: manualLocation.lat,
-                    lon: manualLocation.lon   // ✅ GOOD
-                };
-
+                folderGPS[selectedFolder] = { lat, lon };
                 updateFolderIndicators();
                 updateHeaderStatus();
             }
+
             status.innerHTML = `
                 <div class="map-status success">
                     ✅ <strong>GPS written to EXIF</strong><br>
@@ -1891,11 +2080,16 @@ async function applyManualGPS() {
                 </div>
             `;
         }
+
         if (btn) btn.disabled = false;
 
     } catch (err) {
         console.error("❌ EXIF write failed:", err);
     }
+
+    console.log("✅ metadataMap updated with manual GPS");
+
+    loadMap();
 }
 
 function showExifCommand(lat, lon) {
@@ -1916,14 +2110,27 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
 
     const end = Math.min(start + chunkSize, points.length);
 
+    // ✅ Store groups globally if needed
+    if (!window.folderMarkerGroups) {
+        window.folderMarkerGroups = {};
+    }
+
     for (let i = start; i < end; i++) {
         const p = points[i];
 
-        const marker = L.marker([p.lat, p.lon]);
-        marker.bindPopup(`<b>${p.filename || "Photo"}</b>`);
+        const folderName = getFolderName(p.filename || "Root");
 
-        markerLayer.addLayer(marker);   // ✅ IMPORTANT
+        // ✅ Create group if not exists
+        if (!window.folderMarkerGroups[folderName]) {
+            window.folderMarkerGroups[folderName] = L.layerGroup().addTo(map);
+        }
 
+        // ✅ Single correct popup (no overwrite)
+        const marker = L.marker([p.lat, p.lon])
+            .bindPopup(`<b>${folderName}</b><br>${p.filename || "Photo"}`);
+
+        // ✅ Add to folder-specific layer
+        window.folderMarkerGroups[folderName].addLayer(marker);
     }
 
     if (end < points.length) {
@@ -1932,11 +2139,16 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
         );
     } else {
         setTimeout(() => {
-            map.fitBounds(points.map(p => [p.lat, p.lon]));
+            if (points && points.length > 0) {
+                if (points && points.length > 0) {
+                    map.fitBounds(points.map(p => [p.lat, p.lon]));
+                }
+
+            }
+
         }, 0);
     }
 }
-
 // ====================================================================
 // STEP 6 – Pre‑Import & Organize
 // ====================================================================
@@ -2120,23 +2332,7 @@ if (!analyzeBtn) {
 
             imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
             analyzedFolders = data.analysis.folders;
-// ✅ Build metadata lookup map (ONCE after analyze)
-            metadataMap = new Map();
 
-            analyzedFolders.forEach(folder => {
-                const camera = folder.camera_model || "Unknown";
-                const lens = folder.lens || "Unknown Lens";
-
-                (folder.files || []).forEach(path => {
-                    metadataMap.set(path, {
-                        camera_model: camera,
-                        lens: lens
-                    });
-                });
-            });
-
-
-            console.log("✅ metadataMap built:", metadataMap.size);
             updateProgress(`
     📸 <strong>Preparing thumbnails…</strong><br>
     Loading preview images

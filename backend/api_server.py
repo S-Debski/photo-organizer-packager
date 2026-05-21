@@ -165,22 +165,27 @@ def analyze_card():
 # -----------------------------------------------------------------------------
 @app.route("/api/select-folder", methods=["GET"])
 def select_folder():
-
-    if Tk is None:
-        return {"path": None, "error": "Folder dialog not available on this system"}
-
     try:
+        if Tk is None:
+            return {"path": None, "error": "tkinter not available"}
+
         root = Tk()
         root.withdraw()
+        root.attributes('-topmost', True)  # ✅ bring to front
 
         path = filedialog.askdirectory()
 
         root.destroy()
 
+        if not path:
+            return {"path": None}
+
         return {"path": path}
 
     except Exception as e:
+        print("Folder picker error:", e)
         return {"path": None, "error": str(e)}
+
 # -----------------------------------------------------------------------------
 # Set active folder
 # -----------------------------------------------------------------------------
@@ -189,6 +194,62 @@ def set_active_folder():
     touch_activity()
     return api_set_active_folder(ctx, request.json)
 
+# =============================================================================
+# /api/organize
+#
+# Role:
+#   Handles file import / organize operation.
+#
+# Responsibilities:
+#   - Copies files from selected SD card location
+#   - Writes files into working directory
+#   - Applies safety rules (no overwrite)
+#
+# Input (JSON):
+#   {
+#       "source": "path to SD card / folder",
+#       "destination": "working directory"
+#   }
+#
+# Output (JSON):
+#   {
+#       "success": True,
+#       "count": number_of_files_copied
+#   }
+#
+# Notes:
+#   - Skips existing files (safe copy)
+#   - No RAW/JPG pairing yet (future step)
+# =============================================================================
+
+@app.route("/api/organize", methods=["POST"])
+def api_organize():
+    try:
+        data = request.json
+
+        source = data.get("source")
+        destination = data.get("destination")
+
+        import shutil, os
+
+        copied = []
+
+        for root, _, files in os.walk(source):
+            for f in files:
+                src_path = os.path.join(root, f)
+                dst_path = os.path.join(destination, f)
+
+                # ✅ skip if already exists (safe default)
+                if os.path.exists(dst_path):
+                    continue
+
+                shutil.copy2(src_path, dst_path)
+                copied.append(f)
+
+        return {"success": True, "count": len(copied)}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # -----------------------------------------------------------------------------
 # Thumbnails
