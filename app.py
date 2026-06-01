@@ -6,7 +6,7 @@ Photo Organizer Backend – v2.7 Advanced EXIF Edition
 """
 import sys
 from pathlib import Path
-
+from backend.utils.logging_utils import backend_log, log_queue
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))

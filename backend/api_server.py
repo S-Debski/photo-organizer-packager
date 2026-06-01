@@ -20,7 +20,7 @@
 
 # =============================================================================
 from version import APP_VERSION, APP_NAME
-
+ctx = None   # ✅ shared global context
 import threading
 import webbrowser
 import os
@@ -192,7 +192,7 @@ def select_folder():
 @app.route("/api/set-active-folder", methods=["POST"])
 def set_active_folder():
     touch_activity()
-    return api_set_active_folder(ctx, request.json)
+    return api_set_active_folder(request.json)
 
 # =============================================================================
 # /api/organize
@@ -346,19 +346,26 @@ def run_api_server(app_ctx):
     global ctx
     ctx = app_ctx
 
-    # ✅ Start worker ONLY ONCE
-    if os.environ.get("WERKZEUG_RUN_MAIN") is None:
-        threading.Thread(
-            target=exif_scanner_worker,
-            args=(ctx,),
-            daemon=True,
-        ).start()
+    # ✅ Start worker (no condition anymore)
+    threading.Thread(
+        target=exif_scanner_worker,
+        args=(ctx,),
+        daemon=True,
+    ).start()
 
-        # ✅ Auto-open browser once
-        threading.Timer(
-            1.0,
-            lambda: webbrowser.open_new("http://127.0.0.1:5000")
-        ).start()
+    # ✅ Open browser once
+    threading.Timer(
+        1.0,
+        lambda: webbrowser.open_new("http://127.0.0.1:5000")
+    ).start()
+
+    # ✅ Run Flask
+    app.run(
+        host="127.0.0.1",
+        port=5000,
+        debug=False,
+        use_reloader=False
+    )
 
     # ✅ Run Flask clean (no ghost instances)
     app.run(

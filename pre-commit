@@ -1,0 +1,15 @@
+#!/bin/sh
+
+echo "🔍 Running pre-commit checks..."
+
+# Ensure index.html is included if modified
+if git diff --name-only | grep -q "templates/index.html"; then
+    if ! git diff --cached --name-only | grep -q "templates/index.html"; then
+        echo "❌ ERROR: templates/index.html modified but not staged!"
+        echo "👉 Run: git add templates/index.html"
+        exit 1
+    fi
+fi
+
+echo "✅ Pre-commit checks passed"
+exit 0

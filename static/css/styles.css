@@ -562,3 +562,7 @@ body > .d-flex {
     color: #fff;
     pointer-events: none;
 }
+.gps-mode-toggle button.active {
+    background-color: #007bff;
+    color: white;
+}

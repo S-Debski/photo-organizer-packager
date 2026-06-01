@@ -15,7 +15,8 @@ from photo_core.mapping.exif_dates import (
     extract_camera_model,
     extract_lens_model,
 )
-from photo_core.mapping.quality_classification import extract_exif_gps
+from photo_core.exif.reader import read_exif
+#  do not use - from photo_core.exif.reader import get_exif_gps as extract_exif_gps
 
 SCAN_INTERVAL = 5  # seconds between idle checks
 
@@ -48,24 +49,45 @@ def exif_scanner_worker(ctx):
 
         for path in iter_jpegs(active):
             try:
+                # ✅ Use tested GPS extractor directly
+                meta = read_exif(path)
+
+                lat = meta.get("Composite:GPSLatitude")
+                lon = meta.get("Composite:GPSLongitude")
+
+                if lat is not None and lon is not None:
+                    gps = {
+                        "lat": float(lat),
+                        "lon": float(lon)
+                    }
+                else:
+                    gps = None
+
+                if coords:
+                    lat, lon = coords
+                    gps = {"lat": lat, "lon": lon}
+                else:
+                    gps = None
+
+                log_info(ctx, msg=f"[GPS TEST] {path} → {gps}")
+
+
+                if count == 0:
+                    print("GPS TEST:", gps)
+
                 record = {
                     "path": path,
                     "datetime": extract_exif_datetime(path),
                     "camera_model": extract_camera_model(path),
                     "lens": extract_lens_model(path),
-                    "gps": extract_exif_gps(path),
+                    "gps": gps
                 }
+
                 records.append(record)
                 count += 1
 
                 if count % 250 == 0:
-                    log_info(ctx, f"[EXIF] Scanned {count} images...")
+                    log_info(ctx, msg=f"[EXIF] Scanned {count} images...")
+
             except Exception as e:
-                log_info(ctx, f"[EXIF] Failed EXIF for {path}: {e}")
-
-        ctx.exif_cache[cache_key] = records
-        log_info(ctx, f"[EXIF] Completed: {count} JPEGs scanned")
-
-        time.sleep(SCAN_INTERVAL)
-
-    log_info(ctx, "[EXIF] Scanner worker stopped")
+                log_info(ctx, msg=f"[EXIF] Failed EXIF for {path}: {e}")

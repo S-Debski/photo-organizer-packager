@@ -57,59 +57,64 @@
 #   - Frontend mapping view (Step 5)
 #
 # =============================================================================
+# =============================================================================
+# File: backend/routes/gps_data.py
+# =============================================================================
 
-
-from flask import jsonify
-from photo_core.mapping.gps_data import extract_gps_points
+import logging
 from flask import jsonify, request
 
-# ✅ Optional debug toggle (leave False for normal use)
-DEBUG = False
+from photo_core.mapping.gps_data import extract_gps_points
+
+logger = logging.getLogger("gps")
 
 
 def api_gps_data(ctx):
-    """
-    Return GPS points derived from EXIF data + manual mapping.
-    """
 
-    # ✅ Read request body (new)
     data = request.json or {}
     manual = data.get("manualGPS", [])
 
-    # ✅ Existing EXIF logic
     records = getattr(ctx, "exif_records", [])
+    exif_ready = bool(records)
+
+    logger.info(f"[API CTX ID] {id(ctx)}")
+    logger.info(f"EXIF records count: {len(records)}")
 
     if not records:
-        if DEBUG:
-            print("⏳ GPS request: no EXIF records yet")
-        exif_points = []
-    else:
-        exif_points = extract_gps_points(records)
+        logger.warning("⚠️ EXIF not ready yet")
+        return jsonify({
+            "points": [],
+            "exif_ready": False
+        })
 
-    # ✅ Convert EXIF to standard format
-    points = [
-        {
-            "lat": p.get("lat"),
-            "lon": p.get("lon"),
-            "quality": p.get("quality", "exif")
-        }
-        for p in exif_points
-    ]
+    # ✅ ✅ Build GPS points
+    points = []
 
-    # ✅ NEW: merge manual GPS
-    for m in manual:
-        if m.get("lat") and m.get("lon"):
-            points.append({
-                "lat": m.get("lat"),
-                "lon": m.get("lon"),
-                "quality": "manual",
-                "filename": m.get("path")
-            })
+    for r in records:
+        gps = r.get("gps")
 
-    # ✅ Logging
-    if not points:
-        print("⚠️ No GPS data found")
-    else:
-        print(f"✅ GPS combined: {len(points)} points")
+        if gps is None:
+            continue
 
-    return jsonify(points)
+        try:
+            lat, lon = gps
+        except Exception:
+            continue
+
+        if lat is None or lon is None:
+            continue
+
+        points.append({
+            "path": r.get("path"),
+            "lat": lat,
+            "lon": lon,
+            "quality": "exif"
+        })
+
+    logger.info(f"✅ GPS combined: {len(points)} points")
+
+    return jsonify({
+        "points": points,
+        "exif_ready": exif_ready,
+        "current_active_folder": ctx.state.get("current_active_folder")
+    })
