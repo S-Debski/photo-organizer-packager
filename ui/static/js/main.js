@@ -241,25 +241,32 @@ function pairImages(files) {
 // Extract Folder Name helper - if user created them - used for gps org
 // ====================================================================
 function getFolderName(path) {
-    const parts = path.split("\\");
-    return parts.length > 2 ? parts[parts.length - 2] : "Root";
+    if (!path) return "Unknown";
+
+    const workingRootInput = document.getElementById("workingDirectoryInput");
+    const workingRoot = workingRootInput?.value?.trim();
+
+    const normalised = path.replace(/\//g, "\\");
+
+    // ✅ If working root is known — use it
+    if (workingRoot && normalised.startsWith(workingRoot)) {
+        let relative = normalised.slice(workingRoot.length);
+        relative = relative.replace(/^\\+/, "");
+
+        const parts = relative.split("\\");
+
+        return parts.length > 0 ? parts[0] : "Root";
+    }
+
+    // ✅ fallback: assume folder structure ends with group
+    const parts = normalised.split("\\");
+
+    if (parts.length >= 2) {
+        return parts[parts.length - 2];
+    }
+
+    return "Unknown";
 }
-
-const organizeState = {
-    inferredTitle: null,
-    userTitle: null,
-    userOwnsTitle: false,
-};
-
-// User editing the title transfers ownership permanently.
-// After this point, automatic inference must not override the title.
-
-$('session-title')?.addEventListener('input', e => {
-    organizeState.userTitle = e.target.value;
-    organizeState.userOwnsTitle = true;
-    organizeState.inferredTitle = null; // optional but clarifies ownership
-    organizePreview = null;
-});
 
 function setSDButtonState(state) {
     const btn = $('refreshSdBtn');
@@ -570,7 +577,28 @@ async function fetchSDCards() {
 //   - default session metadata (title / shoot_date)
 // Remain in Analyze (Step 2) to allow folder selection
 // ====================================================================
+function updateGlobalStatus(data) {
+    let statusText = "";
 
+    // ✅ NEW: EXIF drives readiness (NOT copy)
+    if (data.exif_count < data.file_count) {
+        statusText = `
+🧠 <strong>Processing metadata</strong><br>
+<small>${data.exif_count} of ${data.file_count} photos analysed</small>
+`;
+    }
+    else {
+        statusText = `
+✅ <strong>Analysis complete</strong><br>
+<small>
+Photos are ready for viewing and organisation<br>
+⚠️ Some photos may not have GPS data — locations can be assigned in Mapping
+</small>
+`;
+    }
+
+    showGlobalStatus(statusText);
+}
 //====================================================================
 // Group Images by folder
 // ====================================================================
@@ -772,90 +800,90 @@ function renderAnalyzeFolders() {
         }
 
         item.onclick = async () => {
-                const folderPath = folder.path;
+            const folderPath = folder.path;
 
-                if (!folderPath) {
-                    console.error("❌ folder.path missing!", folder);
+            if (!folderPath) {
+                console.error("❌ folder.path missing!", folder);
+                return;
+            }
+
+            // ✅ SOURCE (correct)
+            sourceFolderPath = folderPath;
+            selectedFolder = folder.name;
+
+            // ✅ Reset grouping when switching folder
+            currentGroup = null;
+
+            // ✅ Get working directory FROM INPUT (do NOT overwrite it)
+            const workingDirectoryInput = document.getElementById("workingDirectoryInput");
+
+            workingDirectory = null;   // ✅ use global (NO let!)
+
+            if (workingDirectoryInput) {
+                const val = workingDirectoryInput.value.trim();
+                if (val.length > 0) {
+                    workingDirectory = val;
+                }
+            }
+
+            console.log("SOURCE:", sourceFolderPath);
+            console.log("WORKING:", workingDirectory);
+
+            // ✅ Reset map state
+            gpsRetryCount = 0;
+
+            const status = document.getElementById("mapStatus");
+            if (status) status.innerHTML = "";
+
+            // ✅ API call
+            try {
+                const res = await fetch("/api/set-active-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        folder: sourceFolderPath,
+                        working_dir: workingDirectory
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!data.success) {
+                    console.error("❌ Set active folder failed:", data);
                     return;
                 }
 
-                // ✅ SOURCE (correct)
-                sourceFolderPath = folderPath;
-                selectedFolder = folder.name;
+                // ✅ Highlight selection
+                document.querySelectorAll(".folder-item")
+                    .forEach(el => el.classList.remove("selected"));
 
-                // ✅ Reset grouping when switching folder
-                currentGroup = null;
+                item.classList.add("selected");
 
-                // ✅ Get working directory FROM INPUT (do NOT overwrite it)
-                const workingDirectoryInput = document.getElementById("workingDirectoryInput");
+                // ✅ UI update
+                document.querySelectorAll('#wizardNav .sidebar-item')
+                    .forEach(el => el.classList.remove('recommended'));
 
-                workingDirectory = null;   // ✅ use global (NO let!)
+                const nextStep = document.querySelector('[data-step="5"]');
+                nextStep?.classList.add('recommended');
 
-                if (workingDirectoryInput) {
-                    const val = workingDirectoryInput.value.trim();
-                    if (val.length > 0) {
-                        workingDirectory = val;
-                    }
+                const wdEl = document.getElementById("workingDirectoryDisplay");
+                if (wdEl) {
+                    wdEl.textContent = data.working_dir;
                 }
 
-                console.log("SOURCE:", sourceFolderPath);
-                console.log("WORKING:", workingDirectory);
+                showGlobalStatus("✅ Folder ready.");
+                setTimeout(() => showGlobalStatus(""), 2000);
 
-                // ✅ Reset map state
-                gpsRetryCount = 0;
+            } catch (err) {
+                console.error("❌ Error setting active folder:", err);
+            }
+        };
+        // ✅ MUST be inside loop
+        container.appendChild(item);
 
-                const status = document.getElementById("mapStatus");
-                if (status) status.innerHTML = "";
+    }); // ✅ CLOSE forEach
 
-                // ✅ API call
-                try {
-                    const res = await fetch("/api/set-active-folder", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            folder: sourceFolderPath,
-                            working_dir: workingDirectory
-                        })
-                    });
-
-                    const data = await res.json();
-
-                    if (!data.success) {
-                        console.error("❌ Set active folder failed:", data);
-                        return;
-                    }
-
-                    // ✅ Highlight selection
-                    document.querySelectorAll(".folder-item")
-                        .forEach(el => el.classList.remove("selected"));
-
-                    item.classList.add("selected");
-
-                    // ✅ UI update
-                    document.querySelectorAll('#wizardNav .sidebar-item')
-                        .forEach(el => el.classList.remove('recommended'));
-
-                    const nextStep = document.querySelector('[data-step="5"]');
-                    nextStep?.classList.add('recommended');
-
-                    const wdEl = document.getElementById("workingDirectoryDisplay");
-                    if (wdEl) {
-                        wdEl.textContent = data.working_dir;
-                    }
-
-                    showGlobalStatus("✅ Folder ready.");
-                    setTimeout(() => showGlobalStatus(""), 2000);
-
-                } catch (err) {
-                    console.error("❌ Error setting active folder:", err);
-                }
-            };
-            // ✅ MUST be inside loop
-            container.appendChild(item);
-
-        }); // ✅ CLOSE forEach
-
-    } // ✅ CLOSE function
+} // ✅ CLOSE function
 
 // =============================================================================
 // Data Builder: metadataMap (Post-Thumbnail Load)
@@ -891,7 +919,7 @@ function renderAnalyzeFolders() {
 //       • stats and UI display
 // =============================================================================
 
-    let metadataMap = new Map();
+let metadataMap = new Map();
 
 // ====================================================================
 // STEP 3 – Camera + Lens Stats (READ‑ONLY)
@@ -899,181 +927,181 @@ function renderAnalyzeFolders() {
 // Counts are approximate and folder‑based.
 // ====================================================================
 
-    let cameraStats = {};
-    let lensStats = {};
+let cameraStats = {};
+let lensStats = {};
 
-    function gatherStats() {
-        cameraStats = {};
-        lensStats = {};
-        console.log("Analyzed folders:", analyzedFolders);
-        if (!analyzedFolders || analyzedFolders.length === 0) {
-            showGlobalStatus("⚠️ No folders analysed.");
-            return;
-        }
-        const statsSummary = document.getElementById("statsSummary");
+function gatherStats() {
+    cameraStats = {};
+    lensStats = {};
+    console.log("Analyzed folders:", analyzedFolders);
+    if (!analyzedFolders || analyzedFolders.length === 0) {
+        showGlobalStatus("⚠️ No folders analysed.");
+        return;
+    }
+    const statsSummary = document.getElementById("statsSummary");
 
-        if (statsSummary) {
-            const totalPhotos = analyzedFolders.reduce(
-                (sum, f) => sum + (f.photo_count || 0),
-                0
-            );
+    if (statsSummary) {
+        const totalPhotos = analyzedFolders.reduce(
+            (sum, f) => sum + (f.photo_count || 0),
+            0
+        );
 
-            statsSummary.innerHTML = `
+        statsSummary.innerHTML = `
         <div class="mb-2 text-muted">
      // Old version      Total photos: <strong>${totalPhotos}</strong> across ${analyzedFolders.length} folders
      Total images: ${pairedImages.length}
 
         </div>
     `;
-        } else {
-            console.warn("⚠️ statsSummary element not found");
+    } else {
+        console.warn("⚠️ statsSummary element not found");
+    }
+
+
+    analyzedFolders.forEach(folder => {
+        const cam = folder.camera_model || "Unknown";
+        const lens = folder.lens || "Unknown Lens";
+
+        const folderName = folder.path.split(/[\\/]/).pop();
+        const count = folder.photo_count || 0;
+
+        // ✅ CAMERA
+        if (!cameraStats[cam]) {
+            cameraStats[cam] = {
+                total: 0,
+                folders: {}
+            };
         }
 
+        cameraStats[cam].total += count;
+        cameraStats[cam].folders[folderName] = count;
 
-        analyzedFolders.forEach(folder => {
-            const cam = folder.camera_model || "Unknown";
-            const lens = folder.lens || "Unknown Lens";
+        // ✅ LENS
+        if (!lensStats[lens]) {
+            lensStats[lens] = {
+                total: 0,
+                folders: {}
+            };
+        }
 
-            const folderName = folder.path.split(/[\\/]/).pop();
-            const count = folder.photo_count || 0;
+        lensStats[lens].total += count;
+        lensStats[lens].folders[folderName] = count;
+    });
 
-            // ✅ CAMERA
-            if (!cameraStats[cam]) {
-                cameraStats[cam] = {
-                    total: 0,
-                    folders: {}
-                };
-            }
-
-            cameraStats[cam].total += count;
-            cameraStats[cam].folders[folderName] = count;
-
-            // ✅ LENS
-            if (!lensStats[lens]) {
-                lensStats[lens] = {
-                    total: 0,
-                    folders: {}
-                };
-            }
-
-            lensStats[lens].total += count;
-            lensStats[lens].folders[folderName] = count;
-        });
-
-        console.log("📊 Aggregated camera stats:", cameraStats);
-        console.log("📊 Aggregated lens stats:", lensStats);
-    }
+    console.log("📊 Aggregated camera stats:", cameraStats);
+    console.log("📊 Aggregated lens stats:", lensStats);
+}
 // Pair Raw and Jpg photos where the same
-    function gatherPairedStats() {
-        cameraStats = {};
-        lensStats = {};
+function gatherPairedStats() {
+    cameraStats = {};
+    lensStats = {};
 
-        if (!pairedImages || pairedImages.length === 0) {
-            console.warn("⚠️ No paired images available");
-            return;
-        }
-
-        pairedImages.forEach(img => {
-
-            // ✅ choose representative file (prefer JPG)
-            const file = img.jpg || img.raw;
-
-            if (!file) return;
-
-            // ✅ Extract folder path from file
-            const folderPath = file.split(/[\\/]/).slice(0, -1).join("\\");
-
-            // ✅ Find matching analyzed folder
-            const normalise = p => p.replace(/\\/g, "/").toLowerCase();
-
-            const normalFile = normalise(file);
-
-            const folderMeta = analyzedFolders.find(f =>
-                normalFile.startsWith(normalise(f.path))
-            );
-
-
-
-            const camera = folderMeta?.camera_model || "Unknown";
-            const lens   = folderMeta?.lens || "Unknown Lens";
-
-            // ✅ Folder name (for display) — ONLY ONCE
-            const folderName = file.split(/[\\/]/).slice(-2, -1)[0] || "Unknown";
-
-            // ✅ CAMERA
-            if (!cameraStats[camera]) {
-                cameraStats[camera] = {
-                    total: 0,
-                    folders: {},
-                    paired: 0,
-                    jpgOnly: 0,
-                    rawOnly: 0
-                };
-            }
-
-
-            cameraStats[camera].total++;
-
-            // ✅ pairing breakdown
-            if (img.jpg && img.raw) cameraStats[camera].paired++;
-            else if (img.jpg) cameraStats[camera].jpgOnly++;
-            else if (img.raw) cameraStats[camera].rawOnly++;
-
-            const camFolder = cameraStats[camera].folders;
-            camFolder[folderName] = (camFolder[folderName] || 0) + 1;
-
-            // ✅ LENS
-            if (!lensStats[lens]) {
-                lensStats[lens] = {
-                    total: 0,
-                    folders: {},
-                    paired: 0,
-                    jpgOnly: 0,
-                    rawOnly: 0
-                };
-            }
-
-            lensStats[lens].total++;
-
-            if (img.jpg && img.raw) lensStats[lens].paired++;
-            else if (img.jpg) lensStats[lens].jpgOnly++;
-            else if (img.raw) lensStats[lens].rawOnly++;
-
-            const lensFolder = lensStats[lens].folders;
-            lensFolder[folderName] = (lensFolder[folderName] || 0) + 1;
-        });
+    if (!pairedImages || pairedImages.length === 0) {
+        console.warn("⚠️ No paired images available");
+        return;
     }
 
+    pairedImages.forEach(img => {
 
-    function renderCameraStats() {
+        // ✅ choose representative file (prefer JPG)
+        const file = img.jpg || img.raw;
 
-        const grandTotal = Object.values(cameraStats)
-            .reduce((sum, c) => sum + c.total, 0);
+        if (!file) return;
 
-        $('cameraStats').innerHTML =
-            Object.entries(cameraStats)
-                .sort((a, b) => b[1].total - a[1].total)
-                .map(([cam, data]) => {
+        // ✅ Extract folder path from file
+        const folderPath = file.split(/[\\/]/).slice(0, -1).join("\\");
 
-                    const pctTotal = grandTotal
-                        ? ((data.total / grandTotal) * 100).toFixed(1)
-                        : "0.0";
+        // ✅ Find matching analyzed folder
+        const normalise = p => p.replace(/\\/g, "/").toLowerCase();
 
-                    const folderBreakdown = Object.entries(data.folders)
-                        .map(([folder, count]) => {
-                            const pct = data.total
-                                ? ((count / data.total) * 100).toFixed(1)
-                                : "0.0";
+        const normalFile = normalise(file);
 
-                            return `
+        const folderMeta = analyzedFolders.find(f =>
+            normalFile.startsWith(normalise(f.path))
+        );
+
+
+
+        const camera = folderMeta?.camera_model || "Unknown";
+        const lens   = folderMeta?.lens || "Unknown Lens";
+
+        // ✅ Folder name (for display) — ONLY ONCE
+        const folderName = file.split(/[\\/]/).slice(-2, -1)[0] || "Unknown";
+
+        // ✅ CAMERA
+        if (!cameraStats[camera]) {
+            cameraStats[camera] = {
+                total: 0,
+                folders: {},
+                paired: 0,
+                jpgOnly: 0,
+                rawOnly: 0
+            };
+        }
+
+
+        cameraStats[camera].total++;
+
+        // ✅ pairing breakdown
+        if (img.jpg && img.raw) cameraStats[camera].paired++;
+        else if (img.jpg) cameraStats[camera].jpgOnly++;
+        else if (img.raw) cameraStats[camera].rawOnly++;
+
+        const camFolder = cameraStats[camera].folders;
+        camFolder[folderName] = (camFolder[folderName] || 0) + 1;
+
+        // ✅ LENS
+        if (!lensStats[lens]) {
+            lensStats[lens] = {
+                total: 0,
+                folders: {},
+                paired: 0,
+                jpgOnly: 0,
+                rawOnly: 0
+            };
+        }
+
+        lensStats[lens].total++;
+
+        if (img.jpg && img.raw) lensStats[lens].paired++;
+        else if (img.jpg) lensStats[lens].jpgOnly++;
+        else if (img.raw) lensStats[lens].rawOnly++;
+
+        const lensFolder = lensStats[lens].folders;
+        lensFolder[folderName] = (lensFolder[folderName] || 0) + 1;
+    });
+}
+
+
+function renderCameraStats() {
+
+    const grandTotal = Object.values(cameraStats)
+        .reduce((sum, c) => sum + c.total, 0);
+
+    $('cameraStats').innerHTML =
+        Object.entries(cameraStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .map(([cam, data]) => {
+
+                const pctTotal = grandTotal
+                    ? ((data.total / grandTotal) * 100).toFixed(1)
+                    : "0.0";
+
+                const folderBreakdown = Object.entries(data.folders)
+                    .map(([folder, count]) => {
+                        const pct = data.total
+                            ? ((count / data.total) * 100).toFixed(1)
+                            : "0.0";
+
+                        return `
                             <div class="small text-muted ms-3">
                                 ${folder}: ${count} images (${pct}%)
                             </div>
                         `;
-                        })
-                        .join("");
+                    })
+                    .join("");
 
-                    return `
+                return `
                 <div class="list-group-item bg-dark-subtle text-light">
 
                     <strong>${cam}</strong>
@@ -1091,39 +1119,39 @@ function renderAnalyzeFolders() {
 
                 </div>
                 `;
-                })
-                .join('');
-    }
+            })
+            .join('');
+}
 
-    function renderLensStats() {
+function renderLensStats() {
 
-        const grandTotal = Object.values(lensStats)
-            .reduce((sum, l) => sum + l.total, 0);
+    const grandTotal = Object.values(lensStats)
+        .reduce((sum, l) => sum + l.total, 0);
 
-        $('lensStats').innerHTML =
-            Object.entries(lensStats)
-                .sort((a, b) => b[1].total - a[1].total)
-                .map(([lens, data]) => {
+    $('lensStats').innerHTML =
+        Object.entries(lensStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .map(([lens, data]) => {
 
-                    const pctTotal = grandTotal
-                        ? ((data.total / grandTotal) * 100).toFixed(1)
-                        : "0.0";
+                const pctTotal = grandTotal
+                    ? ((data.total / grandTotal) * 100).toFixed(1)
+                    : "0.0";
 
-                    const folderBreakdown = Object.entries(data.folders)
-                        .map(([folder, count]) => {
-                            const pct = data.total
-                                ? ((count / data.total) * 100).toFixed(1)
-                                : "0.0";
+                const folderBreakdown = Object.entries(data.folders)
+                    .map(([folder, count]) => {
+                        const pct = data.total
+                            ? ((count / data.total) * 100).toFixed(1)
+                            : "0.0";
 
-                            return `
+                        return `
                             <div class="small text-muted ms-3">
                                 ${folder}: ${count} images (${pct}%)
                             </div>
                         `;
-                        })
-                        .join("");
+                    })
+                    .join("");
 
-                    return `
+                return `
                 <div class="list-group-item bg-dark-subtle text-light">
 
                     <strong>${lens}</strong>
@@ -1141,108 +1169,35 @@ function renderAnalyzeFolders() {
                     ${folderBreakdown}
 
                 </div>`;
-                })
-                .join('');
-    }
-
-    function renderCharts() {
-        console.log("Camera stats for chart:", cameraStats);
-        const usePercent = document.getElementById("togglePercent")?.checked;
-
-
-        if (cameraChart) cameraChart.destroy();
-        if (lensChart) lensChart.destroy();
-
-        const useStacked = document.getElementById("toggleStacked")?.checked;
-
-        const cameraLabels = Object.keys(cameraStats);
-        const lensLabels = Object.keys(lensStats);
-
-        // ✅ SIMPLE MODE
-        if (!useStacked) {
-
-            cameraChart = new Chart($('chartCameras'), {
-                type: "bar",
-                data: {
-                    labels: cameraLabels,
-                    datasets: [{
-                        label: "Photos per Camera",
-                        data: Object.values(cameraStats).map(c => c.total),
-                        backgroundColor: "#4dc9f6"
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top'
-                        }
-                    },
-                    scales: {
-                        x: { stacked: false },
-                        y: { stacked: false }
-                    }
-                }
-            });
-
-            lensChart = new Chart($('chartLenses'), {
-                type: "bar",
-                data: {
-                    labels: lensLabels,
-                    datasets: [{
-                        label: "Photos per Lens",
-                        data: Object.values(lensStats).map(l => l.total),
-                        backgroundColor: "#f67019"
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'top'
-                        }
-                    },
-                    scales: {
-                        x: { stacked: false },
-                        y: { stacked: false }
-                    }
-                }
-            });
-
-            return;
-        }
-
-        // ✅ ✅ STACKED MODE
-
-        const folders = [...new Set(
-            analyzedFolders.map(f => f.path.split(/[\\/]/).pop())
-        )];
-
-        const colors = [
-            "#4dc9f6", "#f67019", "#f53794",
-            "#537bc4", "#acc236", "#166a8f"
-        ];
-
-        const cameraDatasets = folders.map((folderName, i) => ({
-            label: folderName,
-            backgroundColor: colors[i % colors.length],
-            borderColor: "#111",
-            borderWidth: 1,
-            data: cameraLabels.map(cam => {
-                const value = cameraStats[cam].folders[folderName] || 0;
-
-                if (!usePercent) return value;
-
-                const total = cameraStats[cam].total || 1;
-                return (value / total) * 100;
             })
-        }));
+            .join('');
+}
+
+function renderCharts() {
+    console.log("Camera stats for chart:", cameraStats);
+    const usePercent = document.getElementById("togglePercent")?.checked;
+
+
+    if (cameraChart) cameraChart.destroy();
+    if (lensChart) lensChart.destroy();
+
+    const useStacked = document.getElementById("toggleStacked")?.checked;
+
+    const cameraLabels = Object.keys(cameraStats);
+    const lensLabels = Object.keys(lensStats);
+
+    // ✅ SIMPLE MODE
+    if (!useStacked) {
 
         cameraChart = new Chart($('chartCameras'), {
             type: "bar",
             data: {
                 labels: cameraLabels,
-                datasets: cameraDatasets
+                datasets: [{
+                    label: "Photos per Camera",
+                    data: Object.values(cameraStats).map(c => c.total),
+                    backgroundColor: "#4dc9f6"
+                }]
             },
             options: {
                 responsive: true,
@@ -1252,41 +1207,21 @@ function renderAnalyzeFolders() {
                     }
                 },
                 scales: {
-                    x: { stacked: true },
-                    y: {
-                        stacked: true,
-                        max: usePercent ? 100 : undefined,
-                        ticks: {
-                            callback: value => usePercent ? value + "%" : value
-                        }
-                    }
+                    x: { stacked: false },
+                    y: { stacked: false }
                 }
             }
         });
-
-        // ✅ LENS STACKED
-
-        const lensDatasets = folders.map((folderName, i) => ({
-            label: folderName,
-            backgroundColor: colors[i % colors.length],
-            borderColor: "#111",
-            borderWidth: 1,
-            data: lensLabels.map(l => {
-                const value = lensStats[l].folders[folderName] || 0;
-
-                if (!usePercent) return value;
-
-                const total = lensStats[l].total || 1;
-                return (value / total) * 100;
-            })
-
-        }));
 
         lensChart = new Chart($('chartLenses'), {
             type: "bar",
             data: {
                 labels: lensLabels,
-                datasets: lensDatasets
+                datasets: [{
+                    label: "Photos per Lens",
+                    data: Object.values(lensStats).map(l => l.total),
+                    backgroundColor: "#f67019"
+                }]
             },
             options: {
                 responsive: true,
@@ -1296,150 +1231,243 @@ function renderAnalyzeFolders() {
                     }
                 },
                 scales: {
-                    x: { stacked: true },
-                    y: {
-                        stacked: true,
-                        max: usePercent ? 100 : undefined,
-                        ticks: {
-                            callback: value => usePercent ? value + "%" : value
-                        }
-                    }
-
+                    x: { stacked: false },
+                    y: { stacked: false }
                 }
             }
         });
+
+        return;
     }
+
+    // ✅ ✅ STACKED MODE
+
+    const folders = [...new Set(
+        analyzedFolders.map(f => f.path.split(/[\\/]/).pop())
+    )];
+
+    const colors = [
+        "#4dc9f6", "#f67019", "#f53794",
+        "#537bc4", "#acc236", "#166a8f"
+    ];
+
+    const cameraDatasets = folders.map((folderName, i) => ({
+        label: folderName,
+        backgroundColor: colors[i % colors.length],
+        borderColor: "#111",
+        borderWidth: 1,
+        data: cameraLabels.map(cam => {
+            const value = cameraStats[cam].folders[folderName] || 0;
+
+            if (!usePercent) return value;
+
+            const total = cameraStats[cam].total || 1;
+            return (value / total) * 100;
+        })
+    }));
+
+    cameraChart = new Chart($('chartCameras'), {
+        type: "bar",
+        data: {
+            labels: cameraLabels,
+            datasets: cameraDatasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: { stacked: true },
+                y: {
+                    stacked: true,
+                    max: usePercent ? 100 : undefined,
+                    ticks: {
+                        callback: value => usePercent ? value + "%" : value
+                    }
+                }
+            }
+        }
+    });
+
+    // ✅ LENS STACKED
+
+    const lensDatasets = folders.map((folderName, i) => ({
+        label: folderName,
+        backgroundColor: colors[i % colors.length],
+        borderColor: "#111",
+        borderWidth: 1,
+        data: lensLabels.map(l => {
+            const value = lensStats[l].folders[folderName] || 0;
+
+            if (!usePercent) return value;
+
+            const total = lensStats[l].total || 1;
+            return (value / total) * 100;
+        })
+
+    }));
+
+    lensChart = new Chart($('chartLenses'), {
+        type: "bar",
+        data: {
+            labels: lensLabels,
+            datasets: lensDatasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                x: { stacked: true },
+                y: {
+                    stacked: true,
+                    max: usePercent ? 100 : undefined,
+                    ticks: {
+                        callback: value => usePercent ? value + "%" : value
+                    }
+                }
+
+            }
+        }
+    });
+}
 
 //=====================================================================
 // Chart toggle
 //=====================================================================
-    const chartsContainer = $('chartsContainer');
-    const toggleChartsBtn = $('toggleChartsBtn');
+const chartsContainer = $('chartsContainer');
+const toggleChartsBtn = $('toggleChartsBtn');
 
-    toggleChartsBtn?.addEventListener('click', () => {
-        const showing = !chartsContainer.classList.contains('d-none');
+toggleChartsBtn?.addEventListener('click', () => {
+    const showing = !chartsContainer.classList.contains('d-none');
 
-        if (showing) {
-            chartsContainer.classList.add('d-none');
-            toggleChartsBtn.textContent = "Show charts";
-        } else {
-            chartsContainer.classList.remove('d-none');
-            toggleChartsBtn.textContent = "Hide charts";
+    if (showing) {
+        chartsContainer.classList.add('d-none');
+        toggleChartsBtn.textContent = "Show charts";
+    } else {
+        chartsContainer.classList.remove('d-none');
+        toggleChartsBtn.textContent = "Hide charts";
 
-            // Charts render only if explicitly shown
-            if (!chartsContainer.classList.contains('d-none')) {
-                renderCharts();
-            }
-
+        // Charts render only if explicitly shown
+        if (!chartsContainer.classList.contains('d-none')) {
+            renderCharts();
         }
-    });
+
+    }
+});
 
 // Re-render charts when stacked toggle changes
-    document.getElementById("toggleStacked")
-        ?.addEventListener("change", () => {
-            // Only re-render if charts are visible (important!)
-            if (!chartsContainer.classList.contains('d-none')) {
-                renderCharts();
-            }
-        });
+document.getElementById("toggleStacked")
+    ?.addEventListener("change", () => {
+        // Only re-render if charts are visible (important!)
+        if (!chartsContainer.classList.contains('d-none')) {
+            renderCharts();
+        }
+    });
 
 
 // ====================================================================
 // STEP 4 — THUMBNAILS
 // ====================================================================
-    function getFilename(img) {
-        return (img.path || img).split("\\").pop().split("/").pop();
+function getFilename(img) {
+    return (img.path || img).split("\\").pop().split("/").pop();
+}
+
+function updateProgressBar(processed, total) {
+
+    const container = document.getElementById("progressContainer");
+    const bar = document.getElementById("progressBar");
+    const text = document.getElementById("progressText");
+
+    if (!container || !bar) return;
+
+    container.style.display = "block";
+
+    const pct = total ? Math.floor((processed / total) * 100) : 0;
+
+    bar.style.width = pct + "%";
+
+    if (text) {
+        text.textContent = `${processed} / ${total} images (${pct}%)`;
+    }
+}
+
+function openFullImage(path) {
+
+    const modal = document.getElementById("imageModal");
+
+    // ✅ Set current index
+    currentPreviewIndex = thumbnails.indexOf(path);
+
+    updatePreviewImage();
+
+    modal.classList.remove("d-none");
+}
+async function loadThumbnails() {
+
+    if (!sourceFolderPath) {
+        console.warn("❌ No folder selected — aborting thumbnail load");
+        return;
     }
 
-    function updateProgressBar(processed, total) {
+    try {
+        const res = await fetch("/api/thumbs", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                folder: sourceFolderPath
+            })
+        });
 
-        const container = document.getElementById("progressContainer");
-        const bar = document.getElementById("progressBar");
-        const text = document.getElementById("progressText");
+        const data = await res.json();
 
-        if (!container || !bar) return;
+        // ✅ ✅ REMOVE infinite retry loop — handle empty safely
+        if (!data || data.length === 0) {
+            console.warn("⚠️ No thumbnails returned");
 
-        container.style.display = "block";
-
-        const pct = total ? Math.floor((processed / total) * 100) : 0;
-
-        bar.style.width = pct + "%";
-
-        if (text) {
-            text.textContent = `${processed} / ${total} images (${pct}%)`;
-        }
-    }
-
-    function openFullImage(path) {
-
-        const modal = document.getElementById("imageModal");
-
-        // ✅ Set current index
-        currentPreviewIndex = thumbnails.indexOf(path);
-
-        updatePreviewImage();
-
-        modal.classList.remove("d-none");
-    }
-    async function loadThumbnails() {
-
-        if (!sourceFolderPath) {
-            console.warn("❌ No folder selected — aborting thumbnail load");
-            return;
-        }
-
-        try {
-            const res = await fetch("/api/thumbs", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    folder: sourceFolderPath
-                })
-            });
-
-            const data = await res.json();
-
-            // ✅ ✅ REMOVE infinite retry loop — handle empty safely
-            if (!data || data.length === 0) {
-                console.warn("⚠️ No thumbnails returned");
-
-                $("thumbnailGallery").innerHTML = `
+            $("thumbnailGallery").innerHTML = `
                 <div class="text-muted text-center py-4">
                     ⚠️ No images found in this folder<br>
                     <small>Check folder selection or contents</small>
                 </div>
             `;
 
-                return;   // ✅ STOP — no retry
-            }
+            return;   // ✅ STOP — no retry
+        }
 
-            // ✅ SUCCESS: render thumbnails
-            thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
-            currentImages = thumbnails;
-            // ✅ Build metadataMap AFTER images are loaded
-            metadataMap = new Map();
+        // ✅ SUCCESS: render thumbnails
+        thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
+        currentImages = thumbnails;
+        // ✅ Build metadataMap AFTER images are loaded
+        metadataMap = new Map();
 
-            (currentImages || []).forEach(path => {
-                metadataMap.set(path, {
-                    camera_model: "Unknown",
-                    lens: "Unknown Lens",
-                    lat: null,
-                    lon: null
-                });
+        (currentImages || []).forEach(path => {
+            metadataMap.set(path, {
+                camera_model: "Unknown",
+                lens: "Unknown Lens",
+                lat: null,
+                lon: null
             });
+        });
 
-            console.log("✅ metadataMap built:", metadataMap.size);
+        console.log("✅ metadataMap built:", metadataMap.size);
 
 
-            // ✅ Pair JPG + RAW files into logical images
-            pairedImages = pairFiles(thumbnails);
+        // ✅ Pair JPG + RAW files into logical images
+        pairedImages = pairFiles(thumbnails);
 
-            // ✅ Render grouped images
-            $("thumbnailGallery").innerHTML = "";
-            renderThumbnailsChunked(pairedImages, 0, 6);
-            showGlobalStatus(`
+        // ✅ Render grouped images
+        $("thumbnailGallery").innerHTML = "";
+        renderThumbnailsChunked(pairedImages, 0, 6);
+        showGlobalStatus(`
 ✅ <strong>Thumbnails ready</strong><br>
 <small>
 Viewing: <b>${selectedFolder}</b><br>
@@ -1447,540 +1475,546 @@ Select another folder or go back to Analyse to choose a different card
 </small>
 `);
 
-            // ✅ Logs
-            console.log("✅ Thumbnails loaded:", thumbnails.length);
-            console.log("✅ currentImages length:", currentImages?.length);
-            console.log("✅ pairedImages length:", pairedImages?.length);
+        // ✅ Logs
+        console.log("✅ Thumbnails loaded:", thumbnails.length);
+        console.log("✅ currentImages length:", currentImages?.length);
+        console.log("✅ pairedImages length:", pairedImages?.length);
 
-            // ✅ Prepare folder grouping
-            prepareFolderGrouping(currentImages);
+        // ✅ Prepare folder grouping
+        prepareFolderGrouping(currentImages);
 
-            // ✅ Pre-warm stats
-            gatherPairedStats();
+        // ✅ Pre-warm stats
+        gatherPairedStats();
 
-        } catch (err) {
-            console.error("Thumbnail load failed:", err);
+    } catch (err) {
+        console.error("Thumbnail load failed:", err);
 
-            $("thumbnailGallery").innerHTML = `
+        $("thumbnailGallery").innerHTML = `
             <div class="text-danger text-center py-4">
                 ❌ Failed to load thumbnails<br>
                 <small>Check connection or try again</small>
             </div>
         `;
-        }
     }
-    function prepareFolderGrouping(images) {
-        if (!images || images.length === 0) return;
+}
+function prepareFolderGrouping(images) {
+    if (!images || images.length === 0) return;
 
-        console.log("📂 Preparing folder groups for mapping...");
+    console.log("📂 Preparing folder groups for mapping...");
 
-        // ✅ ALWAYS use working directory images
-        folderGroups = groupByFolder(images);
+    // ✅ ALWAYS use working directory images
+    folderGroups = groupByFolder(images);
 
 
-        console.log("✅ Folder groups:", Object.keys(folderGroups));
-    }
-    function showNextImage() {
-        currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
-        updatePreviewImage();
-    }
+    console.log("✅ Folder groups:", Object.keys(folderGroups));
+}
+function showNextImage() {
+    currentPreviewIndex = (currentPreviewIndex + 1) % thumbnails.length;
+    updatePreviewImage();
+}
 
-    function showPreviousImage() {
-        currentPreviewIndex =
-            (currentPreviewIndex - 1 + thumbnails.length) % thumbnails.length;
-        updatePreviewImage();
-    }
+function showPreviousImage() {
+    currentPreviewIndex =
+        (currentPreviewIndex - 1 + thumbnails.length) % thumbnails.length;
+    updatePreviewImage();
+}
 
-    function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
-        const grid = $("thumbnailGallery");
-        const end = Math.min(start + chunkSize, items.length);
+function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
+    const grid = $("thumbnailGallery");
+    const end = Math.min(start + chunkSize, items.length);
 
-        for (let i = start; i < end; i++) {
-            const item = items[i];   // ✅ now using pairedImages
+    for (let i = start; i < end; i++) {
+        const item = items[i];   // ✅ now using pairedImages
 
-            // ✅ Wrapper
-            const div = document.createElement("div");
-            div.className = "thumbnail-item col-3 position-relative";
-            div.style.textAlign = "center";
+        // ✅ Wrapper
+        const div = document.createElement("div");
+        div.className = "thumbnail-item col-3 position-relative";
+        div.style.textAlign = "center";
 
-            // ✅ Choose preview image
-            let previewPath = item.jpg || item.raw;
+        // ✅ Choose preview image
+        let previewPath = item.jpg || item.raw;
 
-            // ✅ Image
-            const img = document.createElement("img");
-            img.src = `/api/photo-proxy?path=${encodeURIComponent(previewPath)}`;
-            img.className = "img-fluid";
-            img.loading = "lazy";
-            img.decoding = "async";
+        // ✅ Image
+        const img = document.createElement("img");
+        img.src = `/api/photo-proxy?path=${encodeURIComponent(previewPath)}`;
+        img.className = "img-fluid";
+        img.loading = "lazy";
+        img.decoding = "async";
 
-            // ✅ Click handler
-            const openPath = previewPath;
-            const open = () => openFullImage(openPath);
+        // ✅ Click handler
+        const openPath = previewPath;
+        const open = () => openFullImage(openPath);
 
-            div.onclick = open;
-            img.onclick = open;
+        div.onclick = open;
+        img.onclick = open;
 
-            // ✅ Filename label (use base name)
-            const label = document.createElement("div");
-            label.textContent = item.baseName;
-            label.className = "thumb-label";
-            label.title = item.baseName;
+        // ✅ Filename label (use base name)
+        const label = document.createElement("div");
+        label.textContent = item.baseName;
+        label.className = "thumb-label";
+        label.title = item.baseName;
 
-            // ✅ Badge logic
-            let badge = "";
-            if (item.jpg && item.raw) {
-                badge = "✅";
-            } else if (item.jpg) {
-                badge = "🖼️";
-            } else if (item.raw) {
-                badge = "📷";
-            }
-
-            if (badge) {
-                const badgeEl = document.createElement("div");
-                badgeEl.className = "pair-badge";
-                badgeEl.innerHTML = badge;
-                div.appendChild(badgeEl);
-            }
-
-            // ✅ Assemble
-            div.appendChild(img);
-            div.appendChild(label);
-            grid.appendChild(div);
+        // ✅ Badge logic
+        let badge = "";
+        if (item.jpg && item.raw) {
+            badge = "✅";
+        } else if (item.jpg) {
+            badge = "🖼️";
+        } else if (item.raw) {
+            badge = "📷";
         }
 
-        // ✅ Continue chunking
-        if (end < items.length) {
-            setTimeout(() => {
-                renderThumbnailsChunked(items, end, chunkSize);
-            });
-        } else {
-            // ✅ ✅ ONLY once when ALL thumbnails finished
+        if (badge) {
+            const badgeEl = document.createElement("div");
+            badgeEl.className = "pair-badge";
+            badgeEl.innerHTML = badge;
+            div.appendChild(badgeEl);
+        }
 
-            const hasMissingGPS = !folderGPS[selectedFolder];
+        // ✅ Assemble
+        div.appendChild(img);
+        div.appendChild(label);
+        grid.appendChild(div);
+    }
 
-            if (hasMissingGPS) {
-                showGlobalStatus(`
+    // ✅ Continue chunking
+    if (end < items.length) {
+        setTimeout(() => {
+            renderThumbnailsChunked(items, end, chunkSize);
+        });
+    } else {
+        // ✅ ✅ ONLY once when ALL thumbnails finished
+
+        const hasMissingGPS = !folderGPS[selectedFolder];
+
+        if (hasMissingGPS) {
+            showGlobalStatus(`
 ⚠️ <strong>No GPS data for ${selectedFolder}</strong><br>
 <small>You can add a location in the Mapping step</small>
 `);
-            } else {
-                showGlobalStatus(`
+        } else {
+            showGlobalStatus(`
 ✅ <strong>Viewing: ${selectedFolder}</strong><br>
 <small>Location assigned</small>
 `);
-            }
         }
     }
-    function updatePreviewImage() {
-        const img = $("previewImage");
+}
+function updatePreviewImage() {
+    const img = $("previewImage");
 
-        if (!img) {
-            console.warn("previewImage element missing");
+    if (!img) {
+        console.warn("previewImage element missing");
+        return;
+    }
+
+    img.src = `/api/full-image?path=${encodeURIComponent(
+        thumbnails[currentPreviewIndex]
+    )}`;
+
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "85vh";
+    img.style.width = "auto";
+    img.style.height = "auto";
+}
+
+Object.keys(folderGroups).forEach(folder => {
+
+    const btn = document.createElement("button");
+
+    btn.className = "btn btn-sm btn-outline-secondary me-2";
+    btn.textContent = folder;
+
+    btn.onclick = () => {
+
+        selectedFolder = folder;
+
+        const group = folderGroups[folder];
+        selectedFolderGroup = group;
+
+        if (!group || group.length === 0) {
+            sourceFolderPath = null;
             return;
         }
 
-        img.src = `/api/full-image?path=${encodeURIComponent(
-            thumbnails[currentPreviewIndex]
-        )}`;
+        const firstImage = group[0];
 
-        img.style.maxWidth = "100%";
-        img.style.maxHeight = "85vh";
-        img.style.width = "auto";
-        img.style.height = "auto";
-    }
-
-    Object.keys(folderGroups).forEach(folder => {
-
-        const btn = document.createElement("button");
-
-        btn.className = "btn btn-sm btn-outline-secondary me-2";
-        btn.textContent = folder;
-
-        btn.onclick = () => {
-
-            selectedFolder = folder;
-
-            const group = folderGroups[folder];
-            selectedFolderGroup = group;
-
-            if (!group || group.length === 0) {
-                sourceFolderPath = null;
-                return;
-            }
-
-            const firstImage = group[0];
-
-            if (firstImage && firstImage.path) {
-                sourceFolderPath = firstImage.path
-                    .split(/[\\/]/)
-                    .slice(0, -1)
-                    .join("\\");
-            } else {
-                sourceFolderPath = null;
-            }
-
-            container.querySelectorAll("button")
-                .forEach(b => b.classList.remove("active"));
-
-            btn.classList.add("active");
-
-            // ✅ map sync block goes here...
-
-        };
-
-        // ✅ ✅ THIS IS REQUIRED
-        container.appendChild(btn);
-    });
-
-
-    function triggerMappingAfterSelection() {
-        console.log("⏳ Waiting for EXIF worker before mapping...");
-
-        setTimeout(() => {
-            console.log("🗺️ Switching to Mapping step");
-            switchStep(5);
-        }, 1500);
-    }
-
-    let map = null;
-    let manualLocation = null;   // ✅ MOVE HERE
-
-    function initMap() {
-        const el = document.getElementById("map");
-        if (!el) {
-            console.warn("Map container not found");
-            return;
+        if (firstImage && firstImage.path) {
+            sourceFolderPath = firstImage.path
+                .split(/[\\/]/)
+                .slice(0, -1)
+                .join("\\");
+        } else {
+            sourceFolderPath = null;
         }
 
-        el.style.height = "400px";
-        el.style.width = "100%";
-        el.style.display = "block";
+        container.querySelectorAll("button")
+            .forEach(b => b.classList.remove("active"));
 
-        if (map) return;
+        btn.classList.add("active");
 
-        map = L.map(el);
+        // ✅ map sync block goes here...
 
-        markerLayer = L.layerGroup().addTo(map);
+    };
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: "© OpenStreetMap contributors",
-            maxZoom: 18
-        }).addTo(map);
+    // ✅ ✅ THIS IS REQUIRED
+    container.appendChild(btn);
+});
 
-        map.setView([51.5, -0.12], 5);
 
-        map.on("click", function (e) {
+function triggerMappingAfterSelection() {
+    console.log("⏳ Waiting for EXIF worker before mapping...");
 
-            // ✅ Extract from Leaflet
-            const lat = e.latlng.lat;
-            const lon = e.latlng.lng;
+    setTimeout(() => {
+        console.log("🗺️ Switching to Mapping step");
+        switchStep(5);
+    }, 1500);
+}
 
-            // ✅ Store variable
-            manualLocation = { lat, lon };
+let map = null;
+let manualLocation = null;   // ✅ MOVE HERE
 
-            console.log("📍 Selected manual location:", manualLocation);
-            console.log("✅ Manual GPS applied to images");
-
-            // ✅ Clear previous marker
-            if (markerLayer) {
-                markerLayer.clearLayers();
-            }
-
-            // ✅ Add marker
-            L.marker([lat, lon])
-                .addTo(markerLayer)
-                .bindPopup("Manual location")
-                .openPopup();
-
-            // ✅ Move map (MUST be inside)
-            if (map) {
-                map.setView([lat, lon], 14);
-            }
-
-            // ✅ Show panel
-            const panel = document.getElementById("locationDetails");
-            if (panel) panel.style.display = "block";
-
-            // ✅ Update inputs
-            const latInput = document.getElementById("latInput");
-            const lonInput = document.getElementById("lonInput");
-
-            if (latInput && lonInput) {
-                latInput.value = lat.toFixed(6);
-                lonInput.value = lon.toFixed(6);
-            }
-
-            showManualLocation(lat, lon);
-        });
+function initMap() {
+    const el = document.getElementById("map");
+    if (!el) {
+        console.warn("Map container not found");
+        return;
     }
 
-    let gpsRetryCount = 0;
-// ✅ Sync manual input → map + state
-    document.getElementById("latInput")?.addEventListener("change", updateFromInputs);
-    document.getElementById("lonInput")?.addEventListener("change", updateFromInputs);
+    el.style.height = "400px";
+    el.style.width = "100%";
+    el.style.display = "block";
 
+    if (map) return;
 
-    async function loadMap() {
+    map = L.map(el);
 
-        if (mapLoading) return;
-        mapLoading = true;
+    markerLayer = L.layerGroup().addTo(map);
 
-        const status = document.getElementById("mapStatus");
-        const folderContainer = document.getElementById("folderSelector");
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+        maxZoom: 18
+    }).addTo(map);
 
-        // ✅ Clear markers
+    map.setView([51.5, -0.12], 5);
+
+    map.on("click", function (e) {
+
+        // ✅ Extract from Leaflet
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+
+        // ✅ Store variable
+        manualLocation = { lat, lon };
+
+        console.log("📍 Selected manual location:", manualLocation);
+        console.log("✅ Manual GPS applied to images");
+
+        // ✅ Clear previous marker
         if (markerLayer) {
             markerLayer.clearLayers();
         }
 
-        // ✅ Always show folder selector
-        if (currentImages && currentImages.length && folderContainer) {
-            console.log("Rendering folder selector with:", currentImages.length);
-            renderFolderSelector(currentImages);
+        // ✅ Add marker
+        L.marker([lat, lon])
+            .addTo(markerLayer)
+            .bindPopup("Manual location")
+            .openPopup();
+
+        // ✅ Move map (MUST be inside)
+        if (map) {
+            map.setView([lat, lon], 14);
         }
 
-        try {
+        // ✅ Show panel
+        const panel = document.getElementById("locationDetails");
+        if (panel) panel.style.display = "block";
 
-            // ✅ Initial loading state
-            if (gpsRetryCount === 0 && status) {
-                status.innerHTML = `
+        // ✅ Update inputs
+        const latInput = document.getElementById("latInput");
+        const lonInput = document.getElementById("lonInput");
+
+        if (latInput && lonInput) {
+            latInput.value = lat.toFixed(6);
+            lonInput.value = lon.toFixed(6);
+        }
+
+        showManualLocation(lat, lon);
+    });
+}
+
+let gpsRetryCount = 0;
+// ✅ Sync manual input → map + state
+document.getElementById("latInput")?.addEventListener("change", updateFromInputs);
+document.getElementById("lonInput")?.addEventListener("change", updateFromInputs);
+
+
+async function loadMap() {
+
+    if (mapLoading) return;
+    mapLoading = true;
+
+    const status = document.getElementById("mapStatus");
+    const folderContainer = document.getElementById("folderSelector");
+
+    // ✅ Clear markers
+    if (markerLayer) {
+        markerLayer.clearLayers();
+    }
+
+    // ✅ Always show folder selector
+    if (currentImages && currentImages.length && folderContainer) {
+        console.log("Rendering folder selector with:", currentImages.length);
+        renderFolderSelector(currentImages);
+    }
+
+    try {
+
+        // ✅ Initial loading state
+        if (gpsRetryCount === 0 && status) {
+            status.innerHTML = `
                 <div class="map-status loading">
                     ⏳ <strong>Loading GPS data…</strong><br>
                     Reading metadata from images.
                 </div>
             `;
+        }
+
+        // ✅ Build manual GPS list
+        const manualGPS = [];
+
+        metadataMap.forEach((value, path) => {
+            if (value.lat != null && value.lon != null) {
+                manualGPS.push({
+                    path: path,
+                    lat: value.lat,
+                    lon: value.lon
+                });
+            }
+        });
+
+        console.log("manualGPS:", manualGPS);
+
+// ✅ FETCH (correct structure)
+        const res = await fetch("/api/gps-data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ manualGPS })
+        });
+
+// ✅ PARSE (correct placement)
+        const gpsData = await res.json();
+        updateGlobalStatus(gpsData);
+
+// ✅ Normalise (keep yours, still safe)
+        const points = gpsData.points || gpsData.records || [];
+
+// ✅ ✅ 🔥 Set Working Dir if selected
+        if (gpsData.working_dir) {
+            const el = document.getElementById("workingDirectoryInput");
+
+            // ✅ only update UI if empty
+            if (el && !el.value.trim()) {
+                el.value = gpsData.working_dir;
+            }
+        }
+
+// ✅ Build image paths list (single source of truth)
+        const imagePaths = points.map(p => p.path);
+
+// ✅ ✅ Slight improvement (optional but SAFE)
+        currentImages = points;   // objects with path + gps
+        const workingRoot = document.getElementById("workingDirectoryInput").value;
+
+// ✅ Existing logic unchanged
+        const exifReady = gpsData.exif_ready === true;
+
+        console.log("🚨 RAW GPS DATA:", gpsData);
+        console.log("EXIF ready:", exifReady);
+        console.log("GPS points:", points.length);
+
+// ✅ Merge backend GPS into metadataMap
+        points.forEach(item => {
+
+            if (!item || !item.path || item.lat == null || item.lon == null) {
+                return;
             }
 
-            // ✅ Build manual GPS list
-            const manualGPS = [];
+            const existing = metadataMap.get(item.path) || {};
 
-            metadataMap.forEach((value, path) => {
-                if (value.lat != null && value.lon != null) {
-                    manualGPS.push({
-                        path: path,
+            metadataMap.set(item.path, {
+                ...existing,
+                lat: item.lat,
+                lon: item.lon
+            });
+
+        });
+
+        let combinedGPS = [];
+
+// ✅ respect current grouping mode
+        if (groupMode === "grouped") {
+
+            let selectedGroup = null;
+
+/// ✅ Resolve current group safely
+            selectedGroup = currentGroup;
+
+// ✅ If no group is set, fall back to first available
+            if (!selectedGroup) {
+                const keys = Object.keys(folderGroups || {});
+                if (keys.length > 0) {
+                    selectedGroup = keys[0];
+                    currentGroup = selectedGroup;   // ✅ keep state in sync
+                }
+            }
+
+// ✅ Resolve paths safely
+            let paths = [];
+
+// ✅ PRIMARY: use selected group directly
+            if (selectedFolderGroup && selectedFolderGroup.length > 0) {
+                paths = selectedFolderGroup;
+            }
+
+// ✅ fallback if needed (no click yet)
+            else if (selectedGroup && folderGroups[selectedGroup]) {
+                paths = folderGroups[selectedGroup];
+            }
+
+// ✅ Build combined GPS
+            console.log("Paths sample:", paths.slice(0, 3));
+            console.log("Metadata keys sample:", Array.from(metadataMap.keys()).slice(0, 3));
+            paths.forEach(path => {
+                const value = metadataMap.get(path);
+
+                if (value && value.lat != null && value.lon != null) {
+                    combinedGPS.push({
+                        path,
                         lat: value.lat,
                         lon: value.lon
                     });
                 }
             });
 
-            console.log("manualGPS:", manualGPS);
+// ✅ Build combined GPS
+            paths.forEach(path => {
+                const value = metadataMap.get(path);
 
-// ✅ FETCH (correct structure)
-            const res = await fetch("/api/gps-data", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ manualGPS })
-            });
-
-// ✅ PARSE (correct placement)
-            const gpsData = await res.json();
-
-// ✅ Normalise (keep yours, still safe)
-            const points = gpsData.points || gpsData.records || [];
-
-// ✅ ✅ 🔥 Set Working Dir if selected
-            if (gpsData.working_dir) {
-                const el = document.getElementById("workingDirectoryInput");
-
-                // ✅ only update UI if empty
-                if (el && !el.value.trim()) {
-                    el.value = gpsData.working_dir;
+                if (value && value.lat != null && value.lon != null) {
+                    combinedGPS.push({
+                        path,
+                        lat: value.lat,
+                        lon: value.lon
+                    });
                 }
-            }
-
-// ✅ Build image paths list (single source of truth)
-            const imagePaths = points.map(p => p.path);
-
-// ✅ ✅ Slight improvement (optional but SAFE)
-            currentImages = imagePaths;
-            folderGroups = groupByFolder(imagePaths, sourceFolderPath);
-
-// ✅ Existing logic unchanged
-            const exifReady = gpsData.exif_ready === true;
-
-            console.log("🚨 RAW GPS DATA:", gpsData);
-            console.log("EXIF ready:", exifReady);
-            console.log("GPS points:", points.length);
-
-// ✅ Merge backend GPS into metadataMap
+            });
+        } else {
+            // ✅ All files
             points.forEach(item => {
-
-                if (!item || !item.path || item.lat == null || item.lon == null) {
-                    return;
-                }
-
-                const existing = metadataMap.get(item.path) || {};
-
-                metadataMap.set(item.path, {
-                    ...existing,
-                    lat: item.lat,
-                    lon: item.lon
-                });
-
+                combinedGPS.push(item);
             });
+        }
 
-            let combinedGPS = [];
+        console.log("Combined GPS:", combinedGPS);
 
-// ✅ respect current grouping mode
-            if (groupMode === "grouped") {
+        // ✅ EMPTY CASE
+        if (!points.length) {
 
-                let selectedGroup = null;
-
-/// ✅ Resolve current group safely
-                selectedGroup = currentGroup;
-
-// ✅ If no group is set, fall back to first available
-                if (!selectedGroup) {
-                    const keys = Object.keys(folderGroups || {});
-                    if (keys.length > 0) {
-                        selectedGroup = keys[0];
-                        currentGroup = selectedGroup;   // ✅ keep state in sync
-                    }
-                }
-
-// ✅ Resolve paths safely
-                let paths = [];
-
-// ✅ PRIMARY: use selected group directly
-                if (selectedFolderGroup && selectedFolderGroup.length > 0) {
-                    paths = selectedFolderGroup;
-                }
-
-// ✅ fallback if needed (no click yet)
-                else if (selectedGroup && folderGroups[selectedGroup]) {
-                    paths = folderGroups[selectedGroup];
-                }
-
-// ✅ Build combined GPS
-                console.log("Paths sample:", paths.slice(0, 3));
-                console.log("Metadata keys sample:", Array.from(metadataMap.keys()).slice(0, 3));
-                paths.forEach(path => {
-                    const value = metadataMap.get(path);
-
-                    if (value && value.lat != null && value.lon != null) {
-                        combinedGPS.push({
-                            path,
-                            lat: value.lat,
-                            lon: value.lon
-                        });
-                    }
-                });
-
-// ✅ Build combined GPS
-                paths.forEach(path => {
-                    const value = metadataMap.get(path);
-
-                    if (value && value.lat != null && value.lon != null) {
-                        combinedGPS.push({
-                            path,
-                            lat: value.lat,
-                            lon: value.lon
-                        });
-                    }
-                });
-            } else {
-                // ✅ All files
-                points.forEach(item => {
-                    combinedGPS.push(item);
-                });
-            }
-
-            console.log("Combined GPS:", combinedGPS);
-
-            // ✅ EMPTY CASE
-            if (!points.length) {
-
-                if (!exifReady) {
-                    if (status) {
-                        status.innerHTML = `
+            if (!exifReady) {
+                if (status) {
+                    status.innerHTML = `
                 <div class="map-status loading">
                     ⏳ <strong>Extracting GPS data…</strong><br>
                     Please wait while images are processed.
                 </div>
             `;
-                    }
-
-                    mapLoading = false;
-                    setTimeout(loadMap, 2000);   // ✅ keep retrying
-                    return;
                 }
 
-                // ✅ Only show this if EXIF is finished
-                if (status) {
-                    status.innerHTML = `
+                mapLoading = false;
+                setTimeout(loadMap, 2000);   // ✅ keep retrying
+                return;
+            }
+
+            // ✅ Only show this if EXIF is finished
+            if (status) {
+                status.innerHTML = `
             <div class="map-status warning">
                 ⚠️ <strong>No GPS data found</strong>
             </div>
         `;
-                }
-
-                mapLoading = false;
-                return;
             }
 
-            // ✅ SUCCESS
-            gpsRetryCount = 0;
+            mapLoading = false;
+            return;
+        }
 
-            if (!map) {
-                mapLoading = false;
-                return;
-            }
+        // ✅ SUCCESS
+        gpsRetryCount = 0;
 
-            if (status) {
-                status.innerHTML = `
+        if (!map) {
+            mapLoading = false;
+            return;
+        }
+
+        if (status) {
+            status.innerHTML = `
                 <div class="map-status success">
                     📍 <strong>Showing ${combinedGPS.length} photo locations</strong><br>
                     Includes EXIF + manual GPS data.
                 </div>
             `;
-            }
+        }
 
-            console.log("Displaying points:", combinedGPS);
+        console.log("Displaying points:", combinedGPS);
 
-            // ✅ SINGLE render (no duplicates)
-            renderMapMarkers(combinedGPS);
-            // ✅ Auto-fit map to markers
-            if (combinedGPS.length > 0 && map) {
-                const bounds = L.latLngBounds(
-                    combinedGPS.map(p => [p.lat, p.lon])
-                );
+// ✅ Build folder groups ONCE (must come BEFORE use)
+        const folderGroups = groupByFolder(combinedGPS);
 
-                map.fitBounds(bounds, {
-                    padding: [20, 20],   // nice margin
-                    maxZoom: 15          // prevents over-zoom
-                });
-            }
-            ``
+// ✅ Render everything
+        renderMapMarkers(combinedGPS);
+        renderFolderSelector(combinedGPS);
 
-            mapLoading = false;
+// ✅ Auto-fit map to markers
+        if (combinedGPS.length > 0 && map) {
+            const bounds = L.latLngBounds(
+                combinedGPS.map(p => [p.lat, p.lon])
+            );
 
-        } catch (err) {
+            map.fitBounds(bounds, {
+                padding: [20, 20],   // nice margin
+                maxZoom: 15          // prevents over-zoom
+            });
+        }
 
-            console.warn("GPS load failed:", err);
+// ✅ clear loading flag
+        mapLoading = false;
 
-            if (status) {
-                status.innerHTML = `
+    } catch (err) {
+
+        console.warn("GPS load failed:", err);
+
+        if (status) {
+            status.innerHTML = `
                 <div class="map-status warning">
                     ⚠️ <strong>Unable to load GPS data</strong>
                 </div>
             `;
-            }
-
-            mapLoading = false;
         }
+
+        mapLoading = false;
     }
+}
 
-    function showManualLocation(lat, lon) {
-        console.log("currentImages length:", currentImages?.length);
-        console.log("selectedFolderGroup:", selectedFolderGroup);
+function showManualLocation(lat, lon) {
+    console.log("currentImages length:", currentImages?.length);
+    console.log("selectedFolderGroup:", selectedFolderGroup);
 
-        const status = document.getElementById("mapStatus");
+    const status = document.getElementById("mapStatus");
 
-        if (!status) return;
+    if (!status) return;
 
-        status.innerHTML = `
+    status.innerHTML = `
     <div class="map-status info">
         📍 <strong>Selected location</strong><br>
         ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>
@@ -1991,473 +2025,473 @@ Select another folder or go back to Analyse to choose a different card
         </button>
     </div>
 `;
-        document.getElementById("applyGpsBtn").onclick = applyManualGPS;
+    document.getElementById("applyGpsBtn").onclick = applyManualGPS;
+}
+
+function updateFromInputs() {
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
+
+    if (!latInput || !lonInput) return;
+
+    const lat = parseFloat(latInput.value);
+    const lon = parseFloat(lonInput.value);
+
+    if (isNaN(lat) || isNaN(lon)) return;
+
+    manualLocation = { lat, lon };
+
+    console.log("📍 Updated from inputs:", manualLocation);
+
+    // ✅ Move map
+    if (map) {
+        map.setView([lat, lon], 14);
     }
 
-    function updateFromInputs() {
-        const latInput = document.getElementById("latInput");
-        const lonInput = document.getElementById("lonInput");
+    // ✅ Update marker
+    if (markerLayer) {
+        markerLayer.clearLayers();
+        L.marker([lat, lon]).addTo(markerLayer)
+            .bindPopup("Manual location")
+            .openPopup();
+    }
+}
 
-        if (!latInput || !lonInput) return;
+async function applyManualGPS() {
 
-        const lat = parseFloat(latInput.value);
-        const lon = parseFloat(lonInput.value);
-
-        if (isNaN(lat) || isNaN(lon)) return;
-
-        manualLocation = { lat, lon };
-
-        console.log("📍 Updated from inputs:", manualLocation);
-
-        // ✅ Move map
-        if (map) {
-            map.setView([lat, lon], 14);
-        }
-
-        // ✅ Update marker
-        if (markerLayer) {
-            markerLayer.clearLayers();
-            L.marker([lat, lon]).addTo(markerLayer)
-                .bindPopup("Manual location")
-                .openPopup();
-        }
+    if (folderGPS[selectedFolder]) {
+        const ok = confirm("⚠️ This folder already has GPS.\nOverwrite?");
+        if (!ok) return;
     }
 
-    async function applyManualGPS() {
+    updateFromInputs();
 
-        if (folderGPS[selectedFolder]) {
-            const ok = confirm("⚠️ This folder already has GPS.\nOverwrite?");
-            if (!ok) return;
-        }
+    if (!manualLocation) return;
 
-        updateFromInputs();
+    const lat = manualLocation.lat;
+    const lon = manualLocation.lon;
+    // ✅ start progress UI immediately
+    const container = document.getElementById("writeProgressContainer");
+    const bar = document.getElementById("writeProgressBar");
+    const text = document.getElementById("writeProgressText");
 
-        if (!manualLocation) return;
+    if (container) container.style.display = "block";
+    if (bar) bar.style.width = "5%";
+    if (text) text.textContent = "Starting...";
 
-        const lat = manualLocation.lat;
-        const lon = manualLocation.lon;
-        // ✅ start progress UI immediately
-        const container = document.getElementById("writeProgressContainer");
-        const bar = document.getElementById("writeProgressBar");
-        const text = document.getElementById("writeProgressText");
+    // ✅ Save folder-level GPS (UI state)
+    if (selectedFolder) {
+        folderGPS[selectedFolder] = { lat, lon };
+        console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
+    }
 
-        if (container) container.style.display = "block";
-        if (bar) bar.style.width = "5%";
-        if (text) text.textContent = "Starting...";
+    if (!analyzedFolders || analyzedFolders.length === 0) {
+        console.warn("❌ No folder selected — refusing to apply GPS globally");
+        alert("Please select a folder before applying GPS");
+        return;
+    }
 
-        // ✅ Save folder-level GPS (UI state)
-        if (selectedFolder) {
-            folderGPS[selectedFolder] = { lat, lon };
-            console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
-        }
+    console.log("🔍 APPLY CLICK");
+    console.log("Selected folder:", selectedFolder);
 
-        if (!analyzedFolders || analyzedFolders.length === 0) {
-            console.warn("❌ No folder selected — refusing to apply GPS globally");
-            alert("Please select a folder before applying GPS");
-            return;
-        }
+    let targetImages;
 
-        console.log("🔍 APPLY CLICK");
-        console.log("Selected folder:", selectedFolder);
+    // ✅ Prefer grouped folder
+    const group = folderGroups[selectedFolder];
 
-        let targetImages;
+    if (group && group.length > 0) {
+        targetImages = group;
+        console.log("✅ Using folder group");
+    } else {
+        console.warn("⚠️ No group found — using all images");
+        targetImages = currentImages || [];
+    }
 
-        // ✅ Prefer grouped folder
-        const group = folderGroups[selectedFolder];
+    console.log("✅ Applying GPS to:", targetImages.length, "images");
 
-        if (group && group.length > 0) {
-            targetImages = group;
-            console.log("✅ Using folder group");
-        } else {
-            console.warn("⚠️ No group found — using all images");
-            targetImages = currentImages || [];
-        }
+    // ✅ Debug
+    targetImages.forEach(img => {
+        console.log("MATCH:", (img && img.path) ? img.path : img);
+    });
 
-        console.log("✅ Applying GPS to:", targetImages.length, "images");
+    // ✅ Clear markers before redraw
+    if (markerLayer) markerLayer.clearLayers();
 
-        // ✅ Debug
-        targetImages.forEach(img => {
-            console.log("MATCH:", (img && img.path) ? img.path : img);
-        });
+    // ✅ Apply GPS to metadataMap (ONLY place this happens)
+    targetImages.forEach(img => {
 
-        // ✅ Clear markers before redraw
-        if (markerLayer) markerLayer.clearLayers();
+        const pathKey = (img && img.path) ? img.path : img;
 
-        // ✅ Apply GPS to metadataMap (ONLY place this happens)
-        targetImages.forEach(img => {
+        let matched = false;
 
-            const pathKey = (img && img.path) ? img.path : img;
+        // ✅ Direct match
+        if (metadataMap.has(pathKey)) {
 
-            let matched = false;
+            const existing = metadataMap.get(pathKey) || {};
 
-            // ✅ Direct match
-            if (metadataMap.has(pathKey)) {
-
-                const existing = metadataMap.get(pathKey) || {};
-
-                metadataMap.set(pathKey, {
-                    ...existing,
-                    lat: lat,
-                    lon: lon
-                });
-
-                console.log("✅ UPDATED (direct):", pathKey);
-                matched = true;
-            }
-
-            // ✅ Fallback match by filename
-            if (!matched && pathKey) {
-                const fileName = pathKey.split(/[\\/]/).pop();
-
-                metadataMap.forEach((val, key) => {
-
-                    if (key.endsWith(fileName)) {
-
-                        const existing = metadataMap.get(key) || {};
-
-                        metadataMap.set(key, {
-                            ...existing,
-                            lat: lat,
-                            lon: lon
-                        });
-
-                        console.log("✅ UPDATED (fallback):", key);
-                        matched = true;
-                    }
-                });
-            }
-
-            if (!matched) {
-                console.warn("❌ NO MATCH:", pathKey);
-            }
-
-        });
-
-        // ✅ Refresh map
-        console.log("✅ metadataMap updated for all images");
-        setTimeout(() => loadMap(), 100);
-
-        // ============================
-        // EXIF WRITE LOGIC (unchanged)
-        // ============================
-
-        const flatFiles = (targetImages || [])
-            .map(img => (img && img.path) ? img.path : img)
-            .filter(Boolean);
-
-        const groups = pairImages(flatFiles);
-
-        const files = [];
-
-        groups.forEach(g => {
-            if (g.jpg) files.push(g.jpg);
-            if (g.raw) files.push(g.raw);
-        });
-
-        console.log("📤 File count:", files.length);
-
-        function pollWriteProgress() {
-
-            fetch("/api/write-progress")
-                .then(res => res.json())
-                .then(data => {
-
-                    const container = document.getElementById("writeProgressContainer");
-                    const bar = document.getElementById("writeProgressBar");
-                    const text = document.getElementById("writeProgressText");
-
-                    // ✅ show progress container
-                    if (container) container.style.display = "block";
-
-                    const pct = data.total
-                        ? Math.floor((data.done / data.total) * 100)
-                        : 0;
-
-                    // ✅ update progress bar
-                    if (bar) bar.style.width = pct + "%";
-
-                    // ✅ update text
-                    if (text) {
-                        text.textContent = `${data.done} / ${data.total} (${pct}%)`;
-                    }
-
-                    // ✅ finished
-                    if (!data.active) {
-
-                        if (bar) bar.style.width = "100%";
-                        if (text) text.textContent = "Complete";
-
-                        setTimeout(() => {
-                            if (container) container.style.display = "none";
-                        }, 800);
-
-                        showGlobalStatus("✅ GPS writing complete");
-                        return;
-                    }
-
-                    // ✅ continue polling
-                    setTimeout(pollWriteProgress, 300);
-                });
-        }
-        showGlobalStatus("⏳ Writing GPS to images...");
-        pollWriteProgress();
-
-        const btn = document.getElementById("applyGpsBtn");
-        if (btn) btn.disabled = true;
-
-        try {
-            const res = await fetch("/api/write-gps", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    files: files,
-                    lat: lat,
-                    lon: lon
-                })
+            metadataMap.set(pathKey, {
+                ...existing,
+                lat: lat,
+                lon: lon
             });
 
-            const data = await res.json();
+            console.log("✅ UPDATED (direct):", pathKey);
+            matched = true;
+        }
 
-            const status = document.getElementById("mapStatus");
+        // ✅ Fallback match by filename
+        if (!matched && pathKey) {
+            const fileName = pathKey.split(/[\\/]/).pop();
 
-            if (data.success) {
-                if (selectedFolder) {
-                    folderGPS[selectedFolder] = { lat, lon };
-                    updateFolderIndicators();
-                    updateHeaderStatus();
+            metadataMap.forEach((val, key) => {
+
+                if (key.endsWith(fileName)) {
+
+                    const existing = metadataMap.get(key) || {};
+
+                    metadataMap.set(key, {
+                        ...existing,
+                        lat: lat,
+                        lon: lon
+                    });
+
+                    console.log("✅ UPDATED (fallback):", key);
+                    matched = true;
+                }
+            });
+        }
+
+        if (!matched) {
+            console.warn("❌ NO MATCH:", pathKey);
+        }
+
+    });
+
+    // ✅ Refresh map
+    console.log("✅ metadataMap updated for all images");
+    setTimeout(() => loadMap(), 100);
+
+    // ============================
+    // EXIF WRITE LOGIC (unchanged)
+    // ============================
+
+    const flatFiles = (targetImages || [])
+        .map(img => (img && img.path) ? img.path : img)
+        .filter(Boolean);
+
+    const groups = pairImages(flatFiles);
+
+    const files = [];
+
+    groups.forEach(g => {
+        if (g.jpg) files.push(g.jpg);
+        if (g.raw) files.push(g.raw);
+    });
+
+    console.log("📤 File count:", files.length);
+
+    function pollWriteProgress() {
+
+        fetch("/api/write-progress")
+            .then(res => res.json())
+            .then(data => {
+
+                const container = document.getElementById("writeProgressContainer");
+                const bar = document.getElementById("writeProgressBar");
+                const text = document.getElementById("writeProgressText");
+
+                // ✅ show progress container
+                if (container) container.style.display = "block";
+
+                const pct = data.total
+                    ? Math.floor((data.done / data.total) * 100)
+                    : 0;
+
+                // ✅ update progress bar
+                if (bar) bar.style.width = pct + "%";
+
+                // ✅ update text
+                if (text) {
+                    text.textContent = `${data.done} / ${data.total} (${pct}%)`;
                 }
 
-                status.innerHTML = `
+                // ✅ finished
+                if (!data.active) {
+
+                    if (bar) bar.style.width = "100%";
+                    if (text) text.textContent = "Complete";
+
+                    setTimeout(() => {
+                        if (container) container.style.display = "none";
+                    }, 800);
+
+                    showGlobalStatus("✅ GPS writing complete");
+                    return;
+                }
+
+                // ✅ continue polling
+                setTimeout(pollWriteProgress, 300);
+            });
+    }
+    showGlobalStatus("⏳ Writing GPS to images...");
+    pollWriteProgress();
+
+    const btn = document.getElementById("applyGpsBtn");
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await fetch("/api/write-gps", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                files: files,
+                lat: lat,
+                lon: lon
+            })
+        });
+
+        const data = await res.json();
+
+        const status = document.getElementById("mapStatus");
+
+        if (data.success) {
+            if (selectedFolder) {
+                folderGPS[selectedFolder] = { lat, lon };
+                updateFolderIndicators();
+                updateHeaderStatus();
+            }
+
+            status.innerHTML = `
                 <div class="map-status success">
                     ✅ <strong>GPS written to EXIF</strong><br>
                     ${data.updated} updated, ${data.skipped.length} RAW skipped
                 </div>
             `;
-            } else {
-                status.innerHTML = `
+        } else {
+            status.innerHTML = `
                 <div class="map-status warning">
                     ⚠️ <strong>EXIF write failed</strong>
                 </div>
             `;
-            }
-
-            if (btn) btn.disabled = false;
-
-        } catch (err) {
-            console.error("❌ EXIF write failed:", err);
         }
 
-        console.log("✅ metadataMap updated with manual GPS");
+        if (btn) btn.disabled = false;
 
-        loadMap();
+    } catch (err) {
+        console.error("❌ EXIF write failed:", err);
     }
 
-    function showExifCommand(lat, lon) {
-        const status = document.getElementById("mapStatus");
+    console.log("✅ metadataMap updated with manual GPS");
 
-        const cmd = `exiftool -GPSLatitude=${lat} -GPSLongitude=${lon} "*.JPG"`;
+    loadMap();
+}
 
-        status.innerHTML += `
+function showExifCommand(lat, lon) {
+    const status = document.getElementById("mapStatus");
+
+    const cmd = `exiftool -GPSLatitude=${lat} -GPSLongitude=${lon} "*.JPG"`;
+
+    status.innerHTML += `
         <div class="map-status mt-2">
             🛠 <strong>EXIFTool command:</strong><br>
             <code>${cmd}</code>
         </div>
     `;
+}
+
+function renderMapMarkers(points, start = 0, chunkSize = 25) {
+    if (!map) return;
+
+    // ✅ ✅ Clear ONLY on first chunk
+    if (start === 0) {
+        if (window.folderMarkerGroups) {
+            Object.values(window.folderMarkerGroups).forEach(group => {
+                group.clearLayers();
+                map.removeLayer(group);
+            });
+        }
+        window.folderMarkerGroups = {};
     }
 
-    function renderMapMarkers(points, start = 0, chunkSize = 25) {
-        if (!map) return;
+    const end = Math.min(start + chunkSize, points.length);
 
-        // ✅ ✅ Clear ONLY on first chunk
-        if (start === 0) {
-            if (window.folderMarkerGroups) {
-                Object.values(window.folderMarkerGroups).forEach(group => {
-                    group.clearLayers();
-                    map.removeLayer(group);
+    // ✅ Ensure container exists
+    if (!window.folderMarkerGroups) {
+        window.folderMarkerGroups = {};
+    }
+
+    for (let i = start; i < end; i++) {
+        const p = points[i];
+
+        // ✅ Use PATH for grouping (critical)
+        const folderName = getFolderName(p.path || p.filename || "Root");
+
+        // ✅ Create group if needed
+        if (!window.folderMarkerGroups[folderName]) {
+            window.folderMarkerGroups[folderName] = L.layerGroup().addTo(map);
+            console.log("Creating marker group for:", folderName);
+        }
+
+        // ✅ Create marker
+        const marker = L.marker([p.lat, p.lon])
+            .bindPopup(`<b>${folderName}</b><br>${p.filename || "Photo"}`);
+
+        // ✅ Add to correct group
+        window.folderMarkerGroups[folderName].addLayer(marker);
+    }
+
+    // ✅ Continue chunk rendering
+    if (end < points.length) {
+        requestAnimationFrame(() =>
+            renderMapMarkers(points, end, chunkSize)
+        );
+
+    } else {
+
+        // ✅ ✅ FINAL ZOOM BEHAVIOUR (hybrid)
+        if (points.length > 0 && map) {
+
+            const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
+
+            if (points.length < 10) {
+                // ✅ small set → zoom tightly
+                map.fitBounds(bounds, {
+                    padding: [20, 20],
+                    maxZoom: 14
                 });
-            }
-            window.folderMarkerGroups = {};
-        }
 
-        const end = Math.min(start + chunkSize, points.length);
-
-        // ✅ Ensure container exists
-        if (!window.folderMarkerGroups) {
-            window.folderMarkerGroups = {};
-        }
-
-        for (let i = start; i < end; i++) {
-            const p = points[i];
-
-            // ✅ Use PATH for grouping (critical)
-            const folderName = getFolderName(p.path || p.filename || "Root");
-
-            // ✅ Create group if needed
-            if (!window.folderMarkerGroups[folderName]) {
-                window.folderMarkerGroups[folderName] = L.layerGroup().addTo(map);
-                console.log("Creating marker group for:", folderName);
-            }
-
-            // ✅ Create marker
-            const marker = L.marker([p.lat, p.lon])
-                .bindPopup(`<b>${folderName}</b><br>${p.filename || "Photo"}`);
-
-            // ✅ Add to correct group
-            window.folderMarkerGroups[folderName].addLayer(marker);
-        }
-
-        // ✅ Continue chunk rendering
-        if (end < points.length) {
-            requestAnimationFrame(() =>
-                renderMapMarkers(points, end, chunkSize)
-            );
-
-        } else {
-
-            // ✅ ✅ FINAL ZOOM BEHAVIOUR (hybrid)
-            if (points.length > 0 && map) {
-
-                const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
-
-                if (points.length < 10) {
-                    // ✅ small set → zoom tightly
-                    map.fitBounds(bounds, {
-                        padding: [20, 20],
-                        maxZoom: 14
-                    });
-
-                } else {
-                    // ✅ large set → stable overview (no USB dominance)
-                    const center = bounds.getCenter();
-                    map.setView(center, 11);
-                }
+            } else {
+                // ✅ large set → stable overview (no USB dominance)
+                const center = bounds.getCenter();
+                map.setView(center, 11);
             }
         }
     }
+}
 // ====================================================================
 // STEP 6 – Pre‑Import & Organize
 // ====================================================================
-    function updateSessionMeta() {
-        fetch("/api/pre-import/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                title: $('session-title').value,
-                shoot_date: $('session-date').value
-            })
-        });
-    }
-
-    $('organizeBtn')?.addEventListener('click', async () => {
-        // unchanged
+function updateSessionMeta() {
+    fetch("/api/pre-import/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            title: $('session-title').value,
+            shoot_date: $('session-date').value
+        })
     });
+}
+
+$('organizeBtn')?.addEventListener('click', async () => {
+    // unchanged
+});
 // ====================================================================
 // ORGANIZE
 // ====================================================================
-    function bindOrganizeEvents() {
-        const btnOrg = $("organizeBtn");
-        if (btnOrg && !btnOrg.dataset.bound) {
-            btnOrg.onclick = async () => {
-                const res = await fetch("/api/organize", { method: "POST" });
-                if (res.ok) pollJobStatus();
-            };
-            btnOrg.dataset.bound = "true";
-        }
-
-        const btnOpen = $("openPicturesBtn");
-        if (btnOpen && !btnOpen.dataset.bound) {
-            btnOpen.onclick = () => fetch("/api/pictures-open");
-            btnOpen.dataset.bound = "true";
-        }
+function bindOrganizeEvents() {
+    const btnOrg = $("organizeBtn");
+    if (btnOrg && !btnOrg.dataset.bound) {
+        btnOrg.onclick = async () => {
+            const res = await fetch("/api/organize", { method: "POST" });
+            if (res.ok) pollJobStatus();
+        };
+        btnOrg.dataset.bound = "true";
     }
-    async function pollJobStatus() {
-        try {
-            // NOTE: outputDirName is currently fixed.
-            // In future versions, this should come from the backend job status.
-            const outputDirName = "Pictures/PhotoWizard";
 
-            const res = await fetch("/api/job-status");
-            const job = await res.json();
-
-            const pct = job.total
-                ? Math.floor((job.done / job.total) * 100)
-                : 0;
-
-            $("progressFill").style.width = `${pct}%`;
-
-            if (job.running) {
-                $("progressText").textContent =
-                    `Processing (${job.done}/${job.total})…`;
-                setTimeout(pollJobStatus, 500);
-            } else {
-                const count = job.done || 0;
-                $("progressText").textContent =
-                    `Done. ${count} photos copied to ${outputDirName}.`;
-            }
-        } catch (err) {
-            console.error(err);
-        }
+    const btnOpen = $("openPicturesBtn");
+    if (btnOpen && !btnOpen.dataset.bound) {
+        btnOpen.onclick = () => fetch("/api/pictures-open");
+        btnOpen.dataset.bound = "true";
     }
+}
+async function pollJobStatus() {
+    try {
+        // NOTE: outputDirName is currently fixed.
+        // In future versions, this should come from the backend job status.
+        const outputDirName = "Pictures/PhotoWizard";
+
+        const res = await fetch("/api/job-status");
+        const job = await res.json();
+
+        const pct = job.total
+            ? Math.floor((job.done / job.total) * 100)
+            : 0;
+
+        $("progressFill").style.width = `${pct}%`;
+
+        if (job.running) {
+            $("progressText").textContent =
+                `Processing (${job.done}/${job.total})…`;
+            setTimeout(pollJobStatus, 500);
+        } else {
+            const count = job.done || 0;
+            $("progressText").textContent =
+                `Done. ${count} photos copied to ${outputDirName}.`;
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
 // ====================================================================
 // STEP 7 – Logs
 // ====================================================================
-    function startLogStream() {
-        log("--- Connected to backend log stream ---");
-        const es = new EventSource("/api/log-stream");
-        es.onmessage = evt => log(evt.data);
-    }
+function startLogStream() {
+    log("--- Connected to backend log stream ---");
+    const es = new EventSource("/api/log-stream");
+    es.onmessage = evt => log(evt.data);
+}
 
-    document.querySelector('[data-step="7"]')
-        ?.addEventListener("click", startLogStream);
+document.querySelector('[data-step="7"]')
+    ?.addEventListener("click", startLogStream);
 
 
 // ====================================================================
 // IMAGE PREVIEW – CLOSE HANDLER
 // Closes modal when clicking outside image
 // ====================================================================
-    document.addEventListener("click", (e) => {
-        const modal = document.getElementById("imageModal");
+document.addEventListener("click", (e) => {
+    const modal = document.getElementById("imageModal");
 
-        if (!modal || modal.classList.contains("d-none")) return;
+    if (!modal || modal.classList.contains("d-none")) return;
 
-        if (e.target.id === "imageModal") {
-            modal.classList.add("d-none");
-        }
-    });
+    if (e.target.id === "imageModal") {
+        modal.classList.add("d-none");
+    }
+});
 
 // ✅ Global keyboard handler (outside)
-    document.addEventListener("keydown", (e) => {
-        const modal = document.getElementById("imageModal");
+document.addEventListener("keydown", (e) => {
+    const modal = document.getElementById("imageModal");
 
-        if (!modal || modal.classList.contains("d-none")) return;
+    if (!modal || modal.classList.contains("d-none")) return;
 
-        if (e.key === "ArrowRight") showNextImage();
-        if (e.key === "ArrowLeft") showPreviousImage();
-        if (e.key === "Escape") modal.classList.add("d-none");
-    });
+    if (e.key === "ArrowRight") showNextImage();
+    if (e.key === "ArrowLeft") showPreviousImage();
+    if (e.key === "Escape") modal.classList.add("d-none");
+});
 
 // ✅ Apply manual/detected GPS to all photos in the selected folder group
-    function applyGPS() {
+function applyGPS() {
 
-        if (!manualLocation || !currentGroup) return;
+    if (!manualLocation || !currentGroup) return;
 
-        const groupPaths = folderGroups[currentGroup] || [];
+    const groupPaths = folderGroups[currentGroup] || [];
 
-        groupPaths.forEach(path => {
-            const existing = metadataMap.get(path) || {};
+    groupPaths.forEach(path => {
+        const existing = metadataMap.get(path) || {};
 
-            metadataMap.set(path, {
-                ...existing,
-                lat: manualLocation.lat,
-                lon: manualLocation.lon
-            });
+        metadataMap.set(path, {
+            ...existing,
+            lat: manualLocation.lat,
+            lon: manualLocation.lon
         });
+    });
 
-        console.log("✅ Applied GPS to", groupPaths.length, "files");
+    console.log("✅ Applied GPS to", groupPaths.length, "files");
 
-        // ✅ re-render map
-        loadMap();
-    }
+    // ✅ re-render map
+    loadMap();
+}
 
 // ============================================================
 // GPS Utility: Copy detected EXIF GPS to manual input
@@ -2477,165 +2511,162 @@ Select another folder or go back to Analyse to choose a different card
 //   - Does NOT write EXIF directly (handled by applyManualGPS)
 //
 // ============================================================
-    document.getElementById("copyDetectedGpsBtn")?.addEventListener("click", () => {
 
-        let found = null;
+document.getElementById("copyDetectedGpsBtn")
+?.addEventListener("click", () => {
+    const groups = window.folderMarkerGroups;
 
-        // ✅ Scan ALL folder layers, not just selected one
-        const groups = window.folderMarkerGroups;
+    if (!groups || !currentGroup || !groups[currentGroup]) {
+        alert("No folder selected or no GPS data.");
+        return;
+    }
 
-        if (groups) {
-            Object.keys(groups).forEach(folder => {
+    let latSum = 0;
+    let lonSum = 0;
+    let count = 0;
 
-                groups[folder].eachLayer(layer => {
+    // ✅ ONLY use the selected folder (fixes your bug)
+    groups[currentGroup].eachLayer(layer => {
+        const ll = layer.getLatLng?.();
 
-                    if (!found && layer.getLatLng) {
-
-                        const ll = layer.getLatLng();
-
-                        if (ll && ll.lat && ll.lng) {
-                            found = {
-                                lat: ll.lat,
-                                lon: ll.lng
-                            };
-                        }
-                    }
-
-                });
-
-            });
+        if (ll && ll.lat && ll.lng) {
+            latSum += ll.lat;
+            lonSum += ll.lng;
+            count++;
         }
-
-        if (!found) {
-            alert("No GPS data found in this folder.");
-            return;
-        }
-
-        manualLocation = found;
-
-        const latInput = document.getElementById("latInput");
-        const lonInput = document.getElementById("lonInput");
-
-        if (latInput && lonInput) {
-            latInput.value = found.lat.toFixed(6);
-            lonInput.value = found.lon.toFixed(6);
-        }
-
-        if (map) {
-            map.setView([found.lat, found.lon], 14);
-        }
-
-        console.log("✅ Using detected GPS (from map):", found);
     });
+
+    if (count === 0) {
+        alert("No GPS data found in this folder.");
+        return;
+    }
+
+    // ✅ average location (better than first point)
+    const avgLat = latSum / count;
+    const avgLon = lonSum / count;
+
+    // ✅ update global state
+    manualLocation = {
+        lat: avgLat,
+        lon: avgLon
+    };
+
+    // ✅ update inputs
+    const latInput = document.getElementById("latInput");
+    const lonInput = document.getElementById("lonInput");
+
+    if (latInput && lonInput) {
+        latInput.value = avgLat.toFixed(6);
+        lonInput.value = avgLon.toFixed(6);
+    }
+
+    // ✅ move map
+    if (map) {
+        map.setView([avgLat, avgLon], 14);
+    }
+
+    console.log(`📍 Using detected GPS for ${currentGroup}:`, avgLat, avgLon);
+});
 
 // ====================================================================
 // INITIALIZE
 // ====================================================================
-    document.addEventListener("DOMContentLoaded", () => {
-        // ✅ Initial SD button state
-        setSDButtonState('initial');
-        // ✅ Close preview (X button)
-        document.getElementById("closePreview")?.addEventListener("click", () => {
-            $("imageModal").classList.add("d-none");
-        });
-        // ✅  (navigation buttons)
-        document.getElementById("nextBtn")?.addEventListener("click", showNextImage);
-        document.getElementById("prevBtn")?.addEventListener("click", showPreviousImage);
-        // Apply Button:
-        document.getElementById("applyDetailsBtn")
-            ?.addEventListener("click", applyManualGPS);
+document.addEventListener("DOMContentLoaded", () => {
+    // ✅ Initial SD button state
+    setSDButtonState('initial');
+    // ✅ Close preview (X button)
+    document.getElementById("closePreview")?.addEventListener("click", () => {
+        $("imageModal").classList.add("d-none");
     });
+    // ✅  (navigation buttons)
+    document.getElementById("nextBtn")?.addEventListener("click", showNextImage);
+    document.getElementById("prevBtn")?.addEventListener("click", showPreviousImage);
+    // Apply Button:
+    document.getElementById("applyDetailsBtn")
+        ?.addEventListener("click", applyManualGPS);
+});
 // ✅ Sidebar navigation
-    document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
-        item.addEventListener('click', e => {
-            e.preventDefault();
-            const step = item.getAttribute('data-step');
-            switchStep(step);
-        });
+document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
+    item.addEventListener('click', e => {
+        e.preventDefault();
+        const step = item.getAttribute('data-step');
+        switchStep(step);
     });
+});
 
 // ✅ Get analyze button
-    const analyzeBtn = document.getElementById("analyzeBtn");
+const analyzeBtn = document.getElementById("analyzeBtn");
 
-    if (!analyzeBtn) {
-        console.warn("Analyze button not found");
-    } else {
+if (!analyzeBtn) {
+    console.warn("Analyze button not found");
+} else {
 
-        analyzeBtn.onclick = async () => {
+    analyzeBtn.onclick = async () => {
 
-            console.log("✅ Analyze clicked");
+        console.log("✅ Analyze clicked");
 
-            if (analyzeInProgress) return;
+        if (analyzeInProgress) return;
 
-            analyzeInProgress = true;
-            analyzeBtn.disabled = true;
+        analyzeInProgress = true;
+        analyzeBtn.disabled = true;
 
-            updateProgress(`
+        updateProgress(`
     ⏳ <strong>Scanning folders…</strong><br>
     Detecting folder structure on the card
 `);
 
-            showAnalyzeStatus("⏳ Analyzing card…");
+        showAnalyzeStatus("⏳ Analyzing card…");
 
-            let sd = document.getElementById("sdSelect")?.value;
+        let sd = document.getElementById("sdSelect")?.value;
 
-            if (!sd || !sd.includes(":")) {
-                showGlobalStatus("⚠️ Please detect and select a valid SD card first.");
-                analyzeInProgress = false;
-                analyzeBtn.disabled = false;
-                return;
-            }
+        if (!sd || !sd.includes(":")) {
+            showGlobalStatus("⚠️ Please detect and select a valid SD card first.");
+            analyzeInProgress = false;
+            analyzeBtn.disabled = false;
+            return;
+        }
 
-            if (!sd.endsWith("\\")) sd += "\\";
+        if (!sd.endsWith("\\")) sd += "\\";
 
-            try {
-                const res = await fetch("/api/analyze-card", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ sd_card_path: sd })
-                });
+        try {
+            const res = await fetch("/api/analyze-card", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sd_card_path: sd })
+            });
 
-                const data = await res.json();
-                updateProgress(`
+            const data = await res.json();
+            updateProgress(`
     📊 <strong>Folders found:</strong> ${data.analysis.folders.length}<br>
     Preparing photo overview
 `);
 
 
-                if (!data.success) {
-                    showAnalyzeStatus("⚠️ Analysis failed.");
-                    return;
-                }
+            if (!data.success) {
+                showAnalyzeStatus("⚠️ Analysis failed.");
+                return;
+            }
 
-                imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
-                analyzedFolders = data.analysis.folders;
+            imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
+            analyzedFolders = data.analysis.folders;
 
-                updateProgress(`
+            updateProgress(`
     📸 <strong>Preparing thumbnails…</strong><br>
     Loading preview images
 `);
 
-                renderAnalyzeFolders();
+            renderAnalyzeFolders();
 
 // ✅ stay on folder selection step
-                switchStep(2);
+            switchStep(2);
 
-// ✅ correct message for manual selection
-                showGlobalStatus(`
-✅ <strong>Analysis complete</strong><br>
-<small>
-Select a folder to view thumbnails<br>
-⚠️ Some folders may not have GPS data — use Mapping to assign locations
-</small>
-`);
-
-            } catch (err) {
-                console.error("Analyze failed:", err);
-                showAnalyzeStatus("⚠️ Analyze failed due to an error.");
-            } finally {
-                analyzeInProgress = false;
-                analyzeBtn.disabled = false;
-                clearAnalyzeStatus();
-            }
-        };
-    }
+        } catch (err) {
+            console.error("Analyze failed:", err);
+            showAnalyzeStatus("⚠️ Analyze failed due to an error.");
+        } finally {
+            analyzeInProgress = false;
+            analyzeBtn.disabled = false;
+            clearAnalyzeStatus();
+        }
+    };
+}

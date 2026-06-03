@@ -39,15 +39,13 @@ def get_default_working_base():
 # -----------------------------------------------------------------------------
 # Core iterator (ALL images)
 # -----------------------------------------------------------------------------
-def iter_images(folder):
     """Yield ALL supported images (JPG + RAW)."""
+def iter_images(folder):
     for root, _, files in os.walk(folder):
         for f in files:
-            if f.startswith("._"):
-                continue
+            name = f.lower()
 
-            ext = os.path.splitext(f)[1].lower()
-            if ext in IMAGE_EXTS_ALL:
+            if name.endswith((".jpg", ".jpeg", ".raf")):
                 yield os.path.join(root, f)
 
 

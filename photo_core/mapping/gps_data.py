@@ -73,43 +73,35 @@ def get_base_name(path):
 
 def extract_gps_points(records, mode="logical"):
     points = []
-
     gps_by_base = {}
 
-    # ✅ STEP 1: build GPS using ORIGINAL files and EXIFTOOL data (NOT PIL)
+    # ✅ STEP 1: build GPS from EXIF records
     for i, r in enumerate(records):
         try:
-            # ✅ DEBUG — only print for first record
-            if i == 0:
-                print("DEBUG KEYS:", list(r.keys()))
-
             source = r.get("path")
-
             if not source:
                 continue
 
             base = get_base_name(source)
 
-            gps_data = r.get("gps") or {}
+            gps = r.get("gps")
 
-            lat = gps_data.get("lat")
-            lon = gps_data.get("lon")
+            if not gps:
+                continue
 
-            if i < 5:
-                print("API GPS:", gps_data)
+            try:
+                lat, lon = gps  # ✅ already final, do NOT transform
 
-                if lat is not None and lon is not None:
-                    gps = (float(lat), float(lon))
-                else:
-                    gps = None
+            except Exception:
+                continue
 
-                if gps is not None:
-                    gps_by_base[base] = gps
+            gps_by_base[base] = (lat, lon)
+            gps_by_base[base] = gps
 
         except Exception:
             continue
 
-    # ✅ STEP 2: logical mode (1 point per image)
+    # ✅ STEP 2: logical mode (1 point per image base)
     if mode == "logical":
         for base, gps in gps_by_base.items():
             lat, lon = gps
@@ -123,7 +115,7 @@ def extract_gps_points(records, mode="logical"):
 
         return points
 
-    # ✅ STEP 3: all files mode
+    # ✅ STEP 3: all files mode (preserve display paths)
     if mode == "all":
         for r in records:
             try:
@@ -131,7 +123,6 @@ def extract_gps_points(records, mode="logical"):
                 display = r.get("path") or source
 
                 base = get_base_name(source)
-
                 gps = gps_by_base.get(base)
 
                 if not gps:

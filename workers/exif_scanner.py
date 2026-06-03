@@ -2,23 +2,62 @@
 # Role: Background EXIF scanner worker (see Stability Contract)
 #
 # File: workers/exif_scanner.py
+
+# -----------------------------------------------------------------------------
+# EXIF Scanner Worker
+# -----------------------------------------------------------------------------
+#
+# Background worker that processes image files to extract EXIF metadata.
 #
 # Responsibilities:
-#   - Scan images for EXIF metadata (read-only)
-#   - Populate ctx.exif_records
-#   - Update unified progress state (ctx.progress)
+#   • Waits for copy phase to complete
+#   • Scans working directory for JPEG images
+#   • Extracts EXIF metadata (including GPS)
+#   • Populates ctx.exif_records with results
+#   • Caches completed scans to avoid repeat work
 #
-# Notes:
-#   - Runs continuously as background worker
-#   - Must NOT modify files
-#   - Uses working directory paths only
-# ============================================================================
-
-# =============================================================================
-# Role: Background EXIF scanner worker (single source of truth)
-# File: workers/exif_scanner.py
-# =============================================================================
-
+# -----------------------------------------------------------------------------
+# Pipeline Role
+# -----------------------------------------------------------------------------
+#
+# copy_to_working() → sets copy_complete = True
+#       ↓
+# exif_scanner_worker detects ready state
+#       ↓
+# iterates JPEG files
+#       ↓
+# extracts EXIF → GPS → metadata
+#       ↓
+# writes ctx.exif_records
+#
+# -----------------------------------------------------------------------------
+# Key Design Decisions
+# -----------------------------------------------------------------------------
+#
+# • Worker loop runs continuously until shutdown_event
+# • Uses ctx.state["copy_complete"] as synchronization gate
+# • Performs full scan per session (no incremental updates)
+# • Uses cache_key to prevent duplicate work
+# • Sleeps only AFTER full scan cycle (not per file)
+#
+# -----------------------------------------------------------------------------
+# Important State Variables
+# -----------------------------------------------------------------------------
+#
+# ctx.state["copy_complete"]
+#     → False: do not scan (copy in progress)
+#     → True: begin EXIF processing
+#
+# ctx.state["current_active_folder"]
+#     → working directory path
+#
+# ctx.exif_records
+#     → full metadata list consumed by API + frontend
+#
+# ctx.exif_cache
+#     → tracks completed scans (by folder)
+#
+# -----------------------------------------------------------------------------
 import os
 import time
 
@@ -32,7 +71,7 @@ from photo_core.mapping.exif_dates import (
 )
 
 from photo_core.exif.reader import read_exif
-
+from utils.fs_utils import iter_images
 SCAN_INTERVAL = 5  # seconds between idle checks
 
 # ✅ Helper: sort out composite EXIF data
@@ -99,107 +138,99 @@ def to_decimal(value):
     return None
 
 def exif_scanner_worker(ctx):
+    """
+    Background worker for EXIF metadata extraction.
 
+    Behaviour:
+        • Runs continuously in a loop
+        • Waits until copy_complete is True before scanning
+        • Processes all JPEG files in the working directory
+        • Extracts metadata including GPS coordinates
+        • Stores results in ctx.exif_records
+        • Uses cache to avoid duplicate scans
+
+    Execution Flow:
+        WAIT → SCAN → STORE → CACHE → SLEEP → LOOP
+
+    Important:
+        • Must NOT access files while copy is running (avoids locks)
+        • Must write ctx.exif_records only after full scan completes
+        • Sleeping occurs AFTER full scan cycle (critical for performance)
+    """
     log_info(ctx, "[EXIF] Scanner worker started")
     log_info(ctx, msg=f"[WORKER CTX ID] {id(ctx)}")
+
+    waiting_logged = False  # ✅ ensures "waiting" prints only once
 
     while not ctx.shutdown_event.is_set():
 
         active = ctx.state.get("current_active_folder")
-        # ✅ Wait for copy to finish
-        if not ctx.state.get("copy_complete"):
-            print("⏳ Waiting for copy to complete...")
+
+        # ✅ Wait for valid folder
+        if not active:
             time.sleep(SCAN_INTERVAL)
             continue
 
-        print("🧪 ACTIVE:", active)
-
-        # ✅ Skip if no active folder
-        if not active or not os.path.isdir(active):
-            print("🚫 Skipping: no active folder")
+        if not os.path.isdir(active):
+            print("⚠️ Invalid folder:", active)
             time.sleep(SCAN_INTERVAL)
             continue
 
         cache_key = f"exif::{os.path.abspath(active)}"
 
-        print("🧪 CACHE KEY:", cache_key)
-        print("🧪 CACHE KEYS:", ctx.exif_cache.keys())
-
-        # ✅ Resote cache from before problems
+        # ✅ Skip if already processed
         if cache_key in ctx.exif_cache:
-            print("🚫 Skipping: already in cache")
             time.sleep(SCAN_INTERVAL)
             continue
 
+        print("✅ Starting EXIF scan...")
+
+        paths = list(iter_images(active))
+        print("📂 FILES FOUND:", len(paths))
+
+        print("🔍 ACTIVE (worker):", active)
+
+        for root, dirs, files in os.walk(active):
+            print("📁 WALK:", root, "FILES:", len(files))
+            break
+
         records = []
         count = 0
-
-        log_info(ctx, f"[EXIF] Scanning JPEGs in {active}")
-
-        # ✅ MAIN LOOP
-
-        paths = list(iter_jpegs(active))
-        print("📂 JPEG FILES FOUND:", len(paths))
 
         for path in paths:
             try:
                 meta = read_exif(path)
 
-                # ✅ DEBUG — confirm we are processing files
-                print("✅ PROCESSING:", path)
-
-                log_info(ctx, msg=f"[META KEYS] {list(meta.keys())}")
-
-                # ✅ GPS extraction (correct for YOUR files)# ✅("GPSLatitude")
                 lat = get_meta(meta, "GPSLatitude")
                 lon = get_meta(meta, "GPSLongitude")
 
                 lat_ref = get_meta(meta, "GPSLatitudeRef")
                 lon_ref = get_meta(meta, "GPSLongitudeRef")
 
-                # ✅ Fallback for Composite GPSPosition
-                if lat is None or lon is None:
-                    pos = meta.get("Composite:GPSPosition") or meta.get("GPSPosition")
-                    if pos:
-                        try:
-                            parts = str(pos).strip().split()
-                            if len(parts) >= 2:
-                                lat = float(parts[0])
-                                lon = float(parts[1])
-                        except Exception:
-                            pass
-
-                # ✅ DEBUG HERE (RAW values)
-                if count < 3:
-                    log_info(ctx, msg=f"[META KEYS] {list(meta.keys())}")
-                    log_info(ctx, msg=f"[RAW GPS] lat={lat} lon={lon}")
-
-
                 gps = None
 
                 if lat is not None and lon is not None:
                     try:
+                        # ✅ force numeric values
                         lat = float(str(lat).split()[0])
                         lon = float(str(lon).split()[0])
-                    except Exception:
-                        gps = None
-                    else:
-                        lat_ref_clean = clean_ref(lat_ref) if lat_ref else ""
-                        lon_ref_clean = clean_ref(lon_ref) if lon_ref else ""
 
-                        if lat_ref_clean == "S":
+                        # ✅ apply EXIF hemisphere refs
+                        if lat_ref and str(lat_ref).upper().startswith("S"):
                             lat = -lat
-                        if lon_ref_clean == "W":
+                        if lon_ref and str(lon_ref).upper().startswith("W"):
                             lon = -lon
 
-                        # ✅ ADD THIS BLOCK
+                        # ✅ UK correction (FINAL source of truth)
                         if 50 < lat < 60 and lon > 0:
-                            log_info(ctx, msg=f"[UK FIX] correcting lon {lon} → {-lon}")
+                            print(f"⚠️ UK FIX (EXIF): {lon} → {-lon}")
                             lon = -lon
 
                         gps = [lat, lon]
 
-                # ✅ Build record (INSIDE loop + try block)
+                    except Exception:
+                        gps = None
+
                 record = {
                     "path": path,
                     "datetime": extract_exif_datetime(path),
@@ -209,28 +240,18 @@ def exif_scanner_worker(ctx):
                 }
 
                 records.append(record)
-
-                # ✅ DEBUG — confirm record actually added
-                print("✅ RECORD ADDED")
-
                 count += 1
 
-                if count % 250 == 0:
-                    log_info(ctx, msg=f"[EXIF] Scanned {count} images...")
-
             except Exception as e:
-                log_info(ctx, msg=f"[EXIF ERROR] {path} → {e}")
+                print("⚠️ EXIF error:", path, e)
 
-            # ✅ AFTER LOOP (CRITICAL)
+        # ✅ Store results
+        if records:
+            ctx.exif_records = records
+            ctx.exif_cache[cache_key] = True
 
-            if paths and records:
-                ctx.exif_records = records
-                ctx.exif_cache[cache_key] = True
+            print("✅ EXIF scan complete:", len(records))
+        else:
+            print("⚠️ No EXIF records found")
 
-                print("✅ EXIF scan complete:", len(records))  # ✅ ADD THIS
-                log_info(ctx, f"✅ EXIF scan complete: {len(records)} records")
-            else:
-                print("⚠️ No valid EXIF records found — not caching")
-
-            # ✅ pause worker cycle
-            time.sleep(SCAN_INTERVAL)
+        time.sleep(SCAN_INTERVAL)

@@ -256,9 +256,12 @@ def api_organize():
 # -----------------------------------------------------------------------------
 @app.route("/api/thumbs", methods=["POST"])
 def thumbs():
-    touch_activity()
-    return api_thumbs(ctx, request.json)
 
+    # ✅ allow thumbnails during copy
+    if not ctx.state.get("current_active_folder"):
+        return jsonify([])
+
+    return api_thumbs(ctx, request.json)
 
 # -----------------------------------------------------------------------------
 # Progress (read)

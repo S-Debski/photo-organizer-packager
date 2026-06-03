@@ -81,7 +81,7 @@ def api_gps_data(ctx):
     logger.info(f"EXIF records count: {len(records)}")
 
     if not records:
-        logger.warning("⚠️ EXIF not ready yet")
+        # EXIF still loading — normal during startup
         return jsonify({
             "points": [],
             "exif_ready": False
@@ -113,8 +113,18 @@ def api_gps_data(ctx):
 
     logger.info(f"✅ GPS combined: {len(points)} points")
 
+    working_files = ctx.state.get("working_files", [])
+    file_count = len(working_files)
+    exif_count = len(ctx.exif_records)
+
     return jsonify({
+        # existing data
         "points": points,
         "exif_ready": exif_ready,
-        "current_active_folder": ctx.state.get("current_active_folder")
+        "current_active_folder": ctx.state.get("current_active_folder"),
+
+        # ✅ NEW: pipeline status
+        "copy_complete": ctx.state.get("copy_complete", False),
+        "file_count": file_count,
+        "exif_count": exif_count
     })
