@@ -73,7 +73,7 @@ from photo_core.mapping.exif_dates import (
 from photo_core.exif.reader import read_exif
 from utils.fs_utils import iter_images
 SCAN_INTERVAL = 5  # seconds between idle checks
-
+error_count = 0
 # ✅ Helper: sort out composite EXIF data
 def get_meta(meta, key):
     """Return EXIF value handling ExifTool namespaces."""
@@ -143,24 +143,23 @@ def exif_scanner_worker(ctx):
 
     Behaviour:
         • Runs continuously in a loop
-        • Waits until copy_complete is True before scanning
-        • Processes all JPEG files in the working directory
+        • Waits until a valid active folder is set before scanning
+        • Processes all image files in the active source folder
         • Extracts metadata including GPS coordinates
-        • Stores results in ctx.exif_records
-        • Uses cache to avoid duplicate scans
+        • Stores results in ctx.state["exif_records"]
+        • Uses cache to avoid duplicate scans per folder
 
     Execution Flow:
         WAIT → SCAN → STORE → CACHE → SLEEP → LOOP
 
     Important:
         • Must NOT access files while copy is running (avoids locks)
-        • Must write ctx.exif_records only after full scan completes
+        • Must write ctx.state["exif_records"] only after full scan completes
         • Sleeping occurs AFTER full scan cycle (critical for performance)
     """
+
     log_info(ctx, "[EXIF] Scanner worker started")
     log_info(ctx, msg=f"[WORKER CTX ID] {id(ctx)}")
-
-    waiting_logged = False  # ✅ ensures "waiting" prints only once
 
     while not ctx.shutdown_event.is_set():
 
@@ -183,19 +182,14 @@ def exif_scanner_worker(ctx):
             time.sleep(SCAN_INTERVAL)
             continue
 
-        print("✅ Starting EXIF scan...")
+        print(f"✅ Starting EXIF scan: {active}")
 
         paths = list(iter_images(active))
-        print("📂 FILES FOUND:", len(paths))
-
-        print("🔍 ACTIVE (worker):", active)
-
-        for root, dirs, files in os.walk(active):
-            print("📁 WALK:", root, "FILES:", len(files))
-            break
+        print(f"📂 Found {len(paths)} images to scan")
 
         records = []
         count = 0
+        error_count = 0  # ✅ reset per scan
 
         for path in paths:
             try:
@@ -211,17 +205,15 @@ def exif_scanner_worker(ctx):
 
                 if lat is not None and lon is not None:
                     try:
-                        # ✅ force numeric values
                         lat = float(str(lat).split()[0])
                         lon = float(str(lon).split()[0])
 
-                        # ✅ apply EXIF hemisphere refs
                         if lat_ref and str(lat_ref).upper().startswith("S"):
                             lat = -lat
                         if lon_ref and str(lon_ref).upper().startswith("W"):
                             lon = -lon
 
-                        # ✅ UK correction (FINAL source of truth)
+                        # ✅ UK longitude correction
                         if 50 < lat < 60 and lon > 0:
                             print(f"⚠️ UK FIX (EXIF): {lon} → {-lon}")
                             lon = -lon
@@ -242,16 +234,21 @@ def exif_scanner_worker(ctx):
                 records.append(record)
                 count += 1
 
-            except Exception as e:
-                print("⚠️ EXIF error:", path, e)
+            except Exception:
+                error_count += 1  # ✅ properly handled
 
         # ✅ Store results
         if records:
-            ctx.exif_records = records
+            ctx.state["exif_records"] = records
             ctx.exif_cache[cache_key] = True
 
-            print("✅ EXIF scan complete:", len(records))
+            print(f"✅ EXIF scan complete: {len(records)} files processed")
+            print(f"✅ STORED EXIF IN ctx.state: {len(records)}")
+
         else:
             print("⚠️ No EXIF records found")
+
+        if error_count > 0:
+            print(f"⚠️ EXIF errors: {error_count} files")
 
         time.sleep(SCAN_INTERVAL)

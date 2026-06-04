@@ -202,7 +202,6 @@ def api_set_active_folder(payload):
     # STEP 5 — reset caches BEFORE releasing worker
     # -------------------------------------------------------------------------
     api_server.ctx.exif_cache.clear()
-    api_server.ctx.exif_records = []
     api_server.ctx.thumb_cache.clear()
 
     print("🧹 EXIF cache cleared → worker must rescan")

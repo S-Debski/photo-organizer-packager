@@ -60,6 +60,18 @@ let groupMode = "all";   // ✅ default: show all files
 let currentGroup = null;
 
 
+// ✅ Top Functions
+
+function normalizePath(path) {
+    if (!path) return "";
+    return path.replaceAll("\\", "/").toLowerCase();
+}
+
+function getBase(path) {
+    if (!path) return "";
+    return path.split(/[\\/]/).pop().toLowerCase();
+}
+
 const $ = id => document.getElementById(id);
 
 // ====================================================================
@@ -1748,45 +1760,28 @@ let gpsRetryCount = 0;
 document.getElementById("latInput")?.addEventListener("change", updateFromInputs);
 document.getElementById("lonInput")?.addEventListener("change", updateFromInputs);
 
-
 async function loadMap() {
 
     if (mapLoading) return;
     mapLoading = true;
-
     const status = document.getElementById("mapStatus");
-    const folderContainer = document.getElementById("folderSelector");
 
-    // ✅ Clear markers
-    if (markerLayer) {
-        markerLayer.clearLayers();
+    if (status && gpsRetryCount === 0) {
+        status.innerHTML = `
+        <div class="map-status loading">
+            ⏳ <strong>Loading GPS data…</strong><br>
+            Reading metadata from images.
+        </div>
+    `;
     }
-
-    // ✅ Always show folder selector
-    if (currentImages && currentImages.length && folderContainer) {
-        console.log("Rendering folder selector with:", currentImages.length);
-        renderFolderSelector(currentImages);
-    }
-
     try {
-
-        // ✅ Initial loading state
-        if (gpsRetryCount === 0 && status) {
-            status.innerHTML = `
-                <div class="map-status loading">
-                    ⏳ <strong>Loading GPS data…</strong><br>
-                    Reading metadata from images.
-                </div>
-            `;
-        }
-
         // ✅ Build manual GPS list
         const manualGPS = [];
 
         metadataMap.forEach((value, path) => {
             if (value.lat != null && value.lon != null) {
                 manualGPS.push({
-                    path: path,
+                    path,
                     lat: value.lat,
                     lon: value.lon
                 });
@@ -1795,133 +1790,40 @@ async function loadMap() {
 
         console.log("manualGPS:", manualGPS);
 
-// ✅ FETCH (correct structure)
+        // ✅ Fetch
         const res = await fetch("/api/gps-data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ manualGPS })
         });
 
-// ✅ PARSE (correct placement)
         const gpsData = await res.json();
-        updateGlobalStatus(gpsData);
 
-// ✅ Normalise (keep yours, still safe)
-        const points = gpsData.points || gpsData.records || [];
-
-// ✅ ✅ 🔥 Set Working Dir if selected
-        if (gpsData.working_dir) {
-            const el = document.getElementById("workingDirectoryInput");
-
-            // ✅ only update UI if empty
-            if (el && !el.value.trim()) {
-                el.value = gpsData.working_dir;
+        const points = gpsData.points || [];
+        combinedGPS = points.map(p => {
+            const key = normalizePath(p.path);   // ✅ normalize path here
+            const override = metadataMap.get(key);  // ✅ lookup here
+            if (override && override.lat != null && override.lon != null) {
+                console.log("✅ Applying override for:", key);
+                return {
+                    ...p,
+                    lat: override.lat,
+                    lon: override.lon
+                };
             }
-        }
-
-// ✅ Build image paths list (single source of truth)
-        const imagePaths = points.map(p => p.path);
-
-// ✅ ✅ Slight improvement (optional but SAFE)
-        currentImages = points;   // objects with path + gps
-        const workingRoot = document.getElementById("workingDirectoryInput").value;
-
-// ✅ Existing logic unchanged
-        const exifReady = gpsData.exif_ready === true;
-
-        console.log("🚨 RAW GPS DATA:", gpsData);
-        console.log("EXIF ready:", exifReady);
-        console.log("GPS points:", points.length);
-
-// ✅ Merge backend GPS into metadataMap
-        points.forEach(item => {
-
-            if (!item || !item.path || item.lat == null || item.lon == null) {
-                return;
-            }
-
-            const existing = metadataMap.get(item.path) || {};
-
-            metadataMap.set(item.path, {
-                ...existing,
-                lat: item.lat,
-                lon: item.lon
-            });
-
+            return p;
         });
 
-        let combinedGPS = [];
+        console.log("RAW points:", points.length);
 
-// ✅ respect current grouping mode
-        if (groupMode === "grouped") {
+        console.log("Combined after merge:", combinedGPS);
 
-            let selectedGroup = null;
+        // ✅ Empty case (clean + correct UX)
+        if (!combinedGPS.length) {
 
-/// ✅ Resolve current group safely
-            selectedGroup = currentGroup;
+            // ✅ EXIF still processing
+            if (!gpsData.exif_ready) {
 
-// ✅ If no group is set, fall back to first available
-            if (!selectedGroup) {
-                const keys = Object.keys(folderGroups || {});
-                if (keys.length > 0) {
-                    selectedGroup = keys[0];
-                    currentGroup = selectedGroup;   // ✅ keep state in sync
-                }
-            }
-
-// ✅ Resolve paths safely
-            let paths = [];
-
-// ✅ PRIMARY: use selected group directly
-            if (selectedFolderGroup && selectedFolderGroup.length > 0) {
-                paths = selectedFolderGroup;
-            }
-
-// ✅ fallback if needed (no click yet)
-            else if (selectedGroup && folderGroups[selectedGroup]) {
-                paths = folderGroups[selectedGroup];
-            }
-
-// ✅ Build combined GPS
-            console.log("Paths sample:", paths.slice(0, 3));
-            console.log("Metadata keys sample:", Array.from(metadataMap.keys()).slice(0, 3));
-            paths.forEach(path => {
-                const value = metadataMap.get(path);
-
-                if (value && value.lat != null && value.lon != null) {
-                    combinedGPS.push({
-                        path,
-                        lat: value.lat,
-                        lon: value.lon
-                    });
-                }
-            });
-
-// ✅ Build combined GPS
-            paths.forEach(path => {
-                const value = metadataMap.get(path);
-
-                if (value && value.lat != null && value.lon != null) {
-                    combinedGPS.push({
-                        path,
-                        lat: value.lat,
-                        lon: value.lon
-                    });
-                }
-            });
-        } else {
-            // ✅ All files
-            points.forEach(item => {
-                combinedGPS.push(item);
-            });
-        }
-
-        console.log("Combined GPS:", combinedGPS);
-
-        // ✅ EMPTY CASE
-        if (!points.length) {
-
-            if (!exifReady) {
                 if (status) {
                     status.innerHTML = `
                 <div class="map-status loading">
@@ -1931,12 +1833,14 @@ async function loadMap() {
             `;
                 }
 
+                gpsRetryCount++;   // ✅ prevents reset spam
+
                 mapLoading = false;
-                setTimeout(loadMap, 2000);   // ✅ keep retrying
+                setTimeout(loadMap, 2000);
                 return;
             }
 
-            // ✅ Only show this if EXIF is finished
+            // ✅ EXIF done but no GPS found
             if (status) {
                 status.innerHTML = `
             <div class="map-status warning">
@@ -1948,56 +1852,41 @@ async function loadMap() {
             mapLoading = false;
             return;
         }
+        // ✅ ✅ ✅ SUCCESS STATE (THIS IS MISSING)
+        if (status && combinedGPS.length > 0) {
+            status.innerHTML = `
+        <div class="map-status success">
+            📍 <strong>Showing ${combinedGPS.length} photo locations</strong>
+        </div>
+    `;
+        }
 
-        // ✅ SUCCESS
+// ✅ reset retry counter
         gpsRetryCount = 0;
 
-        if (!map) {
-            mapLoading = false;
-            return;
-        }
-
-        if (status) {
-            status.innerHTML = `
-                <div class="map-status success">
-                    📍 <strong>Showing ${combinedGPS.length} photo locations</strong><br>
-                    Includes EXIF + manual GPS data.
-                </div>
-            `;
-        }
-
-        console.log("Displaying points:", combinedGPS);
-
-// ✅ Build folder groups ONCE (must come BEFORE use)
-        const folderGroups = groupByFolder(combinedGPS);
-
-// ✅ Render everything
+        // ✅ ✅ ✅ RENDER ONLY FROM combinedGPS
         renderMapMarkers(combinedGPS);
         renderFolderSelector(combinedGPS);
 
-// ✅ Auto-fit map to markers
-        if (combinedGPS.length > 0 && map) {
+        // ✅ Fit map
+        if (map && combinedGPS.length > 0) {
             const bounds = L.latLngBounds(
                 combinedGPS.map(p => [p.lat, p.lon])
             );
 
-            map.fitBounds(bounds, {
-                padding: [20, 20],   // nice margin
-                maxZoom: 15          // prevents over-zoom
-            });
+            map.fitBounds(bounds, { padding: [20, 20], maxZoom: 15 });
         }
 
-// ✅ clear loading flag
         mapLoading = false;
 
     } catch (err) {
 
-        console.warn("GPS load failed:", err);
+        console.error("❌ loadMap failed:", err);
 
         if (status) {
             status.innerHTML = `
                 <div class="map-status warning">
-                    ⚠️ <strong>Unable to load GPS data</strong>
+                    ⚠️ Failed to load map data
                 </div>
             `;
         }
@@ -2473,26 +2362,52 @@ document.addEventListener("keydown", (e) => {
 // ✅ Apply manual/detected GPS to all photos in the selected folder group
 function applyGPS() {
 
+    console.log("ApplyGPS → currentGroup:", currentGroup);
+
     if (!manualLocation || !currentGroup) return;
 
-    const groupPaths = folderGroups[currentGroup] || [];
+    const status = document.getElementById("mapStatus");
 
-    groupPaths.forEach(path => {
-        const existing = metadataMap.get(path) || {};
+    let count = 0;
 
-        metadataMap.set(path, {
-            ...existing,
-            lat: manualLocation.lat,
-            lon: manualLocation.lon
-        });
+    combinedGPS.forEach(item => {
+
+        if (!item || !item.path) return;
+
+        const cleanGroup = currentGroup
+            .replace(/\s*\(\d+\)/, "")
+            .toLowerCase();
+
+        const path = normalizePath(item.path);
+
+        if (path.split("/").includes(cleanGroup)) {
+
+            const key = normalizePath(item.path);
+
+            metadataMap.set(key, {
+                lat: manualLocation.lat,
+                lon: manualLocation.lon
+            });
+
+            count++;
+        }
     });
 
-    console.log("✅ Applied GPS to", groupPaths.length, "files");
+    // ✅ ✅ ✅ THIS IS THE NEW FEEDBACK BLOCK (RIGHT PLACE)
 
-    // ✅ re-render map
+    console.log("✅ Applied GPS to", count, "files");
+
+    if (status) {
+        status.innerHTML = `
+            <div class="map-status success">
+                ✅ Applied GPS to ${count} file${count === 1 ? "" : "s"}
+            </div>
+        `;
+    }
+    console.log("✅ Applied GPS to", count, "files (from combinedGPS)");
+    // ✅ ✅ ✅ THEN refresh map
     loadMap();
 }
-
 // ============================================================
 // GPS Utility: Copy detected EXIF GPS to manual input
 // ------------------------------------------------------------
@@ -2513,60 +2428,60 @@ function applyGPS() {
 // ============================================================
 
 document.getElementById("copyDetectedGpsBtn")
-?.addEventListener("click", () => {
-    const groups = window.folderMarkerGroups;
+    ?.addEventListener("click", () => {
+        const groups = window.folderMarkerGroups;
 
-    if (!groups || !currentGroup || !groups[currentGroup]) {
-        alert("No folder selected or no GPS data.");
-        return;
-    }
-
-    let latSum = 0;
-    let lonSum = 0;
-    let count = 0;
-
-    // ✅ ONLY use the selected folder (fixes your bug)
-    groups[currentGroup].eachLayer(layer => {
-        const ll = layer.getLatLng?.();
-
-        if (ll && ll.lat && ll.lng) {
-            latSum += ll.lat;
-            lonSum += ll.lng;
-            count++;
+        if (!groups || !currentGroup || !groups[currentGroup]) {
+            alert("No folder selected or no GPS data.");
+            return;
         }
+
+        let latSum = 0;
+        let lonSum = 0;
+        let count = 0;
+
+        // ✅ ONLY use the selected folder (fixes your bug)
+        groups[currentGroup].eachLayer(layer => {
+            const ll = layer.getLatLng?.();
+
+            if (ll && ll.lat && ll.lng) {
+                latSum += ll.lat;
+                lonSum += ll.lng;
+                count++;
+            }
+        });
+
+        if (count === 0) {
+            alert("No GPS data found in this folder.");
+            return;
+        }
+
+        // ✅ average location (better than first point)
+        const avgLat = latSum / count;
+        const avgLon = lonSum / count;
+
+        // ✅ update global state
+        manualLocation = {
+            lat: avgLat,
+            lon: avgLon
+        };
+
+        // ✅ update inputs
+        const latInput = document.getElementById("latInput");
+        const lonInput = document.getElementById("lonInput");
+
+        if (latInput && lonInput) {
+            latInput.value = avgLat.toFixed(6);
+            lonInput.value = avgLon.toFixed(6);
+        }
+
+        // ✅ move map
+        if (map) {
+            map.setView([avgLat, avgLon], 14);
+        }
+
+        console.log(`📍 Using detected GPS for ${currentGroup}:`, avgLat, avgLon);
     });
-
-    if (count === 0) {
-        alert("No GPS data found in this folder.");
-        return;
-    }
-
-    // ✅ average location (better than first point)
-    const avgLat = latSum / count;
-    const avgLon = lonSum / count;
-
-    // ✅ update global state
-    manualLocation = {
-        lat: avgLat,
-        lon: avgLon
-    };
-
-    // ✅ update inputs
-    const latInput = document.getElementById("latInput");
-    const lonInput = document.getElementById("lonInput");
-
-    if (latInput && lonInput) {
-        latInput.value = avgLat.toFixed(6);
-        lonInput.value = avgLon.toFixed(6);
-    }
-
-    // ✅ move map
-    if (map) {
-        map.setView([avgLat, avgLon], 14);
-    }
-
-    console.log(`📍 Using detected GPS for ${currentGroup}:`, avgLat, avgLon);
-});
 
 // ====================================================================
 // INITIALIZE
@@ -2670,3 +2585,22 @@ if (!analyzeBtn) {
         }
     };
 }
+// ✅ Watch for Mapping step becoming visible
+setInterval(() => {
+
+    const step = document.querySelector('[data-step="5"]');
+
+    if (!step) return;
+
+    // ✅ Check if it is visible
+    const isVisible = !step.classList.contains("d-none");
+
+    if (isVisible && !step.dataset.mapLoaded) {
+
+        console.log("✅ Mapping visible → triggering loadMap");
+
+        step.dataset.mapLoaded = "true";  // prevent repeat
+        loadMap();
+    }
+
+}, 500);

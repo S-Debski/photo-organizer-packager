@@ -12,7 +12,7 @@
 #
 # Data Flow:
 #   EXIF Scanner Worker
-#       → ctx.exif_records
+#       → ctx.state.get("exif_records", [])
 #       → extract_gps_points(records)
 #       → EXIF GPS points
 #
@@ -74,32 +74,41 @@ def api_gps_data(ctx):
     data = request.json or {}
     manual = data.get("manualGPS", [])
 
-    records = getattr(ctx, "exif_records", [])
+    records = ctx.state.get("exif_records", [])
     exif_ready = bool(records)
 
-    logger.info(f"[API CTX ID] {id(ctx)}")
-    logger.info(f"EXIF records count: {len(records)}")
+    active = ctx.state.get("current_active_folder")
 
+    if ctx.state.get("current_active_folder") and records:
+        logger.info(f"[API CTX ID] {id(ctx)}")
+
+    # ✅ ✅ ✅ Clean logging (only when data changes)
+    last_count = ctx.state.get("_last_exif_count")
+    current_count = len(records)
+
+    if active and current_count != last_count and current_count > 0:
+        logger.info(f"✅ EXIF records: {current_count}")
+        logger.info(f"✅ GPS combined: {current_count} points")
+
+        ctx.state["_last_exif_count"] = current_count
+
+    # ✅ No EXIF data yet → normal startup / before analyse
     if not records:
-        # EXIF still loading — normal during startup
         return jsonify({
             "points": [],
             "exif_ready": False
         })
 
-    # ✅ ✅ Build GPS points
+    # ✅ ✅ ✅ Build GPS points
     points = []
 
     for r in records:
         gps = r.get("gps")
 
-        if gps is None:
+        if not gps or len(gps) < 2:
             continue
 
-        try:
-            lat, lon = gps
-        except Exception:
-            continue
+        lat, lon = gps
 
         if lat is None or lon is None:
             continue
@@ -111,19 +120,17 @@ def api_gps_data(ctx):
             "quality": "exif"
         })
 
-    logger.info(f"✅ GPS combined: {len(points)} points")
-
+    # ✅ pipeline info (used by frontend)
     working_files = ctx.state.get("working_files", [])
     file_count = len(working_files)
-    exif_count = len(ctx.exif_records)
+    exif_count = len(records)
 
     return jsonify({
-        # existing data
         "points": points,
         "exif_ready": exif_ready,
-        "current_active_folder": ctx.state.get("current_active_folder"),
+        "current_active_folder": active,
 
-        # ✅ NEW: pipeline status
+        # ✅ pipeline status
         "copy_complete": ctx.state.get("copy_complete", False),
         "file_count": file_count,
         "exif_count": exif_count
