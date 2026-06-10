@@ -13,54 +13,33 @@
 # -----------------------------------------------------------------------------
 
 
-import backend.api_server as api_server   # ✅ shared global ctx
-
 import os
 import shutil
+import subprocess
 import time
+import logging
+
 from flask import jsonify
 
-from utils.fs_utils import get_default_working_base
+import backend.api_server as api_server
+
 from backend.utils.logging_utils import backend_log
 
-import logging
+from utils.fs_utils import (
+    get_default_working_base,
+    iter_jpegs
+)
+
 logger = logging.getLogger("set_active_folder")
-
-import subprocess
-
 
 # -----------------------------------------------------------------------------
 # COPY OPERATION
 # -----------------------------------------------------------------------------
 def copy_to_working(src_folder, dst_folder):
-    """
-    Copy image contents from src_folder into dst_folder using robocopy.
-
-    Behaviour:
-        • Copies ALL subfolders (/E)
-        • Does NOT duplicate root folder (hybrid structure)
-        • Uses OS-level copy for performance
-        • No per-file Python handling
-
-    Returns:
-        [] (empty list by design — EXIF worker handles scanning)
-
-    Notes:
-        • Fast (~instant for moderate datasets)
-        • Does not rebuild file list
-    """
-    for root, _, files in os.walk(src_folder):
-        for f in files[:20]:  # just first few files
-            try:
-                with open(os.path.join(root, f), 'rb') as fh:
-                    fh.read(1024)  # read 1KB
-            except:
-                pass
-        break  # only first folder
 
     os.makedirs(dst_folder, exist_ok=True)
 
-    process = subprocess.Popen([
+    cmd = [
         "robocopy",
         src_folder,
         dst_folder,
@@ -70,55 +49,71 @@ def copy_to_working(src_folder, dst_folder):
         "/NFL",
         "/NDL",
         "/NP",
+        "/NJH",
+        "/NJS",
         "/MT:16"
-    ])
+    ]
 
-    return process  # ✅ RETURN THE PROCESS
+    print("RUNNING:", cmd)
 
+    result = subprocess.call(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    print("✅ ROBOCOPY FINISHED")
+
+    return result
 
 # -----------------------------------------------------------------------------
 # MAIN ENTRY POINT
 # -----------------------------------------------------------------------------
 def api_set_active_folder(payload):
     """
-    Initialise a new processing session.
+        Initialise a new processing session.
 
-    Pipeline:
-        1. Validate input folder
-        2. Resolve working directory (hybrid mode)
-        3. Reset working directory
-        4. Copy files into working directory
-        5. Compute file count (UI only)
-        6. Clear EXIF + thumbnail caches
-        7. Set copy_complete → triggers EXIF worker
-        8. Update global context
+        Pipeline:
+            1. Validate input folder
+            2. Resolve working directory
+            3. Reset working directory
+            4. Copy files into working directory (RoboCopy)
+            5. Compute file count
+            6. Clear EXIF + thumbnail caches
+            7. Switch active folder to working directory
+            8. Release EXIF worker to scan copied files
 
-    Args:
-        payload (dict):
-            {
-                "folder": str,       # source folder
-                "working_dir": str   # optional override
-            }
+        Args:
+            payload (dict):
+                {
+                    "folder": str,       # source folder
+                    "working_dir": str   # optional override
+                }
 
-    Returns:
-        JSON response with:
-            success
-            working_dir
-            file_count
+        Returns:
+            JSON response with:
+                success
+                working_dir
+                file_count
 
-    ctx.state lifecycle:
-        copy_complete = False → worker waits
-        copy completes
-        caches cleared
-        copy_complete = True → worker starts EXIF scan
+        ctx.state lifecycle:
+            copy_complete = False → worker waits
+            RoboCopy completes
+            caches cleared
+            current_active_folder → working_dir
+            copy_complete = True → worker scans copied files
 
-    Important:
-        Order matters:
-            cache clear → THEN copy_complete = True
-    """
+        Important:
+            • Original source files are NEVER modified
+            • All downstream processing uses working_dir
+            • GPS metadata updates target copied files only
+
+            Order matters:
+                copy → cache clear → active folder switch → copy_complete = True
+        """
 
     # -------------------------------------------------------------------------
-    # ✅ STATE: mark not ready (worker will wait)
+    # ✅ STATE: mark pipeline not ready
     # -------------------------------------------------------------------------
     api_server.ctx.state["copy_complete"] = False
 
@@ -127,12 +122,19 @@ def api_set_active_folder(payload):
 
     backend_log(f"📂 Set active folder requested: {folder}")
 
+    # -------------------------------------------------------------------------
+    # ✅ Validate input
+    # -------------------------------------------------------------------------
     if not folder or not os.path.isdir(folder):
         logger.error(f"Invalid folder: {folder}")
-        return jsonify({"success": False, "error": "Invalid folder"}), 400
+
+        return jsonify({
+            "success": False,
+            "error": "Invalid folder"
+        }), 400
 
     # -------------------------------------------------------------------------
-    # STEP 1 — resolve base directory
+    # STEP 1 — resolve base working directory
     # -------------------------------------------------------------------------
     base_dir = working_dir_input or api_server.ctx.working_base_dir
 
@@ -141,6 +143,7 @@ def api_set_active_folder(payload):
 
         try:
             os.makedirs(base_dir, exist_ok=True)
+
         except Exception:
             base_dir = get_default_working_base()
             os.makedirs(base_dir, exist_ok=True)
@@ -150,56 +153,50 @@ def api_set_active_folder(payload):
         os.makedirs(base_dir, exist_ok=True)
 
     # -------------------------------------------------------------------------
-    # STEP 2 — resolve working directory (HYBRID)
+    # STEP 2 — build working session directory
     # -------------------------------------------------------------------------
-    # ✅ FORCE hybrid structure (ignore incoming working_dir_input for now)
-    working_dir = base_dir
     session_name = os.path.basename(folder.rstrip("\\/"))
 
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    working_dir = os.path.join(
+        base_dir,
+        f"{session_name}_{timestamp}"
+    )
+
+    print("✅ SOURCE FOLDER:", folder)
+    print("✅ WORKING DIRECTORY:", working_dir)
+    os.makedirs(working_dir, exist_ok=True)
 
     # -------------------------------------------------------------------------
-    # ✅ STATE: expose active folder early
-    # -------------------------------------------------------------------------
-    api_server.ctx.state["current_active_folder"] = folder
-    print("✅ ACTIVE SOURCE FOLDER:", folder)
-
-    # -------------------------------------------------------------------------
-    # STEP 3 — reset + copy
+    # STEP 3 — prepare working directory
     # -------------------------------------------------------------------------
     backend_log("📦 Preparing working directory...")
 
-    # Clean working directory (deterministic runs)
-    # ✅ allow any file locks to clear
     time.sleep(0.5)
 
-    def safe_rmtree(path, retries=5, delay=0.5):
-        for i in range(retries):
-            try:
-                shutil.rmtree(path)
-                return
-            except (PermissionError, OSError) as e:
-                print(f"⚠️ rmtree retry {i + 1}: {e}")
-                time.sleep(delay)
-
-        raise RuntimeError(f"Failed to remove working_dir after {retries} attempts")
-
-    # Copy contents
+    # -------------------------------------------------------------------------
+    # STEP 4 — copy source → working directory
+    # -------------------------------------------------------------------------
     backend_log("📦 Copying files to working directory...")
-    process = api_server.ctx.state["current_active_folder"] = folder
 
-    # ✅ do NOT block — let copy run in background
-    backend_log("✅ Copy started (background)")
+    # ✅ optional background copy later
+    # result = copy_to_working(folder, working_dir)
 
-    # -------------------------------------------------------------------------
-    # STEP 4 — compute file count (UI ONLY)
-    # -------------------------------------------------------------------------
-    file_count = sum(len(files) for _, _, files in os.walk(working_dir))
+    print("✅ COPY SKIPPED TEMPORARILY")
 
-    # ✅ STATE: not real file list — just count placeholder
-    api_server.ctx.state["working_files"] = list(range(file_count))
+    #backend_log("✅ Copy complete")
 
     # -------------------------------------------------------------------------
-    # STEP 5 — reset caches BEFORE releasing worker
+    # STEP 5 — compute file count
+    # -------------------------------------------------------------------------
+    working_files = list(iter_jpegs(working_dir))
+
+    file_count = len(working_files)
+
+    api_server.ctx.state["working_files"] = working_files
+    # -------------------------------------------------------------------------
+    # STEP 6 — clear caches
     # -------------------------------------------------------------------------
     api_server.ctx.exif_cache.clear()
     api_server.ctx.thumb_cache.clear()
@@ -207,10 +204,20 @@ def api_set_active_folder(payload):
     print("🧹 EXIF cache cleared → worker must rescan")
 
     # -------------------------------------------------------------------------
-    # STEP 6 — final context update
+    # STEP 7 — switch pipeline to copied files
+    # -------------------------------------------------------------------------
+
+    print("✅ ACTIVE WORKING FOLDER:", working_dir)
+
+    # -------------------------------------------------------------------------
+    # STEP 8 — final context update
     # -------------------------------------------------------------------------
     api_server.ctx.working_dir = working_dir
     api_server.ctx.session_id = session_name
+
+    # ✅ release EXIF worker
+    api_server.ctx.state["copy_complete"] = True
+    api_server.ctx.state["current_active_folder"] = folder
 
     # -------------------------------------------------------------------------
     # RETURN

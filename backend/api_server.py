@@ -257,8 +257,8 @@ def api_organize():
 @app.route("/api/thumbs", methods=["POST"])
 def thumbs():
 
-    # ✅ allow thumbnails during copy
-    if not ctx.state.get("current_active_folder"):
+    # ✅ do not serve thumbs during copy
+    if not ctx.state.get("copy_complete"):
         return jsonify([])
 
     return api_thumbs(ctx, request.json)

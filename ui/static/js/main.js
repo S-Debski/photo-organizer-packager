@@ -826,24 +826,11 @@ function renderAnalyzeFolders() {
             // ✅ Reset grouping when switching folder
             currentGroup = null;
 
-            // ✅ Get working directory FROM INPUT (do NOT overwrite it)
-            const workingDirectoryInput = document.getElementById("workingDirectoryInput");
-
-            workingDirectory = null;   // ✅ use global (NO let!)
-
-            if (workingDirectoryInput) {
-                const val = workingDirectoryInput.value.trim();
-                if (val.length > 0) {
-                    workingDirectory = val;
-                }
-            }
-
             console.log("SOURCE:", sourceFolderPath);
             console.log("WORKING:", workingDirectory);
 
-            // ✅ Reset map state
+// ✅ Reset map state
             gpsRetryCount = 0;
-
             const status = document.getElementById("mapStatus");
             if (status) status.innerHTML = "";
 
@@ -859,7 +846,9 @@ function renderAnalyzeFolders() {
                 });
 
                 const data = await res.json();
+                workingDirectory = data.working_dir;
 
+                console.log("WORKING:", workingDirectory);
                 if (!data.success) {
                     console.error("❌ Set active folder failed:", data);
                     return;

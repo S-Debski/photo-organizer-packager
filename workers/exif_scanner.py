@@ -179,13 +179,15 @@ def exif_scanner_worker(ctx):
 
         # ✅ Skip if already processed
         if cache_key in ctx.exif_cache:
-            time.sleep(SCAN_INTERVAL)
-            continue
+            print("⚠️ CACHE HIT:", cache_key)
+         #  time.sleep(SCAN_INTERVAL)
+         #   continue
 
         print(f"✅ Starting EXIF scan: {active}")
 
         paths = list(iter_images(active))
         print(f"📂 Found {len(paths)} images to scan")
+        print("WORKER ACTIVE:", active)
 
         records = []
         count = 0
@@ -232,6 +234,7 @@ def exif_scanner_worker(ctx):
                 }
 
                 records.append(record)
+                print("✅ RECORD:", path)
                 count += 1
 
             except Exception:
@@ -239,6 +242,7 @@ def exif_scanner_worker(ctx):
 
         # ✅ Store results
         if records:
+            print("✅ FINAL RECORD COUNT:", len(records))
             ctx.state["exif_records"] = records
             ctx.exif_cache[cache_key] = True
 
