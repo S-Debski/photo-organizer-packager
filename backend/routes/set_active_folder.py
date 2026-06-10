@@ -185,7 +185,7 @@ def api_set_active_folder(payload):
 
     print("✅ COPY SKIPPED TEMPORARILY")
 
-    #backend_log("✅ Copy complete")
+    #Here isbackend_log("✅ Copy complete")
 
     # -------------------------------------------------------------------------
     # STEP 5 — compute file count
