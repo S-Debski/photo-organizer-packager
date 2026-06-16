@@ -58,16 +58,22 @@ sessions/<session_name_timestamp>/session.json
 import json
 import os
 import time
+import tempfile
+import logging
 
+logger = logging.getLogger("session_state")
 
 MANIFEST_FILENAME = "session.json"
+
+# Schema version — bump when manifest structure changes
+MANIFEST_VERSION = 1
 
 
 # =========================================================
 # Session Creation
 # =========================================================
 
-def create_session(base_dir, source_folder, session_name):
+def create_session(base_dir: str, source_folder: str, session_name: str) -> tuple[str, dict]:
     """
     Create a new timestamped ingest session.
 
@@ -76,30 +82,116 @@ def create_session(base_dir, source_folder, session_name):
         - initialize manifest structure
         - persist initial session.json
 
+    Args:
+        base_dir:       Root sessions directory (e.g. "sessions/")
+        source_folder:  Absolute path to source card / folder being ingested
+        session_name:   Human-readable label (e.g. "Wedding_2024")
+
     Returns:
         (session_dir, session_data)
+        session_dir:  absolute path to the new session folder
+        session_data: the in-memory manifest dict
     """
-    pass
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    safe_name = _sanitize_name(session_name)
+    folder_name = f"{safe_name}_{timestamp}"
+    session_dir = os.path.join(base_dir, folder_name)
+
+    os.makedirs(session_dir, exist_ok=True)
+
+    session_data = {
+        "manifest_version": MANIFEST_VERSION,
+        "session_id": folder_name,
+        "session_name": session_name,
+        "created_at": timestamp,
+        "source_folder": str(source_folder),
+        "session_dir": session_dir,
+        "assets": {}
+        # assets schema per entry:
+        # "<asset_id>": {
+        #     "asset_id":    str,
+        #     "raw_source":  str | None,   # absolute source path
+        #     "jpg_source":  str | None,   # absolute source path
+        #     "selected":    bool,          # culling decision
+        #     "copied": {
+        #         "raw":  str | None,       # working session path after copy
+        #         "jpg":  str | None,
+        #     }
+        # }
+    }
+
+    save_session(session_dir, session_data)
+    logger.info(f"Session created: {session_dir}")
+    return session_dir, session_data
 
 
 # =========================================================
 # Manifest I/O
 # =========================================================
 
-def load_session(session_dir):
+def load_session(session_dir: str) -> dict:
     """
     Load existing session manifest from disk.
+
+    Args:
+        session_dir: path to the session folder (contains session.json)
+
+    Returns:
+        session_data dict
+
+    Raises:
+        FileNotFoundError: if session.json does not exist
+        ValueError:        if manifest is corrupt / unreadable
     """
-    pass
+    manifest_path = os.path.join(session_dir, MANIFEST_FILENAME)
+
+    if not os.path.exists(manifest_path):
+        raise FileNotFoundError(f"No session manifest found at: {manifest_path}")
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            session_data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        raise ValueError(f"Failed to load session manifest: {manifest_path} — {e}") from e
+
+    _validate_manifest(session_data)
+    logger.info(f"Session loaded: {manifest_path}")
+    return session_data
 
 
-def save_session(session_dir, session_data):
+def save_session(session_dir: str, session_data: dict) -> None:
     """
     Persist session manifest atomically.
 
-    Uses temporary file + replace to avoid corruption.
+    Uses a temporary file + os.replace() to avoid corruption on crash
+    or power loss mid-write.
+
+    Args:
+        session_dir:   path to the session folder
+        session_data:  in-memory manifest dict to persist
     """
-    pass
+    manifest_path = os.path.join(session_dir, MANIFEST_FILENAME)
+    dir_path = os.path.dirname(manifest_path)
+
+    try:
+        # Write to a temp file in the same directory so os.replace is atomic
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, manifest_path)
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except OSError as e:
+        logger.error(f"Failed to save session manifest: {manifest_path} — {e}")
+        raise
+
+    logger.debug(f"Session saved: {manifest_path}")
 
 
 # =========================================================
@@ -107,18 +199,50 @@ def save_session(session_dir, session_data):
 # =========================================================
 
 def register_asset(
-    session_data,
-    asset_id,
-    raw_source=None,
-    jpg_source=None
-):
+    session_data: dict,
+    asset_id: str,
+    raw_source: str | None = None,
+    jpg_source: str | None = None,
+) -> None:
     """
-    Add or update an asset in the session manifest.
+    Add or update an asset entry in the session manifest.
 
-    asset_id should represent RAW/JPG pairs:
-        DSCF0001
+    Idempotent: calling again with the same asset_id updates paths
+    without resetting culling decisions already made.
+
+    asset_id should be the stem shared by the RAW/JPG pair:
+        e.g.  "DSCF0001"  covers  DSCF0001.RAF + DSCF0001.JPG
+
+    Args:
+        session_data:  in-memory manifest dict (mutated in place)
+        asset_id:      shared stem identifier for the RAW/JPG pair
+        raw_source:    absolute path to RAW file on source, or None
+        jpg_source:    absolute path to JPG file on source, or None
     """
-    pass
+    assets = session_data.setdefault("assets", {})
+
+    if asset_id not in assets:
+        # New asset — initialize with defaults
+        assets[asset_id] = {
+            "asset_id": asset_id,
+            "raw_source": None,
+            "jpg_source": None,
+            "selected": False,   # default: not yet culled
+            "copied": {
+                "raw": None,
+                "jpg": None,
+            },
+        }
+
+    entry = assets[asset_id]
+
+    # Update source paths only if provided (allow partial registration)
+    if raw_source is not None:
+        entry["raw_source"] = str(raw_source)
+    if jpg_source is not None:
+        entry["jpg_source"] = str(jpg_source)
+
+    logger.debug(f"Asset registered: {asset_id} (raw={raw_source}, jpg={jpg_source})")
 
 
 # =========================================================
@@ -126,21 +250,82 @@ def register_asset(
 # =========================================================
 
 def set_asset_selected(
-    session_data,
-    asset_id,
-    selected=True
-):
+    session_data: dict,
+    asset_id: str,
+    selected: bool = True,
+) -> None:
     """
-    Persist user culling/selection decision.
+    Persist a user culling/selection decision for an asset.
+
+    Args:
+        session_data:  in-memory manifest dict (mutated in place)
+        asset_id:      asset to update
+        selected:      True = keep, False = reject
     """
-    pass
+    assets = session_data.get("assets", {})
+
+    if asset_id not in assets:
+        logger.warning(
+            f"set_asset_selected: unknown asset_id '{asset_id}' — "
+            "call register_asset() before culling."
+        )
+        return
+
+    assets[asset_id]["selected"] = selected
+    logger.debug(f"Asset '{asset_id}' selected={selected}")
 
 
-def get_selected_assets(session_data):
+def get_selected_assets(session_data: dict) -> dict:
     """
-    Return selected keeper assets.
+    Return only the keeper assets (selected=True).
+
+    Returns:
+        dict of { asset_id: asset_entry } for all selected assets.
+        Empty dict if none selected.
     """
-    pass
+    assets = session_data.get("assets", {})
+    return {
+        asset_id: entry
+        for asset_id, entry in assets.items()
+        if entry.get("selected", False)
+    }
+
+
+def get_rejected_assets(session_data: dict) -> dict:
+    """
+    Return only the rejected assets (selected=False).
+
+    Returns:
+        dict of { asset_id: asset_entry } for all rejected assets.
+    """
+    assets = session_data.get("assets", {})
+    return {
+        asset_id: entry
+        for asset_id, entry in assets.items()
+        if not entry.get("selected", False)
+    }
+
+
+def get_unculled_assets(session_data: dict) -> dict:
+    """
+    Return assets that have not yet been reviewed.
+
+    Convention: unculled assets have selected=False and no copy recorded.
+    Use this to detect a fresh, untouched asset vs an explicit reject.
+
+    Note: Without a distinct 'reviewed' flag this is an approximation.
+    A future manifest version may add  "reviewed": bool  per asset.
+    """
+    assets = session_data.get("assets", {})
+    return {
+        asset_id: entry
+        for asset_id, entry in assets.items()
+        if (
+            not entry.get("selected", False)
+            and entry.get("copied", {}).get("raw") is None
+            and entry.get("copied", {}).get("jpg") is None
+        )
+    }
 
 
 # =========================================================
@@ -148,15 +333,115 @@ def get_selected_assets(session_data):
 # =========================================================
 
 def mark_asset_copied(
-    session_data,
-    asset_id,
-    filetype,
-    working_path
-):
+    session_data: dict,
+    asset_id: str,
+    filetype: str,
+    working_path: str,
+) -> None:
     """
-    Mark RAW/JPG asset as copied into working session.
+    Record that a file has been copied into the working session.
+
+    Args:
+        session_data:  in-memory manifest dict (mutated in place)
+        asset_id:      asset that was copied
+        filetype:      "raw" or "jpg"  (case-insensitive)
+        working_path:  absolute destination path in the working session
     """
-    pass
+    filetype = filetype.lower()
+    if filetype not in ("raw", "jpg"):
+        raise ValueError(f"mark_asset_copied: filetype must be 'raw' or 'jpg', got '{filetype}'")
+
+    assets = session_data.get("assets", {})
+    if asset_id not in assets:
+        logger.warning(
+            f"mark_asset_copied: unknown asset_id '{asset_id}' — "
+            "registering automatically."
+        )
+        register_asset(session_data, asset_id)
+
+    assets[asset_id].setdefault("copied", {})[filetype] = str(working_path)
+    logger.debug(f"Asset '{asset_id}' {filetype.upper()} marked copied → {working_path}")
+
+
+def is_asset_fully_copied(session_data: dict, asset_id: str) -> bool:
+    """
+    Return True only when BOTH the RAW and JPG (if they exist on source)
+    have been copied into the working session.
+
+    Handles solo-RAW and solo-JPG assets correctly.
+    """
+    assets = session_data.get("assets", {})
+    entry = assets.get(asset_id)
+    if not entry:
+        return False
+
+    copied = entry.get("copied", {})
+    has_raw_source = entry.get("raw_source") is not None
+    has_jpg_source = entry.get("jpg_source") is not None
+
+    raw_done = (not has_raw_source) or (copied.get("raw") is not None)
+    jpg_done = (not has_jpg_source) or (copied.get("jpg") is not None)
+
+    return raw_done and jpg_done
+
+
+# =========================================================
+# Session Summary / Diagnostics
+# =========================================================
+
+def session_summary(session_data: dict) -> dict:
+    """
+    Return a lightweight status snapshot — useful for UI display
+    and logging without exposing the full manifest.
+
+    Returns:
+        {
+            "session_id":      str,
+            "source_folder":   str,
+            "total_assets":    int,
+            "selected":        int,
+            "rejected":        int,
+            "copied_complete": int,   # both RAW+JPG copied
+        }
+    """
+    assets = session_data.get("assets", {})
+    total = len(assets)
+    selected = sum(1 for e in assets.values() if e.get("selected"))
+    copied_complete = sum(
+        1 for aid in assets if is_asset_fully_copied(session_data, aid)
+    )
+
+    return {
+        "session_id": session_data.get("session_id", "unknown"),
+        "source_folder": session_data.get("source_folder", ""),
+        "total_assets": total,
+        "selected": selected,
+        "rejected": total - selected,
+        "copied_complete": copied_complete,
+    }
+
+
+# =========================================================
+# Internal Helpers
+# =========================================================
+
+def _sanitize_name(name: str) -> str:
+    """Strip characters unsafe for directory names."""
+    safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in name)
+    return safe[:64]  # cap length
+
+
+def _validate_manifest(session_data: dict) -> None:
+    """
+    Minimal schema check on load — catches truncated or wrong-file loads.
+
+    Raises:
+        ValueError if required top-level keys are missing.
+    """
+    required = {"manifest_version", "session_id", "source_folder", "assets"}
+    missing = required - session_data.keys()
+    if missing:
+        raise ValueError(f"Session manifest missing required keys: {missing}")
 
 
 # =========================================================
@@ -164,11 +449,10 @@ def mark_asset_copied(
 # =========================================================
 
 # TODO:
-# - rating / stars
-# - colour labels
-# - archive verification
-# - checksum validation
-# - failed copy retry tracking
-# - session resume
-# - write-back tracking
-
+# - rating / stars per asset
+# - colour labels per asset
+# - archive verification flag + checksum per file
+# - failed copy retry tracking (retry_count, last_error)
+# - session resume: store last-culled asset_id cursor
+# - write-back tracking (metadata written back to working copy)
+# - session locking (prevent concurrent writes)

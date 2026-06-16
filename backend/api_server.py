@@ -17,8 +17,8 @@
 #       → Flask routes (this file)
 #       → Worker (exif_scanner)
 #       → Mapping layer (photo_core)
-
 # =============================================================================
+
 from version import APP_VERSION, APP_NAME
 ctx = None   # ✅ shared global context
 import threading
@@ -48,6 +48,20 @@ from backend.routes.write_gps import api_write_gps
 
 from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
 
+# Session state (v3.0)
+from photo_core.pre_import.session_state import (
+    create_session,
+    load_session,
+    save_session,
+    register_asset,
+    set_asset_selected,
+    get_selected_assets,
+    mark_asset_copied,
+    session_summary,
+)
+
+from workers.copy_worker import start_copy_worker
+
 import pythoncom
 import logging
 
@@ -55,6 +69,7 @@ import logging
 # Logging
 # -----------------------------------------------------------------------------
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
+logger = logging.getLogger("api_server")
 
 # -----------------------------------------------------------------------------
 # Paths (CRITICAL — DO NOT REMOVE)
@@ -98,7 +113,7 @@ def touch_activity():
 @app.route("/")
 def index():
     touch_activity()
-    from version import APP_VERSION, APP_NAME  # (add this at top if not already)
+    from version import APP_VERSION, APP_NAME
 
     ...
 
@@ -109,18 +124,14 @@ def index():
     )
 
 # -----------------------------------------------------------------------------
-# filter cloud drives etc
+# Filter cloud drives etc
 # -----------------------------------------------------------------------------
 def filter_drives(drives):
     filtered = []
-
     for d in drives:
-        # ✅ Use flag from sdcard.py
         if d.get("is_virtual"):
             continue
-
         filtered.append(d)
-
     return filtered
 
 # -----------------------------------------------------------------------------
@@ -129,28 +140,14 @@ def filter_drives(drives):
 @app.route("/api/sd-cards", methods=["GET"])
 def api_sd_cards():
     try:
-        # ✅ Read checkbox flag from frontend
         include_virtual = request.args.get("includeVirtual") == "true"
-
-        # ✅ Get ALL drives (no filtering here)
         drives = detect_sd_cards()
-
-        # ✅ Apply filtering only if needed
         if not include_virtual:
             drives = filter_drives(drives)
-
-        return jsonify({
-            "success": True,
-            "drives": drives
-        })
-
+        return jsonify({"success": True, "drives": drives})
     except Exception as e:
         print("SD detection error:", e)
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "drives": []
-        })
+        return jsonify({"success": False, "error": str(e), "drives": []})
 
 # -----------------------------------------------------------------------------
 # Analyze SD card
@@ -171,10 +168,9 @@ def select_folder():
 
         root = Tk()
         root.withdraw()
-        root.attributes('-topmost', True)  # ✅ bring to front
+        root.attributes('-topmost', True)
 
         path = filedialog.askdirectory()
-
         root.destroy()
 
         if not path:
@@ -197,58 +193,88 @@ def set_active_folder():
 # =============================================================================
 # /api/organize
 #
-# Role:
-#   Handles file import / organize operation.
+# Copies selected photo files from source → destination.
 #
-# Responsibilities:
-#   - Copies files from selected SD card location
-#   - Writes files into working directory
-#   - Applies safety rules (no overwrite)
+# Destination subfolder structure:
+#   <destination>/<camera_folder> - <drive_label>/
+#       e.g.  testit/929_FUJI - Medburn/
+#             testit/USB/
 #
-# Input (JSON):
-#   {
-#       "source": "path to SD card / folder",
-#       "destination": "working directory"
-#   }
+# camera_folder: first DCIM subfolder containing images (from ctx.state["title"])
+# drive_label:   volume label of the source drive (from ctx.state["current_sd_root"])
 #
-# Output (JSON):
-#   {
-#       "success": True,
-#       "count": number_of_files_copied
-#   }
-#
-# Notes:
-#   - Skips existing files (safe copy)
-#   - No RAW/JPG pairing yet (future step)
+# Only recognised photo file types are copied — video/system files skipped.
 # =============================================================================
-
 @app.route("/api/organize", methods=["POST"])
 def api_organize():
     try:
         data = request.json
-
-        source = data.get("source")
+        source      = data.get("source")
         destination = data.get("destination")
 
-        import shutil, os
+        import shutil
+
+        # ------------------------------------------------------------------
+        # Build destination subfolder name:  "<camera> - <label>"  or just
+        # "<label>" if no camera folder was detected.
+        # ------------------------------------------------------------------
+        camera_folder = ctx.state.get("title", "").strip()
+
+        # Get drive label from the sd_root path
+        sd_root = ctx.state.get("current_sd_root", "")
+        drive_label = ""
+        if sd_root:
+            try:
+                import win32api
+                # Ensure path ends with backslash for GetVolumeInformation
+                vol_path = sd_root.rstrip("\\/") + "\\"
+                drive_label = win32api.GetVolumeInformation(vol_path)[0] or ""
+            except Exception:
+                # Fallback: use the root folder/drive letter as label
+                drive_label = os.path.basename(sd_root.rstrip("\\/")) or sd_root
+
+        if camera_folder and drive_label:
+            subfolder = f"{camera_folder} - {drive_label}"
+        elif drive_label:
+            subfolder = drive_label
+        elif camera_folder:
+            subfolder = camera_folder
+        else:
+            subfolder = "Imported"
+
+        dest_dir = os.path.join(destination, subfolder)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        logger.info(f"Organize → {dest_dir}")
+
+        # ------------------------------------------------------------------
+        # Only copy recognised photo file types
+        # Skips: .MTS .CPI .MPL .BIN (AVCHD/camera system files)
+        # ------------------------------------------------------------------
+        ALLOWED_EXTENSIONS = {
+            ".jpg", ".jpeg",
+            ".raf", ".raw", ".cr2", ".cr3",
+            ".nef", ".arw", ".dng", ".orf", ".rw2",
+            ".png", ".tif", ".tiff",
+            ".xmp",
+        }
 
         copied = []
-
         for root, _, files in os.walk(source):
             for f in files:
+                if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
+                    continue
                 src_path = os.path.join(root, f)
-                dst_path = os.path.join(destination, f)
-
-                # ✅ skip if already exists (safe default)
+                dst_path = os.path.join(dest_dir, f)
                 if os.path.exists(dst_path):
                     continue
-
                 shutil.copy2(src_path, dst_path)
                 copied.append(f)
 
-        return {"success": True, "count": len(copied)}
+        return {"success": True, "count": len(copied), "destination": dest_dir}
 
     except Exception as e:
+        logger.exception("organize failed")
         return {"success": False, "error": str(e)}
 
 # -----------------------------------------------------------------------------
@@ -256,11 +282,8 @@ def api_organize():
 # -----------------------------------------------------------------------------
 @app.route("/api/thumbs", methods=["POST"])
 def thumbs():
-
-    # ✅ do not serve thumbs during copy
     if not ctx.state.get("copy_complete"):
         return jsonify([])
-
     return api_thumbs(ctx, request.json)
 
 # -----------------------------------------------------------------------------
@@ -277,7 +300,6 @@ def api_progress():
         "message": ""
     }))
 
-
 # -----------------------------------------------------------------------------
 # Write progress
 # -----------------------------------------------------------------------------
@@ -289,7 +311,6 @@ def get_write_progress():
         "active": False
     }))
 
-
 # -----------------------------------------------------------------------------
 # Photo proxy
 # -----------------------------------------------------------------------------
@@ -298,7 +319,6 @@ def photo_proxy():
     touch_activity()
     path = request.args.get("path")
     return api_photo_proxy(ctx, path)
-
 
 # -----------------------------------------------------------------------------
 # Full image
@@ -309,7 +329,6 @@ def full_image():
     path = request.args.get("path")
     return api_full_image(ctx, path)
 
-
 # -----------------------------------------------------------------------------
 # GPS data
 # -----------------------------------------------------------------------------
@@ -318,14 +337,12 @@ def gps_data():
     touch_activity()
     return api_gps_data(ctx)
 
-
 # -----------------------------------------------------------------------------
 # Write GPS
 # -----------------------------------------------------------------------------
 @app.route("/api/write-gps", methods=["POST"])
 def write_gps():
     return api_write_gps(ctx, request.json)
-
 
 # -----------------------------------------------------------------------------
 # Working directory setter
@@ -342,35 +359,292 @@ def set_working_dir():
     return jsonify({"success": True})
 
 
+# =============================================================================
+# SESSION ENDPOINTS (v3.0)
+# =============================================================================
+
 # -----------------------------------------------------------------------------
-# Server runner (CLEAN + FIXED)
+# POST /api/session/create
 # -----------------------------------------------------------------------------
+# Creates a new ingest session for the given source folder.
+#
+# Request JSON:
+#   {
+#       "source_folder": "/path/to/SD/DCIM",
+#       "session_name":  "Wedding_2024"        ← optional, defaults to timestamp
+#   }
+#
+# Response JSON:
+#   {
+#       "success":      true,
+#       "session_id":   "Wedding_2024_20240615_143012",
+#       "session_dir":  "/path/to/sessions/Wedding_2024_20240615_143012"
+#   }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/create", methods=["POST"])
+def api_session_create():
+    try:
+        data = request.json or {}
+        source_folder = data.get("source_folder") or ctx.state.get("current_sd_root")
+        session_name  = data.get("session_name", "Session")
+
+        if not source_folder:
+            return jsonify({"success": False, "error": "source_folder is required"}), 400
+
+        session_dir, session_data = create_session(
+            base_dir=ctx.sessions_root,
+            source_folder=source_folder,
+            session_name=session_name,
+        )
+
+        ctx.state["session"]     = session_data
+        ctx.state["session_dir"] = session_dir
+
+        logger.info(f"Session created: {session_data['session_id']}")
+
+        return jsonify({
+            "success":     True,
+            "session_id":  session_data["session_id"],
+            "session_dir": session_dir,
+        })
+
+    except Exception as e:
+        logger.exception("session/create failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# -----------------------------------------------------------------------------
+# GET /api/session/status
+# -----------------------------------------------------------------------------
+# Returns a lightweight summary of the active session for UI display.
+#
+# Response JSON:
+#   {
+#       "active":          true,
+#       "session_id":      "Wedding_2024_20240615_143012",
+#       "source_folder":   "/path/to/DCIM",
+#       "total_assets":    142,
+#       "selected":        87,
+#       "rejected":        55,
+#       "copied_complete": 0
+#   }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/status", methods=["GET"])
+def api_session_status():
+    session = ctx.state.get("session")
+
+    if not session:
+        return jsonify({"active": False})
+
+    summary = session_summary(session)
+    return jsonify({"active": True, **summary})
+
+
+# -----------------------------------------------------------------------------
+# POST /api/session/select
+# -----------------------------------------------------------------------------
+# Persist a keep/reject culling decision for one asset.
+#
+# Request JSON:
+#   {
+#       "asset_id": "DSCF0001",
+#       "selected": true          ← true = keep, false = reject
+#   }
+#
+# Response JSON:
+#   { "success": true }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/select", methods=["POST"])
+def api_session_select():
+    try:
+        session     = ctx.state.get("session")
+        session_dir = ctx.state.get("session_dir")
+
+        if not session:
+            return jsonify({"success": False, "error": "No active session"}), 400
+
+        data      = request.json or {}
+        asset_id  = data.get("asset_id")
+        selected  = bool(data.get("selected", True))
+
+        if not asset_id:
+            return jsonify({"success": False, "error": "asset_id is required"}), 400
+
+        set_asset_selected(session, asset_id, selected)
+        save_session(session_dir, session)   # persist every cull — cheap + resumable
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        logger.exception("session/select failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# -----------------------------------------------------------------------------
+# POST /api/session/register-asset
+# -----------------------------------------------------------------------------
+# Register a RAW/JPG pair discovered during scan.
+# Called by the scan pipeline — not typically called from the frontend directly.
+#
+# Request JSON:
+#   {
+#       "asset_id":   "DSCF0001",
+#       "raw_source": "/SD/DCIM/DSCF0001.RAF",   ← null if no RAW
+#       "jpg_source": "/SD/DCIM/DSCF0001.JPG"    ← null if no JPG
+#   }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/register-asset", methods=["POST"])
+def api_session_register_asset():
+    try:
+        session     = ctx.state.get("session")
+        session_dir = ctx.state.get("session_dir")
+
+        if not session:
+            return jsonify({"success": False, "error": "No active session"}), 400
+
+        data       = request.json or {}
+        asset_id   = data.get("asset_id")
+        raw_source = data.get("raw_source")
+        jpg_source = data.get("jpg_source")
+
+        if not asset_id:
+            return jsonify({"success": False, "error": "asset_id is required"}), 400
+
+        register_asset(session, asset_id, raw_source=raw_source, jpg_source=jpg_source)
+        # Note: save is intentionally NOT called per-asset during bulk scan.
+        # The scan pipeline calls save_session() once at end of scan pass.
+
+        return jsonify({"success": True})
+
+    except Exception as e:
+        logger.exception("session/register-asset failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# -----------------------------------------------------------------------------
+# GET /api/session/selected
+# -----------------------------------------------------------------------------
+# Return all keeper assets. Used before kicking off the copy worker.
+#
+# Response JSON:
+#   {
+#       "success": true,
+#       "assets": {
+#           "DSCF0001": { "raw_source": "...", "jpg_source": "...", ... },
+#           ...
+#       }
+#   }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/selected", methods=["GET"])
+def api_session_selected():
+    session = ctx.state.get("session")
+
+    if not session:
+        return jsonify({"success": False, "error": "No active session"}), 400
+
+    keepers = get_selected_assets(session)
+    return jsonify({"success": True, "assets": keepers})
+
+
+# -----------------------------------------------------------------------------
+# POST /api/session/close
+# -----------------------------------------------------------------------------
+# Clears the active session from runtime state.
+# Does NOT delete the session folder on disk (preserves manifest for recovery).
+# -----------------------------------------------------------------------------
+@app.route("/api/session/close", methods=["POST"])
+def api_session_close():
+    ctx.state["session"]     = None
+    ctx.state["session_dir"] = None
+    logger.info("Session closed")
+    return jsonify({"success": True})
+
+
+
+# -----------------------------------------------------------------------------
+# POST /api/session/copy
+# -----------------------------------------------------------------------------
+# Starts the async copy worker for the active session.
+# Copies only selected (keeper) assets from source → session/RAW + session/JPG
+#
+# Response JSON:
+#   { "success": true,  "message": "Copy started — 42 assets queued" }
+#   { "success": false, "error":   "No active session" }
+# -----------------------------------------------------------------------------
+@app.route("/api/session/copy", methods=["POST"])
+def api_session_copy():
+    try:
+        started = start_copy_worker(ctx)
+
+        if not started:
+            # Distinguish between common failure reasons for better UI feedback
+            session = ctx.state.get("session")
+            if not session:
+                return jsonify({"success": False, "error": "No active session"}), 400
+            if ctx.progress.get("active"):
+                return jsonify({"success": False, "error": "Operation already in progress"}), 409
+
+            from photo_core.pre_import.session_state import get_selected_assets
+            keepers = get_selected_assets(session)
+            if not keepers:
+                return jsonify({"success": False, "error": "No assets selected — cull your photos first"}), 400
+
+            return jsonify({"success": False, "error": "Copy could not start"}), 500
+
+        from photo_core.pre_import.session_state import get_selected_assets
+        keepers = get_selected_assets(ctx.state["session"])
+        return jsonify({
+            "success": True,
+            "message": f"Copy started — {len(keepers)} assets queued"
+        })
+
+    except Exception as e:
+        logger.exception("session/copy failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+
+# -----------------------------------------------------------------------------
+# Pictures folder opener
+# -----------------------------------------------------------------------------
+@app.route("/api/pictures-open")
+def api_pictures_open():
+    import subprocess
+    path = ctx.output_dir
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+# =============================================================================
+# Server runner
+# =============================================================================
 def run_api_server(app_ctx):
     global ctx
     ctx = app_ctx
 
-    # ✅ Start worker (no condition anymore)
+    # Start EXIF scanner worker
     threading.Thread(
         target=exif_scanner_worker,
         args=(ctx,),
         daemon=True,
     ).start()
 
-    # ✅ Open browser once
+    # Open browser once
     threading.Timer(
         1.0,
         lambda: webbrowser.open_new("http://127.0.0.1:5000")
     ).start()
 
-    # ✅ Run Flask
-    app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=False,
-        use_reloader=False
-    )
-
-    # ✅ Run Flask clean (no ghost instances)
+    # Run Flask
     app.run(
         host="127.0.0.1",
         port=5000,

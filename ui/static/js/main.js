@@ -117,43 +117,265 @@ $("organizeBtn")?.addEventListener("click", async () => {
 
     const source = $("sdSelect")?.value;
     const destinationInput = $("workingDirectoryInput")?.value;
+    const destination = destinationInput && destinationInput.trim() ? destinationInput.trim() : "";
 
-    const destination = destinationInput && destinationInput.trim()
-        ? destinationInput
-        : "";  // backend can decide default later if needed
-
-    if (!source) {
-        alert("Please select a card first.");
+    if (!source) { alert("Please select a card first."); return; }
+    if (!destination) { alert("Please select a working directory."); return; }
+    if (!analyzedFolders || analyzedFolders.length === 0) {
+        alert("Please analyse the card first.");
         return;
     }
 
-    if (!destination) {
-        alert("Please select a working directory.");
-        return;
-    }
+    setImportState("running");
 
-    const res = await fetch("/api/organize", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
+    try {
+        const res = await fetch("/api/organize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source, destination })
+        });
 
-        body: JSON.stringify({
-            files: files,
-            lat: lat,
-            lon: lon
-        })
+        const data = await res.json();
 
-    });
-
-    const data = await res.json();
-
-    if (data.success) {
-        alert(`✅ Imported ${data.count} files`);
-    } else {
-        alert("❌ Import failed: " + data.error);
+        if (data.success) {
+            setImportState("done", {
+                count: data.count,
+                destination: data.destination
+            });
+        } else {
+            setImportState("error", { message: data.error });
+        }
+    } catch (err) {
+        setImportState("error", { message: err.message });
     }
 });
+
+// ------------------------------------------------------------
+// Import UI state machine
+// States: idle | running | done | error
+// ------------------------------------------------------------
+// ------------------------------------------------------------
+// Import timing state
+// ------------------------------------------------------------
+let _importStartTime   = null;   // Date.now() when copy began
+let _importTimerHandle = null;   // setInterval handle for elapsed ticker
+let _importLastDone    = 0;      // last known done count (for rate calc)
+let _importLastTime    = null;   // timestamp of last progress sample
+
+// ------------------------------------------------------------
+// Timing helpers
+// ------------------------------------------------------------
+function _formatDuration(seconds) {
+    seconds = Math.round(seconds);
+    if (seconds < 60)  return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function _startElapsedTicker() {
+    _importStartTime = Date.now();
+    _importLastTime  = _importStartTime;
+    _importLastDone  = 0;
+
+    clearInterval(_importTimerHandle);
+    _importTimerHandle = setInterval(() => {
+        const elapsed = (Date.now() - _importStartTime) / 1000;
+        const el = $("importElapsed");
+        if (el) el.textContent = _formatDuration(elapsed);
+    }, 1000);
+}
+
+function _stopElapsedTicker() {
+    clearInterval(_importTimerHandle);
+    _importTimerHandle = null;
+}
+
+function _updateTimingDisplay(done, total) {
+    const now     = Date.now();
+    const elapsed = (now - _importStartTime) / 1000;          // seconds
+    const delta_t = (now - _importLastTime)  / 1000;          // since last sample
+    const delta_n = done - _importLastDone;                    // files since last sample
+
+    // Update sample baseline
+    _importLastTime = now;
+    _importLastDone = done;
+
+    // Rate: use recent window, fall back to overall average
+    const rate = delta_t > 0.5 && delta_n > 0
+        ? delta_n / delta_t
+        : elapsed > 0 ? done / elapsed : 0;
+
+    const rateEl = $("importRate");
+    if (rateEl) {
+        rateEl.textContent = rate > 0
+            ? `${rate.toFixed(1)} files/sec`
+            : "—";
+    }
+
+    // ETA
+    const etaEl = $("importEta");
+    if (etaEl) {
+        const remaining = total - done;
+        if (rate > 0 && remaining > 0) {
+            etaEl.textContent = `~${_formatDuration(remaining / rate)} remaining`;
+        } else if (remaining === 0) {
+            etaEl.textContent = "almost done…";
+        } else {
+            etaEl.textContent = "—";
+        }
+    }
+}
+
+// ------------------------------------------------------------
+// Progress poller — calls /api/progress while import runs
+// ------------------------------------------------------------
+let _importPollHandle = null;
+
+function _startProgressPoll() {
+    clearInterval(_importPollHandle);
+    _importPollHandle = setInterval(async () => {
+        try {
+            const res = await fetch("/api/progress");
+            if (!res.ok) return;
+            const job = await res.json();
+
+            const done  = job.done  || 0;
+            const total = job.total || 0;
+            const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+
+            const bar      = $("importProgressBar");
+            const pctEl    = $("importProgressPct");
+            const labelEl  = $("importProgressLabel");
+
+            if (bar) {
+                bar.style.width = `${pct}%`;
+                // Switch from indeterminate to real progress once we have data
+                if (total > 0) {
+                    bar.classList.remove("progress-bar-animated", "progress-bar-striped");
+                }
+            }
+            if (pctEl)   pctEl.textContent   = total > 0 ? `${pct}%` : "";
+            if (labelEl) labelEl.textContent  =
+                total > 0 ? `${done} / ${total} files` : "Copying files…";
+
+            if (total > 0) _updateTimingDisplay(done, total);
+
+            // Stop polling once backend goes idle
+            if (!job.active) _stopProgressPoll();
+
+        } catch (_) { /* network blip — keep polling */ }
+    }, 500);
+}
+
+function _stopProgressPoll() {
+    clearInterval(_importPollHandle);
+    _importPollHandle = null;
+}
+
+// ------------------------------------------------------------
+// Import UI state machine
+// States: idle | running | done | error
+// ------------------------------------------------------------
+function setImportState(state, payload = {}) {
+    const btn      = $("organizeBtn");
+    const spinner  = $("organizeSpinner");
+    const btnIcon  = $("organizeBtnIcon");
+    const btnText  = $("organizeBtnText");
+    const progress = $("importProgressContainer");
+    const label    = $("importProgressLabel");
+    const pct      = $("importProgressPct");
+    const bar      = $("importProgressBar");
+    const result   = $("importResult");
+    const openBtn  = $("openPicturesBtn");
+    const summary  = $("importSummary");
+
+    result?.classList.add("d-none");
+    openBtn?.classList.add("d-none");
+
+    if (state === "running") {
+        btn.disabled = true;
+        spinner?.classList.remove("d-none");
+        btnIcon?.classList.add("d-none");
+        if (btnText) btnText.textContent = "Importing…";
+        progress?.classList.remove("d-none");
+        if (label) label.textContent = "Copying files…";
+        if (pct)   pct.textContent   = "";
+        if (bar) {
+            bar.style.width = "100%";
+            bar.classList.add("progress-bar-animated", "progress-bar-striped");
+        }
+        // Reset timing display
+        if ($("importElapsed")) $("importElapsed").textContent = "0s";
+        if ($("importRate"))    $("importRate").textContent    = "—";
+        if ($("importEta"))     $("importEta").textContent     = "—";
+
+        summary?.classList.add("d-none");
+        _startElapsedTicker();
+        _startProgressPoll();
+    }
+
+    else if (state === "done") {
+        _stopElapsedTicker();
+        _stopProgressPoll();
+
+        const totalElapsed = _importStartTime
+            ? _formatDuration((Date.now() - _importStartTime) / 1000)
+            : null;
+
+        btn.disabled = false;
+        spinner?.classList.add("d-none");
+        btnIcon?.classList.remove("d-none");
+        if (btnIcon) btnIcon.className = "bi bi-check-circle-fill text-success me-1";
+        if (btnText) btnText.textContent = "Import again";
+        progress?.classList.add("d-none");
+        if (bar) bar.style.width = "0%";
+
+        if (result) {
+            result.className = "mt-3 alert alert-success";
+            result.innerHTML =
+                `<i class="bi bi-check-circle-fill me-2"></i>` +
+                `<strong>${payload.count} file${payload.count !== 1 ? "s" : ""} imported</strong>` +
+                (totalElapsed ? ` <span class="text-muted fw-normal">in ${totalElapsed}</span>` : "") +
+                (payload.destination
+                    ? `<div class="small mt-1 text-muted">${payload.destination}</div>`
+                    : "");
+            result.classList.remove("d-none");
+        }
+        openBtn?.classList.remove("d-none");
+    }
+
+    else if (state === "error") {
+        _stopElapsedTicker();
+        _stopProgressPoll();
+
+        btn.disabled = false;
+        spinner?.classList.add("d-none");
+        btnIcon?.classList.remove("d-none");
+        if (btnIcon) btnIcon.className = "bi bi-play-fill";
+        if (btnText) btnText.textContent = "Start Import";
+        progress?.classList.add("d-none");
+
+        if (result) {
+            result.className = "mt-3 alert alert-danger";
+            result.innerHTML =
+                `<i class="bi bi-exclamation-triangle-fill me-2"></i>` +
+                `Import failed: ${payload.message || "Unknown error"}`;
+            result.classList.remove("d-none");
+        }
+    }
+
+    else { // idle
+        _stopElapsedTicker();
+        _stopProgressPoll();
+        btn.disabled = false;
+        spinner?.classList.add("d-none");
+        btnIcon?.classList.remove("d-none");
+        if (btnIcon) btnIcon.className = "bi bi-play-fill";
+        if (btnText) btnText.textContent = "Start Import";
+        progress?.classList.add("d-none");
+    }
+}
 
 
 window.setGPSMode = function(mode) {
@@ -1176,8 +1398,14 @@ function renderLensStats() {
 
 function renderCharts() {
     console.log("Camera stats for chart:", cameraStats);
-    const usePercent = document.getElementById("togglePercent")?.checked;
 
+    // Guard: canvas elements must exist before Chart.js can render
+    if (!$('chartCameras') || !$('chartLenses')) {
+        console.warn("renderCharts: canvas not in DOM yet, skipping");
+        return;
+    }
+
+    const usePercent = document.getElementById("togglePercent")?.checked;
 
     if (cameraChart) cameraChart.destroy();
     if (lensChart) lensChart.destroy();
@@ -2288,7 +2516,7 @@ async function pollJobStatus() {
         // In future versions, this should come from the backend job status.
         const outputDirName = "Pictures/PhotoWizard";
 
-        const res = await fetch("/api/job-status");
+        const res = await fetch("/api/progress");
         const job = await res.json();
 
         const pct = job.total
@@ -2297,7 +2525,7 @@ async function pollJobStatus() {
 
         $("progressFill").style.width = `${pct}%`;
 
-        if (job.running) {
+        if (job.active) {
             $("progressText").textContent =
                 `Processing (${job.done}/${job.total})…`;
             setTimeout(pollJobStatus, 500);
