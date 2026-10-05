@@ -16,7 +16,6 @@
 import os
 import shutil
 import subprocess
-import time
 import logging
 
 from flask import jsonify
@@ -73,15 +72,13 @@ def api_set_active_folder(payload):
     """
         Initialise a new processing session.
 
-        Pipeline:
+        Pipeline (v3.0 hybrid ingest — source is browsed in place):
             1. Validate input folder
-            2. Resolve working directory
-            3. Reset working directory
-            4. Copy files into working directory (RoboCopy)
-            5. Compute file count
-            6. Clear EXIF + thumbnail caches
-            7. Switch active folder to working directory
-            8. Release EXIF worker to scan copied files
+            2. Resolve base working directory (no per-click folder created)
+            3. Compute file count from source
+            4. Clear EXIF + thumbnail caches
+            5. Set active folder to the source folder
+            6. Release EXIF worker to scan it
 
         Args:
             payload (dict):
@@ -153,44 +150,20 @@ def api_set_active_folder(payload):
         os.makedirs(base_dir, exist_ok=True)
 
     # -------------------------------------------------------------------------
-    # STEP 2 — build working session directory
+    # STEP 2–4 — v3.0 hybrid ingest: browse the source in place.
+    # Nothing is copied here (and no per-click working folder is created);
+    # /api/organize copies the kept files after culling. copy_to_working()
+    # is kept for a possible "copy whole card first" option.
     # -------------------------------------------------------------------------
     session_name = os.path.basename(folder.rstrip("\\/"))
-
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-
-    working_dir = os.path.join(
-        base_dir,
-        f"{session_name}_{timestamp}"
-    )
+    working_dir = base_dir
 
     print("✅ SOURCE FOLDER:", folder)
-    print("✅ WORKING DIRECTORY:", working_dir)
-    os.makedirs(working_dir, exist_ok=True)
 
     # -------------------------------------------------------------------------
-    # STEP 3 — prepare working directory
+    # STEP 5 — compute file count (source JPEGs)
     # -------------------------------------------------------------------------
-    backend_log("📦 Preparing working directory...")
-
-    time.sleep(0.5)
-
-    # -------------------------------------------------------------------------
-    # STEP 4 — copy source → working directory
-    # -------------------------------------------------------------------------
-    backend_log("📦 Copying files to working directory...")
-
-    # ✅ optional background copy later
-    # result = copy_to_working(folder, working_dir)
-
-    print("✅ COPY SKIPPED TEMPORARILY")
-
-    #Here isbackend_log("✅ Copy complete")
-
-    # -------------------------------------------------------------------------
-    # STEP 5 — compute file count
-    # -------------------------------------------------------------------------
-    working_files = list(iter_jpegs(working_dir))
+    working_files = list(iter_jpegs(folder))
 
     file_count = len(working_files)
 

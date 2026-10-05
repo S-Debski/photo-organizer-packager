@@ -102,64 +102,10 @@ function updateProgress(msg) {
     showGlobalStatus(msg);
 }
 // =============================================================================
-// UI Handler: Organize Button (Start Import)
-//
-// Role:
-//   Trigger import of files from selected SD card to working directory.
-//
-// Responsibilities:
-//   - Reads selected SD card path from dropdown
-//   - Reads working directory input
-//   - Sends organize request to backend (/api/organize)
-//   - Displays success or error feedback to user
-//
-// Input:
-//   - sdSelect (source path)
-//   - workingDirectoryInput (destination path)
-//
-// Output:
-//   - Alert showing number of imported files OR error message
-//
-// Notes:
-//   - Requires valid source and destination
-//   - Backend handles actual copying + safety checks
+// Organize button: wired in bindOrganizeEvents() → showImportChoice() → runOrganize().
+// (A second addEventListener here used to import the whole card on every click,
+// alongside the kept/all choice dialog.)
 // =============================================================================
-$("organizeBtn")?.addEventListener("click", async () => {
-
-    const source = $("sdSelect")?.value;
-    const destinationInput = $("workingDirectoryInput")?.value;
-    const destination = destinationInput && destinationInput.trim() ? destinationInput.trim() : "";
-
-    if (!source) { alert("Please select a card first."); return; }
-    if (!destination) { alert("Please select a working directory."); return; }
-    if (!analyzedFolders || analyzedFolders.length === 0) {
-        alert("Please analyse the card first.");
-        return;
-    }
-
-    setImportState("running");
-
-    try {
-        const res = await fetch("/api/organize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ source, destination })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-            setImportState("done", {
-                count: data.count,
-                destination: data.destination
-            });
-        } else {
-            setImportState("error", { message: data.error });
-        }
-    } catch (err) {
-        setImportState("error", { message: err.message });
-    }
-});
 
 // ------------------------------------------------------------
 // Import UI state machine
@@ -1736,6 +1682,7 @@ async function loadThumbnails() {
 
         // ✅ Pair JPG + RAW files into logical images
         pairedImages = pairFiles(thumbnails);
+        _updateCullCounters();     // reflect decisions restored from the session
         renderThumbFolderTabs();   // update/create folder tabs in step 3
 
         // ✅ Render grouped images
@@ -2169,6 +2116,17 @@ async function loadMap() {
             // ✅ EXIF still processing
             if (!gpsData.exif_ready) {
 
+                // Only keep polling while the Mapping step is on screen —
+                // otherwise this loops every 2s from app start. Entering
+                // step 5 calls loadMap() again.
+                const mapVisible = !document
+                    .querySelector('.wizard-step[data-step="5"]')
+                    ?.classList.contains("d-none");
+                if (!mapVisible) {
+                    mapLoading = false;
+                    return;
+                }
+
                 if (status) {
                     status.innerHTML = `
                 <div class="map-status loading">
@@ -2495,10 +2453,17 @@ async function applyManualGPS() {
                 updateHeaderStatus();
             }
 
-            status.innerHTML = `
+            status.innerHTML = data.deferred
+                ? `
+                <div class="map-status success">
+                    ✅ <strong>Location assigned</strong><br>
+                    Will be written to the imported copies (the card is never modified)
+                </div>
+            `
+                : `
                 <div class="map-status success">
                     ✅ <strong>GPS written to EXIF</strong><br>
-                    ${data.updated} updated, ${data.skipped.length} RAW skipped
+                    ${data.updated} updated
                 </div>
             `;
         } else {
@@ -2616,9 +2581,6 @@ function updateSessionMeta() {
     });
 }
 
-$('organizeBtn')?.addEventListener('click', async () => {
-    // unchanged
-});
 // ====================================================================
 // ORGANIZE
 // ====================================================================
@@ -3072,17 +3034,37 @@ async function _ensureSession() {
         const statusRes = await fetch("/api/session/status");
         const status    = await statusRes.json();
 
-        if (status.active && status.source_folder === source) return;
+        if (status.active && status.source_folder === source) {
+            _restoreCullDecisions(status.decisions);
+            return;
+        }
 
         // Create/recreate session for the current folder
-        const name = source.split(/[\/]/).filter(Boolean).pop() || "Session";
+        const name = source.split(/[\\/]/).filter(Boolean).pop() || "Session";
 
-        await fetch("/api/session/create", {
+        // Backend resumes the latest saved session for this folder if any
+        const createRes = await fetch("/api/session/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ source_folder: source, session_name: name })
         });
+        const created = await createRes.json();
+        if (created.resumed) _restoreCullDecisions(created.decisions);
     } catch (_) { /* non-critical — culling still works in-memory */ }
+}
+
+// Re-apply decisions saved in the session (e.g. after a page reload).
+// In-memory decisions win — they are newer than the manifest.
+function _restoreCullDecisions(decisions) {
+    if (!decisions) return;
+    let restored = 0;
+    for (const [assetId, decision] of Object.entries(decisions)) {
+        if (!cullDecisions.has(assetId)) {
+            cullDecisions.set(assetId, decision);
+            restored++;
+        }
+    }
+    if (restored) console.log(`✅ Restored ${restored} cull decisions from session`);
 }
 
 // =============================================================================
@@ -3207,17 +3189,22 @@ function _renderCullStrips() {
 // -----------------------------------------------------------------------------
 // Persist decision to session via API (fire-and-forget)
 // -----------------------------------------------------------------------------
-async function _persistCullDecision(assetId) {
-    try {
-        await fetch("/api/session/select", {
+// Requests are chained so rapid toggles can't reach the (threaded) server
+// out of order; each sends the decision current at send time.
+let _persistQueue = Promise.resolve();
+
+function _persistCullDecision(assetId) {
+    _persistQueue = _persistQueue
+        .then(() => fetch("/api/session/select", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 asset_id: assetId,
-                selected: cullDecisions.get(assetId) === "keep"
+                decision: cullDecisions.get(assetId) ?? null   // keep | reject | null
             })
-        });
-    } catch (_) { /* non-critical — decisions held in memory */ }
+        }))
+        .catch(() => { /* non-critical — decisions held in memory */ });
+    return _persistQueue;
 }
 
 // =============================================================================
@@ -3513,7 +3500,13 @@ async function runOrganize(mode) {
     setImportState("running");
 
     try {
-        const body = { source, destination };
+        // GPS assigned in Mapping — written into the imported copies
+        const gps = [];
+        metadataMap.forEach((v, path) => {
+            if (v.lat != null && v.lon != null) gps.push({ path, lat: v.lat, lon: v.lon });
+        });
+
+        const body = { source, destination, mode, gps };
         if (keptPaths) body.kept_paths = keptPaths;
 
         const res  = await fetch("/api/organize", {

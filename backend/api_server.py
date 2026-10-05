@@ -22,6 +22,7 @@
 from version import APP_VERSION, APP_NAME
 ctx = None   # ✅ shared global context
 import threading
+import time
 import webbrowser
 import os
 import platform
@@ -44,7 +45,7 @@ from backend.routes.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
 from backend.routes.gps_data import api_gps_data
 from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
-from backend.routes.write_gps import api_write_gps
+from backend.routes.write_gps import api_write_gps, write_gps_tags
 
 from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
 
@@ -58,7 +59,14 @@ from photo_core.pre_import.session_state import (
     get_selected_assets,
     mark_asset_copied,
     session_summary,
+    set_asset_decision,
+    get_decisions,
+    find_latest_session,
+    register_paths,
+    RAW_EXTENSIONS,
+    JPG_EXTENSIONS,
 )
+from utils.fs_utils import iter_images
 
 from workers.copy_worker import start_copy_worker
 
@@ -265,95 +273,148 @@ def api_organize():
             ".xmp",
         }
 
-        copied = []
+        # ------------------------------------------------------------------
+        # Decide which files to copy.
+        #   mode "kept": only the kept files the UI sent, plus same-stem
+        #                partners/sidecars (RAW, JPG, .xmp) in the same folder
+        #   mode "all":  every recognised file under source
+        # Never fall back from "kept" to "all" — that imported rejects.
+        # ------------------------------------------------------------------
+        kept_paths = data.get("kept_paths") or []
+        mode = data.get("mode") or ("kept" if kept_paths else "all")
+
+        if mode == "kept":
+            if not kept_paths:
+                return {"success": False,
+                        "error": "No photos are marked Keep. Cull first, or choose Import all."}
+            candidates = _with_same_stem_siblings(kept_paths)
+        else:
+            candidates = [os.path.join(root, f)
+                          for root, _, files in os.walk(source) for f in files]
+
+        files = [p for p in candidates
+                 if os.path.splitext(p)[1].lower() in ALLOWED_EXTENSIONS
+                 and os.path.isfile(p)]
+
+        # ------------------------------------------------------------------
+        # Copy with progress (polled by the UI via /api/progress)
+        # ------------------------------------------------------------------
+        if ctx.progress.get("active"):
+            return {"success": False, "error": "Another import is already running"}
+
+        # GPS assigned in the Mapping step (source path → lat/lon). It is
+        # written into the imported JPG copies only — never to the card.
+        gps_by_source = {}
+        for g in data.get("gps") or []:
+            try:
+                gps_by_source[os.path.normcase(os.path.normpath(g["path"]))] = (
+                    float(g["lat"]), float(g["lon"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        ctx.progress.update(stage="import", total=len(files), done=0,
+                            active=True, message=f"Importing {len(files)} files…")
+        copied, skipped, errors = [], [], []
+        gps_written = 0
         session = ctx.state.get("session")
 
-        if session:
-            # ── Session-driven copy: only selected (kept) assets ──────────────
-            from photo_core.pre_import.session_state import get_selected_assets
-            selected = get_selected_assets(session)
-
-            if selected:
-                for asset_id, asset in selected.items():
-                    for key in ("raw_source", "jpg_source"):
-                        src_path = asset.get(key)
-                        if not src_path:
-                            continue
-                        src_path = os.path.normpath(src_path)
-                        if not os.path.isfile(src_path):
-                            continue
-                        ext = os.path.splitext(src_path)[1].lower()
-                        if ext not in ALLOWED_EXTENSIONS:
-                            continue
-                        dst_path = os.path.join(dest_dir, os.path.basename(src_path))
-                        if os.path.exists(dst_path):
-                            continue
-                        shutil.copy2(src_path, dst_path)
-                        copied.append(os.path.basename(src_path))
-
-                    # ── RAW fallback: session raw_source may be null if scanner
-                    # ran before session was created. Derive RAW path from JPG. ──
-                    if not asset.get("raw_source") and asset.get("jpg_source"):
-                        jpg_norm = os.path.normpath(asset["jpg_source"])
-                        stem = os.path.splitext(jpg_norm)[0]
-                        for raw_ext in (".raf", ".raw", ".cr2", ".cr3", ".nef",
-                                        ".arw", ".dng", ".orf", ".rw2"):
-                            candidate = stem + raw_ext
-                            if os.path.isfile(candidate):
-                                dst_path = os.path.join(dest_dir, os.path.basename(candidate))
-                                if not os.path.exists(dst_path):
-                                    shutil.copy2(candidate, dst_path)
-                                    copied.append(os.path.basename(candidate))
-                                    logger.debug(f"RAW fallback copy: {candidate}")
-                                break
-            else:
-                # No assets selected — fall through to full walk
-                logger.info("organize: session active but no selected assets — importing all")
-                for root, _, files in os.walk(source):
-                    for f in files:
-                        if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
-                            continue
-                        src_path = os.path.join(root, f)
-                        dst_path = os.path.join(dest_dir, f)
-                        if os.path.exists(dst_path):
-                            continue
-                        shutil.copy2(src_path, dst_path)
-                        copied.append(f)
-
-        else:
-            # ── No session: use kept_paths if sent, else full walk ────────────
-            kept_paths = data.get("kept_paths")
-
-            if kept_paths:
-                for src_path in kept_paths:
-                    src_path = os.path.normpath(src_path)
-                    if not os.path.isfile(src_path):
-                        continue
-                    f = os.path.basename(src_path)
-                    if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
-                        continue
-                    dst_path = os.path.join(dest_dir, f)
+        try:
+            for src_path in files:
+                f = os.path.basename(src_path)
+                dst_path = os.path.join(dest_dir, f)
+                try:
                     if os.path.exists(dst_path):
-                        continue
-                    shutil.copy2(src_path, dst_path)
-                    copied.append(f)
-            else:
-                for root, _, files in os.walk(source):
-                    for f in files:
-                        if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
-                            continue
-                        src_path = os.path.join(root, f)
-                        dst_path = os.path.join(dest_dir, f)
-                        if os.path.exists(dst_path):
-                            continue
+                        skipped.append(f)
+                    else:
                         shutil.copy2(src_path, dst_path)
                         copied.append(f)
 
-        return {"success": True, "count": len(copied), "destination": dest_dir}
+                        gps = gps_by_source.get(os.path.normcase(os.path.normpath(src_path)))
+                        if gps and os.path.splitext(f)[1].lower() in JPG_EXTENSIONS:
+                            result = write_gps_tags(dst_path, *gps)
+                            if result.returncode == 0:
+                                gps_written += 1
+                            else:
+                                errors.append(f"{f}: GPS write failed — {result.stderr.strip()}")
+                    if session:
+                        _mark_session_copied(session, f, dst_path)
+                except OSError as e:
+                    errors.append(f"{f}: {e}")
+                    logger.error(f"organize: copy failed {src_path} → {e}")
+                ctx.progress["done"] += 1
+        finally:
+            ctx.progress.update(stage="idle", active=False,
+                                message=f"Imported {len(copied)} files")
+
+        if session:
+            session.setdefault("imports", []).append({
+                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "mode": mode,
+                "destination": dest_dir,
+                "copied": len(copied),
+                "skipped_existing": len(skipped),
+                "errors": len(errors),
+            })
+            try:
+                save_session(ctx.state["session_dir"], session)
+            except Exception as e:
+                logger.error(f"organize: session save failed — {e}")
+
+        return {
+            "success": not errors,
+            "count": len(copied),
+            "skipped": len(skipped),
+            "gps_written": gps_written,
+            "errors": errors[:20],
+            "error": f"{len(errors)} file(s) failed to copy" if errors else None,
+            "destination": dest_dir,
+        }
 
     except Exception as e:
         logger.exception("organize failed")
         return {"success": False, "error": str(e)}
+
+
+def _file_stem(name: str) -> str:
+    """Stem up to the first dot, upper-cased: DSCF0001.RAF.xmp → DSCF0001."""
+    return os.path.basename(name).split(".", 1)[0].upper()
+
+
+def _with_same_stem_siblings(paths: list[str]) -> list[str]:
+    """
+    Expand kept files to include every file in the same folder sharing the
+    stem — the RAW/JPG partner and sidecars such as .xmp.
+    """
+    wanted: dict[str, set[str]] = {}
+    for p in paths:
+        p = os.path.normpath(p)
+        wanted.setdefault(os.path.dirname(p), set()).add(_file_stem(p))
+
+    result = []
+    for folder, stems in wanted.items():
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        result.extend(os.path.join(folder, n) for n in names if _file_stem(n) in stems)
+    return sorted(set(result))
+
+
+def _mark_session_copied(session: dict, filename: str, dst_path: str) -> None:
+    """Record a copied RAW/JPG against its session asset (matched by stem)."""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in RAW_EXTENSIONS:
+        filetype = "raw"
+    elif ext in JPG_EXTENSIONS:
+        filetype = "jpg"
+    else:
+        return
+
+    stem = _file_stem(filename)
+    for asset_id in session.get("assets", {}):
+        if asset_id.upper() == stem:
+            mark_asset_copied(session, asset_id, filetype, dst_path)
+            return
 
 # -----------------------------------------------------------------------------
 # Thumbnails
@@ -469,21 +530,39 @@ def api_session_create():
         if not source_folder:
             return jsonify({"success": False, "error": "source_folder is required"}), 400
 
-        session_dir, session_data = create_session(
-            base_dir=ctx.sessions_root,
-            source_folder=source_folder,
-            session_name=session_name,
-        )
+        # Resume the latest session for this folder if one exists on disk,
+        # so culling decisions survive an app restart.
+        existing = None if data.get("new") else find_latest_session(
+            ctx.sessions_root, source_folder)
+
+        if existing:
+            session_dir, session_data = existing
+            logger.info(f"Session resumed: {session_data['session_id']}")
+        else:
+            session_dir, session_data = create_session(
+                base_dir=ctx.sessions_root,
+                source_folder=source_folder,
+                session_name=session_name,
+            )
+
+        # Register every RAW/JPG pair now, so culling decisions made before
+        # the EXIF scanner's next pass are never dropped as unknown assets.
+        if os.path.isdir(source_folder):
+            register_paths(session_data, iter_images(source_folder))
+            save_session(session_dir, session_data)
 
         ctx.state["session"]     = session_data
         ctx.state["session_dir"] = session_dir
 
-        logger.info(f"Session created: {session_data['session_id']}")
+        logger.info(f"Session created: {session_data['session_id']} "
+                    f"({len(session_data['assets'])} assets)")
 
         return jsonify({
             "success":     True,
+            "resumed":     bool(existing),
             "session_id":  session_data["session_id"],
             "session_dir": session_dir,
+            "decisions":   get_decisions(session_data),
         })
 
     except Exception as e:
@@ -516,7 +595,7 @@ def api_session_status():
         return jsonify({"active": False})
 
     summary = session_summary(session)
-    return jsonify({"active": True, **summary})
+    return jsonify({"active": True, **summary, "decisions": get_decisions(session)})
 
 
 # -----------------------------------------------------------------------------
@@ -527,7 +606,8 @@ def api_session_status():
 # Request JSON:
 #   {
 #       "asset_id": "DSCF0001",
-#       "selected": true          ← true = keep, false = reject
+#       "decision": "keep"        ← "keep" | "reject" | null (unculled)
+#       (legacy: "selected": true/false)
 #   }
 #
 # Response JSON:
@@ -544,12 +624,15 @@ def api_session_select():
 
         data      = request.json or {}
         asset_id  = data.get("asset_id")
-        selected  = bool(data.get("selected", True))
 
         if not asset_id:
             return jsonify({"success": False, "error": "asset_id is required"}), 400
 
-        set_asset_selected(session, asset_id, selected)
+        if "decision" in data:
+            # "keep" | "reject" | null (unculled)
+            set_asset_decision(session, asset_id, data["decision"])
+        else:
+            set_asset_selected(session, asset_id, bool(data.get("selected", True)))
         save_session(session_dir, session)   # persist every cull — cheap + resumable
 
         return jsonify({"success": True})

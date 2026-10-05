@@ -65,6 +65,9 @@ logger = logging.getLogger("session_state")
 
 MANIFEST_FILENAME = "session.json"
 
+RAW_EXTENSIONS = {".raf", ".raw", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2"}
+JPG_EXTENSIONS = {".jpg", ".jpeg"}
+
 # Schema version — bump when manifest structure changes
 MANIFEST_VERSION = 1
 
@@ -112,7 +115,8 @@ def create_session(base_dir: str, source_folder: str, session_name: str) -> tupl
         #     "asset_id":    str,
         #     "raw_source":  str | None,   # absolute source path
         #     "jpg_source":  str | None,   # absolute source path
-        #     "selected":    bool,          # culling decision
+        #     "decision":    "keep" | "reject" | None,   # None = unculled
+        #     "selected":    bool,          # decision == "keep"
         #     "copied": {
         #         "raw":  str | None,       # working session path after copy
         #         "jpg":  str | None,
@@ -157,6 +161,36 @@ def load_session(session_dir: str) -> dict:
     _validate_manifest(session_data)
     logger.info(f"Session loaded: {manifest_path}")
     return session_data
+
+
+def find_latest_session(base_dir: str, source_folder: str) -> tuple[str, dict] | None:
+    """
+    Find the most recently created session for `source_folder`, so culling
+    can resume when the same card/folder is opened again.
+
+    Returns (session_dir, session_data) or None.
+    """
+    target = os.path.normcase(os.path.normpath(str(source_folder)))
+    best = None
+
+    try:
+        entries = list(os.scandir(base_dir))
+    except OSError:
+        return None
+
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        try:
+            data = load_session(entry.path)
+        except (FileNotFoundError, ValueError):
+            continue
+        if os.path.normcase(os.path.normpath(data["source_folder"])) != target:
+            continue
+        if best is None or data.get("created_at", "") > best[1].get("created_at", ""):
+            best = (entry.path, data)
+
+    return best
 
 
 def save_session(session_dir: str, session_data: dict) -> None:
@@ -227,7 +261,8 @@ def register_asset(
             "asset_id": asset_id,
             "raw_source": None,
             "jpg_source": None,
-            "selected": False,   # default: not yet culled
+            "decision": None,    # default: not yet culled
+            "selected": False,
             "copied": {
                 "raw": None,
                 "jpg": None,
@@ -243,6 +278,53 @@ def register_asset(
         entry["jpg_source"] = str(jpg_source)
 
     logger.debug(f"Asset registered: {asset_id} (raw={raw_source}, jpg={jpg_source})")
+
+
+def build_pairs(paths) -> dict[str, dict]:
+    """
+    Group image paths into RAW/JPG pairs keyed by upper-case stem.
+
+    Returns:
+        { "DSCF0001": {"raw": path | None, "jpg": path | None,
+                       "_original_stem": "DSCF0001"}, ... }
+
+    Stem comparison is case-insensitive (FAT32 SD cards). Solo-RAW and
+    solo-JPG assets are included with the missing partner as None.
+    """
+    pairs: dict[str, dict] = {}
+
+    for path in paths:
+        stem, ext = os.path.splitext(os.path.basename(path))
+        key = stem.upper()
+        ext = ext.lower()
+
+        if key not in pairs:
+            pairs[key] = {"raw": None, "jpg": None, "_original_stem": stem}
+
+        if ext in RAW_EXTENSIONS:
+            pairs[key]["raw"] = path
+        elif ext in JPG_EXTENSIONS:
+            pairs[key]["jpg"] = path
+
+    return pairs
+
+
+def register_paths(session_data: dict, paths) -> int:
+    """
+    Register every RAW/JPG pair found in `paths` into the session.
+
+    Idempotent — existing culling decisions are preserved.
+    Returns the number of assets registered.
+    """
+    pairs = build_pairs(paths)
+    for entry in pairs.values():
+        register_asset(
+            session_data,
+            entry["_original_stem"],
+            raw_source=entry["raw"],
+            jpg_source=entry["jpg"],
+        )
+    return len(pairs)
 
 
 # =========================================================
@@ -272,7 +354,44 @@ def set_asset_selected(
         return
 
     assets[asset_id]["selected"] = selected
+    assets[asset_id]["decision"] = "keep" if selected else "reject"
     logger.debug(f"Asset '{asset_id}' selected={selected}")
+
+
+def set_asset_decision(session_data: dict, asset_id: str, decision: str | None) -> None:
+    """
+    Persist a three-state culling decision: "keep", "reject" or None (unculled).
+
+    Unknown asset_ids are registered without source paths so the decision
+    is never dropped.
+    """
+    if decision not in ("keep", "reject", None):
+        raise ValueError(f"decision must be 'keep', 'reject' or None, got {decision!r}")
+
+    assets = session_data.setdefault("assets", {})
+    if asset_id not in assets:
+        logger.warning(f"set_asset_decision: registering unknown asset_id '{asset_id}'")
+        register_asset(session_data, asset_id)
+
+    assets[asset_id]["decision"] = decision
+    assets[asset_id]["selected"] = decision == "keep"
+
+
+def get_decisions(session_data: dict) -> dict:
+    """
+    Return { asset_id: "keep" | "reject" } for every culled asset.
+
+    Manifests written before the "decision" field existed only stored
+    `selected`; those map True → "keep" and False → unculled.
+    """
+    decisions = {}
+    for asset_id, entry in session_data.get("assets", {}).items():
+        decision = entry.get("decision")
+        if decision is None and "decision" not in entry and entry.get("selected"):
+            decision = "keep"
+        if decision:
+            decisions[asset_id] = decision
+    return decisions
 
 
 def get_selected_assets(session_data: dict) -> dict:
@@ -401,12 +520,15 @@ def session_summary(session_data: dict) -> dict:
             "total_assets":    int,
             "selected":        int,
             "rejected":        int,
+            "unculled":        int,
             "copied_complete": int,   # both RAW+JPG copied
         }
     """
     assets = session_data.get("assets", {})
     total = len(assets)
-    selected = sum(1 for e in assets.values() if e.get("selected"))
+    decisions = get_decisions(session_data)
+    selected = sum(1 for d in decisions.values() if d == "keep")
+    rejected = sum(1 for d in decisions.values() if d == "reject")
     copied_complete = sum(
         1 for aid in assets if is_asset_fully_copied(session_data, aid)
     )
@@ -416,7 +538,8 @@ def session_summary(session_data: dict) -> dict:
         "source_folder": session_data.get("source_folder", ""),
         "total_assets": total,
         "selected": selected,
-        "rejected": total - selected,
+        "rejected": rejected,
+        "unculled": total - selected - rejected,
         "copied_complete": copied_complete,
     }
 

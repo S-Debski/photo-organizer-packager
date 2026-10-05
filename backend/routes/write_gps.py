@@ -4,20 +4,71 @@
 # File: write_gps.py
 #
 # Responsibilities:
-#   - Apply GPS EXIF metadata to images
-#   - Operate ONLY on working directory files
-#   - Skip unsupported formats (e.g. RAW files)
+#   - Apply GPS EXIF metadata to images outside the source card/folder
+#   - Defer source files: v3.0 browses the card in place, so GPS assigned
+#     in Mapping is written to the imported copies by /api/organize
 #   - Provide clear logging and failure reporting
 #
 # Notes:
-#   - Called AFTER working directory is populated
 #   - Must never touch source (SD card) files
 #   - Must be safe to re-run
 # ============================================================================
 
+import os
 import subprocess
 from flask import jsonify
 from pathlib import Path
+
+from photo_core.exif.reader import resolve_exiftool_cmd
+
+
+def _protected_roots(ctx) -> list[str]:
+    """Source locations that must never be written to (the card / browsed folder)."""
+    session = ctx.state.get("session") or {}
+    roots = [
+        ctx.state.get("current_sd_root"),
+        ctx.state.get("current_active_folder"),
+        session.get("source_folder"),
+    ]
+    return [os.path.normcase(os.path.abspath(r)) for r in roots if r]
+
+
+def is_source_path(ctx, path) -> bool:
+    p = os.path.normcase(os.path.abspath(str(path)))
+    for root in _protected_roots(ctx):
+        try:
+            if os.path.commonpath([p, root]) == root:
+                return True
+        except ValueError:   # different drives
+            continue
+    return False
+
+
+def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
+    """
+    Write GPS to one file with exiftool.
+
+    EXIF stores latitude/longitude unsigned; the hemisphere lives in the
+    Ref tags. Passing the signed value to the Ref tags lets exiftool set
+    N/S and E/W — without them a west longitude is read back as east.
+    """
+    cmd = resolve_exiftool_cmd() or "exiftool"
+    return subprocess.run(
+        [
+            cmd,
+            "-overwrite_original",
+            f"-GPSLatitude={abs(float(lat))}",
+            f"-GPSLatitudeRef={lat}",
+            f"-GPSLongitude={abs(float(lon))}",
+            f"-GPSLongitudeRef={lon}",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
 
 def api_write_gps(ctx, payload):
     files = payload.get("files")
@@ -29,18 +80,10 @@ def api_write_gps(ctx, payload):
         print("❌ Invalid payload:", payload)
         return jsonify({"success": False, "error": "Invalid input"}), 400
 
-    # ✅ Get working directory from context
-    working_dir = getattr(ctx, "working_dir", None)
-
-    if not working_dir:
-        print("❌ No working directory set in ctx")
-        return jsonify({"success": False, "error": "No working directory set"}), 400
-
-    working_dir = Path(working_dir)
-
     updated = 0
     failed = []
     skipped = []
+    deferred = []
 
     # ✅ INIT progress state
     ctx.write_progress = {
@@ -50,7 +93,6 @@ def api_write_gps(ctx, payload):
     }
 
     print(f"📡 Starting GPS write for {len(files)} files")
-    print(f"📁 Working directory: {working_dir}")
 
     # ✅ acquire lock BEFORE writing
     with ctx.scan_lock:
@@ -59,6 +101,13 @@ def api_write_gps(ctx, payload):
             try:
                 target_path = Path(original)
 
+                # v3.0 browses the card in place — never write to source.
+                # The UI keeps the GPS in metadataMap and /api/organize
+                # writes it into the imported copies.
+                if is_source_path(ctx, target_path):
+                    deferred.append(str(target_path))
+                    continue
+
                 if not target_path.exists():
                     print(f"⚠️ File not found: {target_path}")
                     failed.append(str(target_path))
@@ -66,18 +115,7 @@ def api_write_gps(ctx, payload):
 
                 print(f"✏️ Writing GPS → {target_path.name}")
 
-                result = subprocess.run([
-                    "exiftool",
-                    "-overwrite_original",
-                    f"-GPSLatitude={lat}",
-                    f"-GPSLongitude={lon}",
-                    str(target_path)
-                ],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace"
-                )
+                result = write_gps_tags(target_path, lat, lon)
 
                 if result.returncode != 0:
                     print(f"❌ Exiftool failed on {target_path}")
@@ -91,14 +129,17 @@ def api_write_gps(ctx, payload):
                 print("❌ EXIF write exception:", original, e)
                 failed.append(str(original))
 
-            ctx.write_progress["done"] += 1
+            finally:
+                ctx.write_progress["done"] += 1
 
-    print(f"✅ GPS write complete: {updated} updated, {len(skipped)} skipped, {len(failed)} failed")
+    print(f"✅ GPS write complete: {updated} updated, {len(deferred)} deferred to import, "
+          f"{len(failed)} failed")
     ctx.write_progress["active"] = False
 
     return jsonify({
-        "success": updated > 0,
+        "success": (updated > 0 or bool(deferred)) and not failed,
         "updated": updated,
+        "deferred": len(deferred),
         "skipped": skipped,
         "failed": failed
     })

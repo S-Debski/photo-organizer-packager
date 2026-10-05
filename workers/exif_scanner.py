@@ -70,7 +70,6 @@
 # -----------------------------------------------------------------------------
 import os
 import time
-from pathlib import Path
 
 from utils.fs_utils import iter_jpegs
 from utils.logging_bus import log_info
@@ -84,132 +83,37 @@ from photo_core.mapping.exif_dates import (
 from photo_core.exif.reader import read_exif
 from utils.fs_utils import iter_images
 
-# Session registration (v3.0) — imported lazily to avoid hard dependency
+# Session registration (v3.0)
 from photo_core.pre_import.session_state import (
-    register_asset,
+    register_paths,
     save_session,
 )
 
 SCAN_INTERVAL = 5  # seconds between idle checks
 error_count = 0
 
-# RAW extensions we recognise for pairing
-RAW_EXTENSIONS = {".raf", ".raw", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2"}
-JPG_EXTENSIONS = {".jpg", ".jpeg"}
 
+# =============================================================================
+# Helpers
+# =============================================================================
 
-# ✅ Helper: sort out composite EXIF data
-def get_meta(meta, key):
-    """Return EXIF value handling ExifTool namespaces."""
-    return (
-        meta.get(key)
-        or meta.get(f"GPS:{key}")
-        or meta.get(f"EXIF:{key}")
-        or meta.get(f"Composite:{key}")
-    )
-
-
-# ✅ Helper: normalise EXIF direction refs
-def clean_ref(ref):
-    if isinstance(ref, bytes):
-        ref = ref.decode("utf-8", errors="ignore")
-    if isinstance(ref, (list, tuple)):
-        ref = ref[0]
-    return str(ref).strip().upper()
-
-
-def to_decimal(value):
-    try:
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        if isinstance(value, (list, tuple)) and len(value) >= 3:
-            d = float(value[0])
-            m = float(value[1])
-            s = float(value[2])
-            return d + (m / 60) + (s / 3600)
-
-        if isinstance(value, (list, tuple)) and len(value) == 1:
-            return to_decimal(value[0])
-
-        value = str(value).strip()
-
+def _folder_signature(paths: list[str]) -> tuple:
+    """(path, size, mtime) for every file — changes when files are added/replaced."""
+    sig = []
+    for p in paths:
         try:
-            return float(value)
-        except Exception:
-            pass
-
-        parts = (
-            value.replace("deg", "")
-            .replace("'", "")
-            .replace('"', "")
-            .split()
-        )
-
-        if len(parts) >= 3:
-            d = float(parts[0])
-            m = float(parts[1])
-            s = float(parts[2])
-            return d + (m / 60) + (s / 3600)
-
-    except Exception:
-        return None
-
-    return None
+            st = os.stat(p)
+            sig.append((p, st.st_size, st.st_mtime))
+        except OSError:
+            sig.append((p, None, None))
+    return tuple(sorted(sig))
 
 
-# =============================================================================
-# RAW/JPG Pairing
-# =============================================================================
-
-def _build_pairs(paths: list[str]) -> dict[str, dict]:
+def _register_pairs_into_session(paths: list[str], ctx) -> None:
     """
-    Group a list of image paths into RAW/JPG pairs keyed by stem.
-
-    Returns:
-        {
-            "DSCF0001": {"raw": "/path/DSCF0001.RAF", "jpg": "/path/DSCF0001.JPG"},
-            "DSCF0002": {"raw": "/path/DSCF0002.RAF", "jpg": None},
-            "DSCF0003": {"raw": None,                 "jpg": "/path/DSCF0003.JPG"},
-            ...
-        }
-
-    Design notes:
-        - Stem comparison is case-insensitive (FAT32 SD cards)
-        - Last-wins if two RAWs share a stem (shouldn't happen in practice)
-        - Solo-RAW and solo-JPG assets are included (pair partner = None)
-    """
-    pairs: dict[str, dict] = {}
-
-    for path in paths:
-        p = Path(path)
-        stem = p.stem.upper()          # normalise for FAT32
-        ext  = p.suffix.lower()
-
-        if stem not in pairs:
-            pairs[stem] = {"raw": None, "jpg": None, "_original_stem": p.stem}
-
-        if ext in RAW_EXTENSIONS:
-            pairs[stem]["raw"] = path
-        elif ext in JPG_EXTENSIONS:
-            pairs[stem]["jpg"] = path
-
-    return pairs
-
-
-# =============================================================================
-# Session Registration
-# =============================================================================
-
-def _register_pairs_into_session(pairs: dict, ctx) -> None:
-    """
-    Register all discovered RAW/JPG pairs into the active ingest session.
+    Register all RAW/JPG pairs in `paths` into the active ingest session.
 
     Safe to call with no active session — silently skips.
-
-    Args:
-        pairs:  output of _build_pairs()
-        ctx:    AppContext
     """
     session     = ctx.state.get("session")
     session_dir = ctx.state.get("session_dir")
@@ -218,16 +122,7 @@ def _register_pairs_into_session(pairs: dict, ctx) -> None:
         # No active session — browsing without ingest, that's fine
         return
 
-    registered = 0
-    for stem_upper, entry in pairs.items():
-        asset_id = entry["_original_stem"]   # preserve original casing for display
-        register_asset(
-            session_data=session,
-            asset_id=asset_id,
-            raw_source=entry["raw"],
-            jpg_source=entry["jpg"],
-        )
-        registered += 1
+    registered = register_paths(session, paths)
 
     # One save at end of full registration pass — not per asset
     try:
@@ -283,23 +178,25 @@ def exif_scanner_worker(ctx):
 
         cache_key = f"exif::{os.path.abspath(active)}"
 
-        # ✅ Skip if already processed
-        if cache_key in ctx.exif_cache:
-            print("⚠️ CACHE HIT:", cache_key)
+        paths = list(iter_images(active))
+
+        # ✅ Skip if the folder is unchanged since the last scan.
+        # The signature (path, size, mtime) means added/replaced files
+        # still trigger a rescan; set_active_folder clears the cache.
+        signature = _folder_signature(paths)
+        if ctx.exif_cache.get(cache_key) == signature:
+            time.sleep(SCAN_INTERVAL)
+            continue
 
         print(f"✅ Starting EXIF scan: {active}")
-
-        paths = list(iter_images(active))
         print(f"📂 Found {len(paths)} images to scan")
-        print("WORKER ACTIVE:", active)
 
         # -----------------------------------------------------------------
-        # v3.0 — Build RAW/JPG pairs and register into active session
-        # This runs regardless of EXIF success so the session always has
-        # a complete asset list even if EXIF extraction partially fails.
+        # v3.0 — Register RAW/JPG pairs into the active session (if any).
+        # /api/session/create also registers, so sessions created after
+        # this scan still get a complete asset list.
         # -----------------------------------------------------------------
-        pairs = _build_pairs(paths)
-        _register_pairs_into_session(pairs, ctx)
+        _register_pairs_into_session(paths, ctx)
 
         # -----------------------------------------------------------------
         # EXIF extraction (unchanged from v2.7)
@@ -359,13 +256,14 @@ def exif_scanner_worker(ctx):
         if records:
             print("✅ FINAL RECORD COUNT:", len(records))
             ctx.state["exif_records"] = records
-            ctx.exif_cache[cache_key] = True
+            ctx.exif_cache[cache_key] = signature
 
             print(f"✅ EXIF scan complete: {len(records)} files processed")
             print(f"✅ STORED EXIF IN ctx.state: {len(records)}")
 
         else:
             print("⚠️ No EXIF records found")
+            ctx.exif_cache[cache_key] = signature   # don't rescan an empty folder
 
         if error_count > 0:
             print(f"⚠️ EXIF errors: {error_count} files")
