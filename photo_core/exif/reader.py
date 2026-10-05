@@ -144,6 +144,10 @@ def read_exif(path: str | Path) -> dict:
             [cmd, "-json", "-n", "-G1", "-a", "-s", path],
             capture_output=True,
             text=True,
+            # exiftool emits UTF-8 JSON; the Windows default (cp1252) fails to
+            # decode some MakerNote bytes, which silently returned {} here.
+            encoding="utf-8",
+            errors="replace",
             timeout=5
         )
     except FileNotFoundError:

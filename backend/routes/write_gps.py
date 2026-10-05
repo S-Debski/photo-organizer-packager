@@ -74,7 +74,9 @@ def api_write_gps(ctx, payload):
                     str(target_path)
                 ],
                     capture_output=True,
-                    text=True
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace"
                 )
 
                 if result.returncode != 0:
