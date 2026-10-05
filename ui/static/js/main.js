@@ -47,12 +47,23 @@ let markerLayer = null;
 let selectedFolderGroup = null;
 let folderGPS = {};
 let folderGroups = {};
+let folderPathMap = {};   // folderName → actual filesystem path (from analyze)
 let selectedFolder = null;       // "USB" / "Medburn"
 let sourceFolderPath = null;   // full path → F:\DCIM\929_FUJI
 let workingDirectory = null;
 let cameraChart = null;
 let lensChart = null;
 let combinedGPS = [];
+
+// ------------------------------------------------------------
+// Cull state  (v3.0)
+// ------------------------------------------------------------
+// cullDecisions: Map<assetId, "keep" | "reject">
+// assetId = file stem e.g. "DSCF0001"
+let cullDecisions   = new Map();
+let cullReviewIndex = 0;   // current index in pairedImages for cull review step
+let focusedAssetId  = null; // last thumbnail the user hovered or clicked (for K/X keys)
+let lastImportDestination = null; // actual folder files were copied into
 let lastDisplayedGPS = null;
 let gpsMode = "logical"; // default
 let mapLoading = false;
@@ -319,6 +330,9 @@ function setImportState(state, payload = {}) {
         _stopElapsedTicker();
         _stopProgressPoll();
 
+        // Store the actual destination so "Open folder" opens the right place
+        if (payload.destination) lastImportDestination = payload.destination;
+
         const totalElapsed = _importStartTime
             ? _formatDuration((Date.now() - _importStartTime) / 1000)
             : null;
@@ -338,7 +352,7 @@ function setImportState(state, payload = {}) {
                 `<strong>${payload.count} file${payload.count !== 1 ? "s" : ""} imported</strong>` +
                 (totalElapsed ? ` <span class="text-muted fw-normal">in ${totalElapsed}</span>` : "") +
                 (payload.destination
-                    ? `<div class="small mt-1 text-muted">${payload.destination}</div>`
+                    ? `<div class="small mt-1 text-muted">${payload.destination.replace(/\//g, "\\")}</div>`
                     : "");
             result.classList.remove("d-none");
         }
@@ -582,12 +596,23 @@ function switchStep(step) {
     // Step-specific behaviour
     switch (step) {
         case 3:
+            // ✅ Render folder tabs first (driven by analyzedFolders, always complete)
+            renderThumbFolderTabs();
             // ✅ Thumbnails first (visual feedback)
             loadThumbnails();
             showGlobalStatus(`
 ⏳ <strong>Loading thumbnails…</strong><br>
 <small>Click “Thumbnails” in the menu to view when ready</small>
 `);
+            break;
+
+        case 35:
+            if (!pairedImages || pairedImages.length === 0) {
+                showGlobalStatus("⏳ Load thumbnails first before culling.");
+                return;
+            }
+            initCullReview();
+            clearGlobalStatus();
             break;
 
         case 4:
@@ -1628,14 +1653,30 @@ function updateProgressBar(processed, total) {
 }
 
 function openFullImage(path) {
-
     const modal = document.getElementById("imageModal");
+    if (!modal) return;
 
-    // ✅ Set current index
-    currentPreviewIndex = thumbnails.indexOf(path);
+    // Find index — try exact match first, then case-insensitive
+    let idx = thumbnails.indexOf(path);
+    if (idx === -1) {
+        const norm = path.replace(/[\\/]/g, "/").toLowerCase();
+        idx = thumbnails.findIndex(t =>
+            (typeof t === "string" ? t : "").replace(/[\\/]/g, "/").toLowerCase() === norm
+        );
+    }
 
+    if (idx === -1) {
+        // Path not in thumbnails array — find via pairedImages
+        const pair = pairedImages.find(p => p.jpg === path || p.raw === path);
+        if (pair) {
+            // Use the JPG path if available, else RAW
+            const usePath = pair.jpg || pair.raw;
+            idx = thumbnails.indexOf(usePath);
+        }
+    }
+
+    currentPreviewIndex = Math.max(0, idx);
     updatePreviewImage();
-
     modal.classList.remove("d-none");
 }
 async function loadThumbnails() {
@@ -1672,6 +1713,9 @@ async function loadThumbnails() {
             return;   // ✅ STOP — no retry
         }
 
+        // ✅ Ensure an active session exists for cull persistence
+        await _ensureSession();
+
         // ✅ SUCCESS: render thumbnails
         thumbnails = Array.isArray(data) ? data : (data.thumbnails || []);
         currentImages = thumbnails;
@@ -1692,6 +1736,7 @@ async function loadThumbnails() {
 
         // ✅ Pair JPG + RAW files into logical images
         pairedImages = pairFiles(thumbnails);
+        renderThumbFolderTabs();   // update/create folder tabs in step 3
 
         // ✅ Render grouped images
         $("thumbnailGallery").innerHTML = "";
@@ -1748,6 +1793,13 @@ function showPreviousImage() {
     updatePreviewImage();
 }
 
+// Expose to window: index.html's modal prev/next buttons use inline
+// onclick="showNextImage()" / "showPreviousImage()". Since main.js is a
+// module, top-level functions aren't on window by default — without this
+// the click throws "X is not defined" and dies before doing anything.
+window.showNextImage = showNextImage;
+window.showPreviousImage = showPreviousImage;
+
 function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
     const grid = $("thumbnailGallery");
     const end = Math.min(start + chunkSize, items.length);
@@ -1760,28 +1812,62 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
         div.className = "thumbnail-item col-3 position-relative";
         div.style.textAlign = "center";
 
-        // ✅ Choose preview image
-        let previewPath = item.jpg || item.raw;
+        // ✅ Choose preview image — JPG only for browser rendering
+        // Never send RAW to the browser directly: it can't decode RAF/CR2/NEF etc.
+        const jpgPath = item.jpg;   // string path or null
+        const isRawOnly = !jpgPath;
 
-        // ✅ Image
         const img = document.createElement("img");
-        img.src = `/api/photo-proxy?path=${encodeURIComponent(previewPath)}`;
         img.className = "img-fluid";
         img.loading = "lazy";
         img.decoding = "async";
+        img.style.pointerEvents = "none";  // let div capture mouseenter for K/X keys
 
-        // ✅ Click handler
-        const openPath = previewPath;
-        const open = () => openFullImage(openPath);
+        if (isRawOnly) {
+            // No JPG partner — show placeholder immediately, no network request
+            img.style.display = "none";
+            const placeholder = document.createElement("div");
+            placeholder.style.cssText =
+                "height:160px;display:flex;flex-direction:column;align-items:center;" +
+                "justify-content:center;color:#666;font-size:12px;background:#1a1a1a;" +
+                "border-radius:4px;width:100%;";
+            placeholder.innerHTML =
+                `<i class="bi bi-camera" style="font-size:2rem;margin-bottom:6px;color:#555;"></i>` +
+                `<span>RAW only</span>`;
+            div.appendChild(placeholder);   // img is appended after, so placeholder stays first
+        } else {
+            img.src = `/api/photo-proxy?path=${encodeURIComponent(jpgPath)}`;
+            img.onerror = () => {
+                img.style.display = "none";
+                const placeholder = document.createElement("div");
+                placeholder.style.cssText =
+                    "height:160px;display:flex;flex-direction:column;align-items:center;" +
+                    "justify-content:center;color:#666;font-size:12px;background:#1a1a1a;" +
+                    "border-radius:4px;width:100%;";
+                placeholder.innerHTML =
+                    `<i class="bi bi-exclamation-triangle" style="font-size:2rem;margin-bottom:6px;"></i>` +
+                    `<span>Preview unavailable</span>`;
+                div.insertBefore(placeholder, label);
+            };
+        }
 
-        div.onclick = open;
-        img.onclick = open;
+        // ✅ Click handler — only open full image if we have a JPG
+        // RAW-only items can't render in browser so clicking just focuses for culling
+        const openPath = jpgPath;   // null for RAW-only — no modal
+        div.onclick = () => {
+            focusedAssetId = assetId;  // always set focus for K/X
+            // Only open modal if image actually loaded (naturalWidth > 0)
+            if (openPath && img.naturalWidth > 0) {
+                openFullImage(openPath);
+            }
+        };
 
         // ✅ Filename label (use base name)
         const label = document.createElement("div");
         label.textContent = item.baseName;
         label.className = "thumb-label";
         label.title = item.baseName;
+        label.style.pointerEvents = "none";
 
         // ✅ Badge logic
         let badge = "";
@@ -1800,9 +1886,29 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
             div.appendChild(badgeEl);
         }
 
+        // ✅ Cull overlay
+        const assetId = item.baseName;
+        div.dataset.assetId = assetId;
+        div.classList.add("cull-thumb");
+        div.addEventListener("mouseenter", () => { focusedAssetId = assetId; });
+        div.addEventListener("mouseleave", () => { if (focusedAssetId === assetId) focusedAssetId = null; });
+        div.addEventListener("click",      () => { focusedAssetId = assetId; });
+
+        const cullOverlay = document.createElement("div");
+        cullOverlay.className = "cull-overlay";
+        cullOverlay.dataset.assetId = assetId;
+        _applyCullOverlay(cullOverlay, cullDecisions.get(assetId));
+
+        // Click on overlay toggles cull; click on image opens full view
+        cullOverlay.addEventListener("click", (e) => {
+            e.stopPropagation();
+            _toggleCull(assetId);
+        });
+
         // ✅ Assemble
         div.appendChild(img);
         div.appendChild(label);
+        div.appendChild(cullOverlay);
         grid.appendChild(div);
     }
 
@@ -1831,20 +1937,42 @@ function renderThumbnailsChunked(items, start = 0, chunkSize = 6) {
 }
 function updatePreviewImage() {
     const img = $("previewImage");
+    if (!img) { console.warn("previewImage element missing"); return; }
 
-    if (!img) {
-        console.warn("previewImage element missing");
+    const rawPath = thumbnails[currentPreviewIndex];
+    if (!rawPath) {
+        console.warn("updatePreviewImage: no path at index", currentPreviewIndex);
         return;
     }
 
-    img.src = `/api/full-image?path=${encodeURIComponent(
-        thumbnails[currentPreviewIndex]
-    )}`;
+    // Always prefer JPG for display — browsers can't render RAW files.
+    // Look up the paired JPG from pairedImages using the stem.
+    const stem = rawPath.split(/[\/]/).pop().replace(/\.[^.]+$/, "").toUpperCase();
+    const pair = pairedImages.find(p => p.baseName.toUpperCase() === stem);
+    const path = (pair && pair.jpg) ? pair.jpg : rawPath;
 
+    // Use photo-proxy (proven to work for all file types)
+    img.src = `/api/photo-proxy?path=${encodeURIComponent(path)}`;
     img.style.maxWidth = "100%";
     img.style.maxHeight = "85vh";
     img.style.width = "auto";
     img.style.height = "auto";
+
+    // Update filename + counter in modal
+    const filenameEl = document.getElementById("modalFilename");
+    if (filenameEl) {
+        const name = rawPath.split(/[\/]/).pop();
+        const stem = name.replace(/\.[^.]+$/, "");
+        const decision = cullDecisions.get(stem);
+        const badge = decision === "keep"
+            ? ' <span style="color:#28a745">✓ Keep</span>'
+            : decision === "reject"
+            ? ' <span style="color:#dc3545">✗ Reject</span>'
+            : "";
+        filenameEl.innerHTML =
+            `<strong>${name}</strong>${badge}` +
+            `<span style="opacity:0.5; margin-left:12px;">${currentPreviewIndex + 1} / ${thumbnails.length}</span>`;
+    }
 }
 
 Object.keys(folderGroups).forEach(folder => {
@@ -2497,16 +2625,34 @@ $('organizeBtn')?.addEventListener('click', async () => {
 function bindOrganizeEvents() {
     const btnOrg = $("organizeBtn");
     if (btnOrg && !btnOrg.dataset.bound) {
-        btnOrg.onclick = async () => {
-            const res = await fetch("/api/organize", { method: "POST" });
-            if (res.ok) pollJobStatus();
+        btnOrg.onclick = () => {
+            const source      = $("sdSelect")?.value;
+            const destination = $("workingDirectoryInput")?.value?.trim();
+            if (!source)      { alert("Please select a card first."); return; }
+            if (!destination) { alert("Please select a working directory."); return; }
+            if (!analyzedFolders || analyzedFolders.length === 0) {
+                alert("Please analyse the card first.");
+                return;
+            }
+            showImportChoice();
         };
         btnOrg.dataset.bound = "true";
     }
 
     const btnOpen = $("openPicturesBtn");
     if (btnOpen && !btnOpen.dataset.bound) {
-        btnOpen.onclick = () => fetch("/api/pictures-open");
+        btnOpen.onclick = () => {
+            const dest = lastImportDestination;
+            if (dest) {
+                fetch("/api/open-folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: dest })
+                });
+            } else {
+                fetch("/api/pictures-open");  // fallback to default
+            }
+        };
         btnOpen.dataset.bound = "true";
     }
 }
@@ -2649,7 +2795,7 @@ document.getElementById("copyDetectedGpsBtn")
         const groups = window.folderMarkerGroups;
 
         if (!groups || !currentGroup || !groups[currentGroup]) {
-            alert("No folder selected or no GPS data.");
+            showGlobalStatus("⚠️ Select a folder on the map first, then click Use detected GPS.");
             return;
         }
 
@@ -2721,7 +2867,7 @@ document.addEventListener("DOMContentLoaded", () => {
 document.querySelectorAll('#wizardNav .sidebar-item').forEach(item => {
     item.addEventListener('click', e => {
         e.preventDefault();
-        const step = item.getAttribute('data-step');
+        const step = Number(item.getAttribute('data-step'));
         switchStep(step);
     });
 });
@@ -2782,6 +2928,13 @@ if (!analyzeBtn) {
             imageCounts = data.analysis.counts || { total: 0, raw: 0, jpg: 0 };
             analyzedFolders = data.analysis.folders;
 
+            // Build name→path lookup for thumbnail folder switching
+            folderPathMap = {};
+            analyzedFolders.forEach(f => {
+                const name = f.name || f.path.split(/[\/]/).pop();
+                folderPathMap[name] = f.path;
+            });
+
             updateProgress(`
     📸 <strong>Preparing thumbnails…</strong><br>
     Loading preview images
@@ -2821,3 +2974,561 @@ setInterval(() => {
     }
 
 }, 500);
+
+// =============================================================================
+// FOLDER TABS (step 3)
+// =============================================================================
+
+function renderThumbFolderTabs() {
+    const tabsContainer = document.getElementById("thumbFolderTabs");
+    const tabList       = document.getElementById("thumbFolderTabList");
+    if (!tabsContainer || !tabList) return;
+
+    // Drive tabs from analyzedFolders (always has all folders regardless
+    // of which one is currently loaded in the thumbnail grid)
+    const folders = analyzedFolders;
+
+    // Only show tabs if there are multiple folders
+    if (!folders || folders.length <= 1) {
+        tabsContainer.classList.add("d-none");
+        return;
+    }
+
+    tabsContainer.classList.remove("d-none");
+    tabList.innerHTML = "";
+
+    folders.forEach(folder => {
+        const folderName = folder.name || folder.path.split(/[\/]/).pop();
+        const count      = folder.photo_count || folder.image_count || folder.count || "?";
+        const isActive   = folderName === selectedFolder;
+        const hasGPS     = folderGPS[folderName];
+
+        const li = document.createElement("li");
+        li.className = "nav-item";
+
+        const a = document.createElement("a");
+        a.className      = `nav-link${isActive ? " active" : ""}`;
+        a.href           = "#";
+        a.dataset.folder = folderName;
+
+        a.innerHTML =
+            `📁 ${folderName} ` +
+            `<span class="badge bg-secondary ms-1">${count}</span>` +
+            (hasGPS ? ` <i class="bi bi-geo-alt-fill text-success ms-1" title="GPS assigned"></i>` : "");
+
+        a.onclick = (e) => {
+            e.preventDefault();
+            _switchThumbFolder(folderName, folder.path);
+        };
+
+        li.appendChild(a);
+        tabList.appendChild(li);
+    });
+}
+
+function _switchThumbFolder(folderName, explicitPath) {
+    // Update active tab
+    document.querySelectorAll("#thumbFolderTabList .nav-link")
+        .forEach(a => a.classList.toggle("active", a.dataset.folder === folderName));
+
+    selectedFolder = folderName;
+    currentGroup   = folderName;
+    manualLocation = null;
+
+    // Update folder name shown in header
+    const folderNameEl = document.getElementById("currentFolderName");
+    if (folderNameEl) folderNameEl.textContent = folderName;
+
+    // Use explicit path from analyzedFolders, then folderPathMap, then fallback
+    const group = folderGroups[folderName];
+    selectedFolderGroup = group;
+
+    sourceFolderPath = explicitPath
+        || folderPathMap[folderName]
+        || (group && group.length > 0 && group[0].path
+            ? group[0].path.split(/[\\/]/).slice(0, -1).join("\\")
+            : null);
+
+    // Reset cull overlay state isn't cleared — decisions persist across tab switches
+    // Reload thumbnails for the new folder
+    loadThumbnails();
+
+    // Update cull counter to reflect all decisions across all folders
+    _updateCullCounters();
+}
+
+// =============================================================================
+// SESSION MANAGEMENT
+// =============================================================================
+
+async function _ensureSession() {
+    try {
+        // Use the current folder tab path as the session source
+        // This means each folder tab gets its own session context
+        const source = sourceFolderPath || $("sdSelect")?.value || "";
+        if (!source) return;
+
+        // Check if session already active for THIS folder
+        const statusRes = await fetch("/api/session/status");
+        const status    = await statusRes.json();
+
+        if (status.active && status.source_folder === source) return;
+
+        // Create/recreate session for the current folder
+        const name = source.split(/[\/]/).filter(Boolean).pop() || "Session";
+
+        await fetch("/api/session/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_folder: source, session_name: name })
+        });
+    } catch (_) { /* non-critical — culling still works in-memory */ }
+}
+
+// =============================================================================
+// CULLING SYSTEM (v3.0)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Core cull toggle — called from thumbnail overlay click and keyboard
+// -----------------------------------------------------------------------------
+function _toggleCull(assetId) {
+    const current = cullDecisions.get(assetId);
+    if (current === "keep") {
+        cullDecisions.set(assetId, "reject");
+    } else if (current === "reject") {
+        cullDecisions.delete(assetId);   // back to unculled
+    } else {
+        cullDecisions.set(assetId, "keep");
+    }
+
+    // Update all overlays for this asset (thumbnail grid)
+    document.querySelectorAll(`.cull-overlay[data-asset-id="${assetId}"]`)
+        .forEach(el => _applyCullOverlay(el, cullDecisions.get(assetId)));
+
+    // Persist to session
+    _persistCullDecision(assetId);
+
+    // Refresh counters
+    _updateCullCounters();
+
+    // Refresh review step if visible
+    _refreshCullReviewBadge();
+}
+
+function _setCull(assetId, decision) {
+    if (decision === null || decision === undefined) {
+        cullDecisions.delete(assetId);
+    } else {
+        cullDecisions.set(assetId, decision);
+    }
+    document.querySelectorAll(`.cull-overlay[data-asset-id="${assetId}"]`)
+        .forEach(el => _applyCullOverlay(el, cullDecisions.get(assetId)));
+    _persistCullDecision(assetId);
+    _updateCullCounters();
+    _refreshCullReviewBadge();
+}
+
+// -----------------------------------------------------------------------------
+// Visual overlay state
+// -----------------------------------------------------------------------------
+function _applyCullOverlay(el, decision) {
+    el.className = "cull-overlay";
+    if (decision === "keep") {
+        el.classList.add("cull-keep");
+        el.innerHTML = `<i class="bi bi-check-circle-fill"></i>`;
+    } else if (decision === "reject") {
+        el.classList.add("cull-reject");
+        el.innerHTML = `<i class="bi bi-x-circle-fill"></i>`;
+    } else {
+        el.innerHTML = `<i class="bi bi-circle"></i>`;  // unculled hint
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Counter bar (step 3 header)
+// -----------------------------------------------------------------------------
+function _updateCullCounters() {
+    const total    = pairedImages.length;
+    const kept     = [...cullDecisions.values()].filter(v => v === "keep").length;
+    const rejected = [...cullDecisions.values()].filter(v => v === "reject").length;
+    const unculled = total - kept - rejected;
+
+    const counter = $("cullCounter");
+    if (counter) counter.classList.remove("d-none");
+
+    const el = (id, val) => { const e = $(id); if (e) e.textContent = val; };
+    el("cullTotal",    `${total} photo${total !== 1 ? "s" : ""}`);
+    el("cullKept",     `${kept} kept`);
+    el("cullRejected", `${rejected} rejected`);
+    el("cullUnculled", `${unculled} unculled`);
+
+    // Also update review step counters
+    el("keptCount",     kept);
+    el("rejectedCount", rejected);
+    const rev = $("cullReviewCounter");
+    if (rev) rev.textContent =
+        `${kept} kept · ${rejected} rejected · ${unculled} unculled`;
+
+    // Update kept/rejected strips in review step
+    _renderCullStrips();
+}
+
+// -----------------------------------------------------------------------------
+// Cull strips (bottom of review step)
+// -----------------------------------------------------------------------------
+function _renderCullStrips() {
+    const keptStrip     = $("keptStrip");
+    const rejectedStrip = $("rejectedStrip");
+    if (!keptStrip || !rejectedStrip) return;
+
+    keptStrip.innerHTML     = "";
+    rejectedStrip.innerHTML = "";
+
+    pairedImages.forEach((item, idx) => {
+        const decision = cullDecisions.get(item.baseName);
+        if (!decision) return;
+
+        const previewPath = item.jpg || item.raw;
+        const thumb = document.createElement("img");
+        thumb.src   = `/api/photo-proxy?path=${encodeURIComponent(previewPath)}`;
+        thumb.title = item.baseName;
+        thumb.style.cssText = "width:48px;height:48px;object-fit:cover;border-radius:3px;cursor:pointer;";
+        thumb.addEventListener("click", () => {
+            cullReviewIndex = idx;
+            _renderCullReviewImage();
+        });
+
+        if (decision === "keep") keptStrip.appendChild(thumb);
+        else rejectedStrip.appendChild(thumb);
+    });
+}
+
+// -----------------------------------------------------------------------------
+// Persist decision to session via API (fire-and-forget)
+// -----------------------------------------------------------------------------
+async function _persistCullDecision(assetId) {
+    try {
+        await fetch("/api/session/select", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                asset_id: assetId,
+                selected: cullDecisions.get(assetId) === "keep"
+            })
+        });
+    } catch (_) { /* non-critical — decisions held in memory */ }
+}
+
+// =============================================================================
+// CULL REVIEW STEP (step 35)
+// =============================================================================
+
+function initCullReview() {
+    // Reset to first image each time step is entered
+    cullReviewIndex = 0;
+    _renderCullReviewImage();
+    _updateCullCounters();
+
+    // Use onclick (not addEventListener) to prevent stacking on repeat visits
+    const prevBtn    = $("cullPrevBtn");
+    const nextBtn    = $("cullNextBtn");
+    const keepBtn    = $("cullKeepBtn");
+    const rejectBtn  = $("cullRejectBtn");
+
+    if (prevBtn) prevBtn.onclick = () => {
+        if (!pairedImages.length) return;
+        cullReviewIndex = (cullReviewIndex - 1 + pairedImages.length) % pairedImages.length;
+        _renderCullReviewImage();
+    };
+
+    if (nextBtn) nextBtn.onclick = () => {
+        if (!pairedImages.length) return;
+        cullReviewIndex = (cullReviewIndex + 1) % pairedImages.length;
+        _renderCullReviewImage();
+    };
+
+    if (keepBtn) keepBtn.onclick = () => {
+        const item = pairedImages[cullReviewIndex];
+        if (item) _setCull(item.baseName, "keep");
+        if (cullReviewIndex < pairedImages.length - 1) cullReviewIndex++;
+        _renderCullReviewImage();
+    };
+
+    if (rejectBtn) rejectBtn.onclick = () => {
+        const item = pairedImages[cullReviewIndex];
+        if (item) _setCull(item.baseName, "reject");
+        if (cullReviewIndex < pairedImages.length - 1) cullReviewIndex++;
+        _renderCullReviewImage();
+    };
+}
+
+function _renderCullReviewImage() {
+    const item = pairedImages[cullReviewIndex];
+    if (!item) {
+        console.warn("_renderCullReviewImage: no item at index", cullReviewIndex);
+        return;
+    }
+
+    // Prefer JPG for display — browsers can't render RAW files directly.
+    // Fall back to RAW path only if no JPG exists (proxy will serve it as JPEG).
+    const displayPath = item.jpg || item.raw;
+    if (!displayPath) {
+        console.warn("_renderCullReviewImage: no path for", item.baseName);
+        return;
+    }
+
+    const img  = $("cullReviewImage");
+    const name = $("cullReviewFilename");
+
+    if (img) {
+        img.src = `/api/photo-proxy?path=${encodeURIComponent(displayPath)}`;
+        img.onerror = () => {
+            // If proxy fails (e.g. RAW not renderable), show placeholder
+            img.alt = `Cannot preview RAW: ${item.baseName}`;
+            img.src = "";
+        };
+    }
+    if (name) name.textContent =
+        `${item.baseName}  (${cullReviewIndex + 1} / ${pairedImages.length})`;
+
+    _refreshCullReviewBadge();
+}
+
+function _refreshCullReviewBadge() {
+    const item = pairedImages[cullReviewIndex];
+    const badge = $("cullReviewBadge");
+    if (!badge || !item) return;
+
+    const decision = cullDecisions.get(item.baseName);
+    if (decision === "keep") {
+        badge.innerHTML = `<i class="bi bi-check-circle-fill text-success"></i>`;
+    } else if (decision === "reject") {
+        badge.innerHTML = `<i class="bi bi-x-circle-fill text-danger"></i>`;
+    } else {
+        badge.innerHTML = "";
+    }
+}
+
+// =============================================================================
+// KEYBOARD SHORTCUTS
+// =============================================================================
+
+// Move keyboard focus to next/prev thumbnail and update focusedAssetId
+function _moveFocus(delta) {
+    const thumbs = Array.from(document.querySelectorAll(".cull-thumb"));
+    if (!thumbs.length) return;
+
+    const currentIdx = focusedAssetId
+        ? thumbs.findIndex(t => t.dataset.assetId === focusedAssetId)
+        : -1;
+
+    const nextIdx = Math.max(0, Math.min(thumbs.length - 1, currentIdx + delta));
+    const next = thumbs[nextIdx];
+    if (!next) return;
+
+    // Visual highlight
+    thumbs.forEach(t => t.classList.remove("cull-focused"));
+    next.classList.add("cull-focused");
+    next.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    focusedAssetId = next.dataset.assetId;
+}
+document.addEventListener("keydown", (e) => {
+    // Don't fire when typing in an input
+    if (["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+
+    const activeStep = document.querySelector(".wizard-step:not(.d-none)")?.dataset?.step;
+    const modalOpen  = !document.getElementById("imageModal")?.classList.contains("d-none");
+
+    // ---------------------------------------------------------------
+    // Full image modal — K/X to cull, arrows to navigate, Esc closes
+    // ---------------------------------------------------------------
+    if (modalOpen) {
+        // Get the asset currently shown in the modal.
+        // NOTE: previously this parsed previewImage.src (a resolved
+        // photo-proxy URL with a query string), which never matched any
+        // pairedImages stem — assetId came back undefined, so K/X silently
+        // skipped _setCull and only ran showNextImage(), making them act
+        // exactly like the arrow keys. Use the known source path instead.
+        const rawPath = thumbnails[currentPreviewIndex];
+        const stem    = rawPath ? rawPath.split(/[\\/]/).pop().replace(/\.[^.]+$/, "").toUpperCase() : "";
+        // Find matching paired image (case-insensitive stem match)
+        const item    = pairedImages.find(p => p.baseName.toUpperCase() === stem);
+        const assetId = item?.baseName || focusedAssetId;
+
+        if (e.key === "k" || e.key === "K") {
+            if (assetId) {
+                _setCull(assetId, "keep");
+                // Flash green badge on modal image
+                _showModalCullBadge("keep");
+            }
+            // Advance to next image
+            showNextImage();
+            e.preventDefault();
+        } else if (e.key === "x" || e.key === "X") {
+            if (assetId) {
+                _setCull(assetId, "reject");
+                _showModalCullBadge("reject");
+            }
+            showNextImage();
+            e.preventDefault();
+        }
+        // Esc and arrows handled by existing modal keyboard handler
+        return;
+    }
+
+    // ---------------------------------------------------------------
+    // Step 3: thumbnail grid
+    // ---------------------------------------------------------------
+    if (activeStep === "3") {
+        if (e.key === "k" || e.key === "K") {
+            if (focusedAssetId) _setCull(focusedAssetId, "keep");
+            e.preventDefault();
+        } else if (e.key === "x" || e.key === "X") {
+            if (focusedAssetId) _setCull(focusedAssetId, "reject");
+            e.preventDefault();
+        } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            _moveFocus(1); e.preventDefault();
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            _moveFocus(-1); e.preventDefault();
+        }
+        return;   // don't fall through to other handlers
+    }
+
+    // ---------------------------------------------------------------
+    // Step 35: cull review
+    // ---------------------------------------------------------------
+    if (activeStep === "35") {
+        if (!pairedImages.length) return;
+        const item = pairedImages[cullReviewIndex];
+
+        if (e.key === "k" || e.key === "K") {
+            if (item) _setCull(item.baseName, "keep");
+            cullReviewIndex = Math.min(cullReviewIndex + 1, pairedImages.length - 1);
+            _renderCullReviewImage();
+        } else if (e.key === "x" || e.key === "X") {
+            if (item) _setCull(item.baseName, "reject");
+            cullReviewIndex = Math.min(cullReviewIndex + 1, pairedImages.length - 1);
+            _renderCullReviewImage();
+        } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            cullReviewIndex = (cullReviewIndex + 1) % pairedImages.length;
+            _renderCullReviewImage();
+            e.preventDefault();
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            cullReviewIndex = (cullReviewIndex - 1 + pairedImages.length) % pairedImages.length;
+            _renderCullReviewImage();
+            e.preventDefault();
+        }
+    }
+});
+
+// Brief keep/reject badge flash on the full image modal
+function _showModalCullBadge(decision) {
+    let badge = document.getElementById("modalCullBadge");
+    if (!badge) {
+        badge = document.createElement("div");
+        badge.id = "modalCullBadge";
+        badge.style.cssText =
+            "position:fixed; top:24px; right:32px; font-size:3rem; z-index:10000;" +
+            "pointer-events:none; transition:opacity 0.4s;";
+        document.body.appendChild(badge);
+    }
+    badge.style.opacity = "1";
+    badge.innerHTML = decision === "keep"
+        ? `<i class="bi bi-check-circle-fill text-success"></i>`
+        : `<i class="bi bi-x-circle-fill text-danger"></i>`;
+
+    clearTimeout(badge._hideTimer);
+    badge._hideTimer = setTimeout(() => { badge.style.opacity = "0"; }, 600);
+}
+
+// =============================================================================
+// IMPORT CHOICE DIALOG (Step 6)
+// =============================================================================
+function showImportChoice() {
+    const total    = pairedImages.length;
+    const kept     = [...cullDecisions.values()].filter(v => v === "keep").length;
+    const rejected = [...cullDecisions.values()].filter(v => v === "reject").length;
+    const unculled = total - kept - rejected;
+
+    const summary  = $("importCullSummary");
+    const text     = $("importCullSummaryText");
+    const buttons  = $("importChoiceButtons");
+
+    if (!summary) return;
+
+    if (total === 0 || cullDecisions.size === 0) {
+        // No culling done — skip dialog, go straight to import all
+        runOrganize("all");
+        return;
+    }
+
+    if (text) {
+        text.innerHTML =
+            `<strong>${total} photos</strong> on card &nbsp;·&nbsp; ` +
+            `<span class="text-success">${kept} kept</span> &nbsp;·&nbsp; ` +
+            `<span class="text-danger">${rejected} rejected</span>` +
+            (unculled > 0
+                ? ` &nbsp;·&nbsp; <span class="text-warning">${unculled} unculled</span>`
+                : "");
+    }
+
+    summary.classList.remove("d-none");
+    $("organizeBtn").classList.add("d-none");
+
+    $("importKeptOnlyBtn")?.addEventListener("click", () => {
+        summary.classList.add("d-none");
+        $("organizeBtn").classList.remove("d-none");
+        runOrganize("kept");
+    }, { once: true });
+
+    $("importAllBtn")?.addEventListener("click", () => {
+        summary.classList.add("d-none");
+        $("organizeBtn").classList.remove("d-none");
+        runOrganize("all");
+    }, { once: true });
+
+    $("importCancelChoiceBtn")?.addEventListener("click", () => {
+        summary.classList.add("d-none");
+        $("organizeBtn").classList.remove("d-none");
+    }, { once: true });
+}
+
+async function runOrganize(mode) {
+    // Use the active folder tab path as source, not the raw SD card root.
+    // This ensures the correct subfolder name is built on the backend
+    // (e.g. "929_FUJI/USB" not the whole card root).
+    const source      = sourceFolderPath || $("sdSelect")?.value;
+    const destination = $("workingDirectoryInput")?.value?.trim();
+
+    if (!source || !destination) return;
+
+    // Build kept-only list if needed
+    const keptPaths = mode === "kept"
+        ? pairedImages
+            .filter(item => cullDecisions.get(item.baseName) === "keep")
+            .flatMap(item => [item.raw, item.jpg].filter(Boolean))
+        : null;
+
+    setImportState("running");
+
+    try {
+        const body = { source, destination };
+        if (keptPaths) body.kept_paths = keptPaths;
+
+        const res  = await fetch("/api/organize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            setImportState("done", { count: data.count, destination: data.destination });
+        } else {
+            setImportState("error", { message: data.error });
+        }
+    } catch (err) {
+        setImportState("error", { message: err.message });
+    }
+}

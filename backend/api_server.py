@@ -215,34 +215,40 @@ def api_organize():
         import shutil
 
         # ------------------------------------------------------------------
-        # Build destination subfolder name:  "<camera> - <label>"  or just
-        # "<label>" if no camera folder was detected.
+        # Build destination subfolder name from the source path.
+        # source is now the specific folder tab path (e.g. G:\DCIM\929_FUJI\USB)
         # ------------------------------------------------------------------
-        camera_folder = ctx.state.get("title", "").strip()
+        sd_root   = ctx.state.get("current_sd_root", "")
+        dcim_path = os.path.join(sd_root, "DCIM") if sd_root else ""
 
-        # Get drive label from the sd_root path
-        sd_root = ctx.state.get("current_sd_root", "")
+        # Get drive label for suffix
         drive_label = ""
         if sd_root:
             try:
                 import win32api
-                # Ensure path ends with backslash for GetVolumeInformation
-                vol_path = sd_root.rstrip("\\/") + "\\"
+                vol_path = sd_root.rstrip("\\/ ") + "\\"
                 drive_label = win32api.GetVolumeInformation(vol_path)[0] or ""
             except Exception:
-                # Fallback: use the root folder/drive letter as label
-                drive_label = os.path.basename(sd_root.rstrip("\\/")) or sd_root
+                drive_label = os.path.basename(sd_root.rstrip("\\/ ")) or ""
+
+        # Build camera folder name relative to DCIM
+        # e.g. G:\DCIM\929_FUJI\USB -> "929_FUJI - USB"
+        source_norm = os.path.normpath(source)
+        if dcim_path and source_norm.lower().startswith(dcim_path.lower()):
+            rel = os.path.relpath(source_norm, dcim_path)
+            camera_folder = rel.replace(os.sep, " - ")
+        else:
+            camera_folder = os.path.basename(source_norm)
 
         if camera_folder and drive_label:
             subfolder = f"{camera_folder} - {drive_label}"
-        elif drive_label:
-            subfolder = drive_label
         elif camera_folder:
             subfolder = camera_folder
         else:
             subfolder = "Imported"
 
         dest_dir = os.path.join(destination, subfolder)
+        dest_dir = os.path.normpath(dest_dir)   # consistent backslashes on Windows
         os.makedirs(dest_dir, exist_ok=True)
 
         logger.info(f"Organize → {dest_dir}")
@@ -260,16 +266,88 @@ def api_organize():
         }
 
         copied = []
-        for root, _, files in os.walk(source):
-            for f in files:
-                if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
-                    continue
-                src_path = os.path.join(root, f)
-                dst_path = os.path.join(dest_dir, f)
-                if os.path.exists(dst_path):
-                    continue
-                shutil.copy2(src_path, dst_path)
-                copied.append(f)
+        session = ctx.state.get("session")
+
+        if session:
+            # ── Session-driven copy: only selected (kept) assets ──────────────
+            from photo_core.pre_import.session_state import get_selected_assets
+            selected = get_selected_assets(session)
+
+            if selected:
+                for asset_id, asset in selected.items():
+                    for key in ("raw_source", "jpg_source"):
+                        src_path = asset.get(key)
+                        if not src_path:
+                            continue
+                        src_path = os.path.normpath(src_path)
+                        if not os.path.isfile(src_path):
+                            continue
+                        ext = os.path.splitext(src_path)[1].lower()
+                        if ext not in ALLOWED_EXTENSIONS:
+                            continue
+                        dst_path = os.path.join(dest_dir, os.path.basename(src_path))
+                        if os.path.exists(dst_path):
+                            continue
+                        shutil.copy2(src_path, dst_path)
+                        copied.append(os.path.basename(src_path))
+
+                    # ── RAW fallback: session raw_source may be null if scanner
+                    # ran before session was created. Derive RAW path from JPG. ──
+                    if not asset.get("raw_source") and asset.get("jpg_source"):
+                        jpg_norm = os.path.normpath(asset["jpg_source"])
+                        stem = os.path.splitext(jpg_norm)[0]
+                        for raw_ext in (".raf", ".raw", ".cr2", ".cr3", ".nef",
+                                        ".arw", ".dng", ".orf", ".rw2"):
+                            candidate = stem + raw_ext
+                            if os.path.isfile(candidate):
+                                dst_path = os.path.join(dest_dir, os.path.basename(candidate))
+                                if not os.path.exists(dst_path):
+                                    shutil.copy2(candidate, dst_path)
+                                    copied.append(os.path.basename(candidate))
+                                    logger.debug(f"RAW fallback copy: {candidate}")
+                                break
+            else:
+                # No assets selected — fall through to full walk
+                logger.info("organize: session active but no selected assets — importing all")
+                for root, _, files in os.walk(source):
+                    for f in files:
+                        if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
+                            continue
+                        src_path = os.path.join(root, f)
+                        dst_path = os.path.join(dest_dir, f)
+                        if os.path.exists(dst_path):
+                            continue
+                        shutil.copy2(src_path, dst_path)
+                        copied.append(f)
+
+        else:
+            # ── No session: use kept_paths if sent, else full walk ────────────
+            kept_paths = data.get("kept_paths")
+
+            if kept_paths:
+                for src_path in kept_paths:
+                    src_path = os.path.normpath(src_path)
+                    if not os.path.isfile(src_path):
+                        continue
+                    f = os.path.basename(src_path)
+                    if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
+                        continue
+                    dst_path = os.path.join(dest_dir, f)
+                    if os.path.exists(dst_path):
+                        continue
+                    shutil.copy2(src_path, dst_path)
+                    copied.append(f)
+            else:
+                for root, _, files in os.walk(source):
+                    for f in files:
+                        if os.path.splitext(f)[1].lower() not in ALLOWED_EXTENSIONS:
+                            continue
+                        src_path = os.path.join(root, f)
+                        dst_path = os.path.join(dest_dir, f)
+                        if os.path.exists(dst_path):
+                            continue
+                        shutil.copy2(src_path, dst_path)
+                        copied.append(f)
 
         return {"success": True, "count": len(copied), "destination": dest_dir}
 
@@ -410,7 +488,8 @@ def api_session_create():
 
     except Exception as e:
         logger.exception("session/create failed")
-        return jsonify({"success": False, "error": str(e)}), 500
+        import traceback
+        return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()}), 500
 
 
 # -----------------------------------------------------------------------------
@@ -606,12 +685,38 @@ def api_session_copy():
 
 
 # -----------------------------------------------------------------------------
-# Pictures folder opener
+# Pictures folder opener (default output dir)
 # -----------------------------------------------------------------------------
 @app.route("/api/pictures-open")
 def api_pictures_open():
+    return _open_folder_in_explorer(ctx.output_dir)
+
+
+# -----------------------------------------------------------------------------
+# POST /api/open-folder
+# -----------------------------------------------------------------------------
+# Opens any specific folder in the OS file explorer.
+# Used by "Open destination folder" after import to open the exact subfolder.
+#
+# Request JSON:
+#   { "path": "C:/Temp/testit/929_FUJI - Medburn" }
+# -----------------------------------------------------------------------------
+@app.route("/api/open-folder", methods=["POST"])
+def api_open_folder():
+    data = request.json or {}
+    path = data.get("path", "").strip()
+
+    if not path:
+        return jsonify({"success": False, "error": "No path provided"}), 400
+    if not os.path.isdir(path):
+        return jsonify({"success": False, "error": f"Directory not found: {path}"}), 404
+
+    return _open_folder_in_explorer(path)
+
+
+def _open_folder_in_explorer(path: str):
+    """Open a folder in the OS native file explorer."""
     import subprocess
-    path = ctx.output_dir
     try:
         if platform.system() == "Windows":
             os.startfile(path)
@@ -619,7 +724,7 @@ def api_pictures_open():
             subprocess.Popen(["open", path])
         else:
             subprocess.Popen(["xdg-open", path])
-        return jsonify({"success": True})
+        return jsonify({"success": True, "path": path})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

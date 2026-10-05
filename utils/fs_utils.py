@@ -108,21 +108,81 @@ def cleanup_card_metadata(root):
 # -----------------------------------------------------------------------------
 # Folder discovery
 # -----------------------------------------------------------------------------
+def _has_images_direct(folder):
+    """True if folder contains image files directly (not just in subfolders)."""
+    for f in os.listdir(folder):
+        if f.lower().endswith(IMAGE_EXTS_ALL):
+            return True
+    return False
+
+
+def _has_image_subfolders(folder):
+    """True if folder contains subdirectories that themselves contain images."""
+    try:
+        for name in os.listdir(folder):
+            sub = os.path.join(folder, name)
+            if os.path.isdir(sub) and _has_images_direct(sub):
+                return True
+    except PermissionError:
+        pass
+    return False
+
+
 def list_candidate_folders(sd_root):
     """
-    Prefer camera folders inside DCIM.
-    If no DCIM, fallback to top-level folders.
+    Yield folders containing images for analysis.
+
+    Logic:
+    1. Look inside DCIM (standard camera structure)
+    2. For each DCIM subfolder:
+       - If it contains images directly → yield it as-is
+       - If it contains subfolders with images → yield those subfolders instead
+         (handles cameras that group by location/event e.g. Medburn/, USB/)
+    3. Collision detection: if two different parent folders both contain a
+       subfolder with the same name (e.g. 929_FUJI/Medburn + 105_PANA/Medburn),
+       prefix all affected names with their parent to keep them unique:
+       "929_FUJI/Medburn" and "105_PANA/Medburn".
+    4. If no DCIM, fall back to top-level folders of sd_root.
     """
     dcim = os.path.join(sd_root, "DCIM")
 
-    if os.path.isdir(dcim):
-        for name in os.listdir(dcim):
-            p = os.path.join(dcim, name)
-            if os.path.isdir(p):
-                yield p
-        return
+    # Collect all candidate (path, display_name) pairs first
+    candidates = []   # list of (path, display_name)
+    # Track which simple names appear more than once
+    name_count = {}
 
-    for name in os.listdir(sd_root):
-        p = os.path.join(sd_root, name)
-        if os.path.isdir(p):
-            yield p
+    if os.path.isdir(dcim):
+        for parent_name in sorted(os.listdir(dcim)):
+            parent_path = os.path.join(dcim, parent_name)
+            if not os.path.isdir(parent_path):
+                continue
+
+            if _has_images_direct(parent_path):
+                display = parent_name
+                candidates.append((parent_path, display, None))
+                name_count[display] = name_count.get(display, 0) + 1
+
+            elif _has_image_subfolders(parent_path):
+                for subname in sorted(os.listdir(parent_path)):
+                    sub = os.path.join(parent_path, subname)
+                    if os.path.isdir(sub) and _has_images_direct(sub):
+                        display = subname
+                        candidates.append((sub, display, parent_name))
+                        name_count[display] = name_count.get(display, 0) + 1
+
+    else:
+        # No DCIM — top-level folders
+        for name in sorted(os.listdir(sd_root)):
+            p = os.path.join(sd_root, name)
+            if os.path.isdir(p):
+                display = name
+                candidates.append((p, display, None))
+                name_count[display] = name_count.get(display, 0) + 1
+
+    # Yield paths; disambiguate display names where collisions exist
+    seen = {}
+    for path, display, parent in candidates:
+        if name_count.get(display, 0) > 1 and parent:
+            # Collision — prefix with parent folder name
+            display = f"{parent}/{display}"
+        yield path

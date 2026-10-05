@@ -174,3 +174,5 @@ build/
 
 # Temp analysis files
 flist*.txt
+
+.claude/settings.local.json

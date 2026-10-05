@@ -85,5 +85,15 @@ class AppContext:
         )
         os.makedirs(self.output_dir, exist_ok=True)
 
+        # ------------------------------------------------------------
+        # Sessions root (v3.0 ingest)
+        # ------------------------------------------------------------
+        # Each ingest session gets its own subfolder here, named
+        # <session_id>, containing session.json plus copied RAW/JPG.
+        # Referenced by backend/api_server.py's /api/session/create.
+        #
+        self.sessions_root = os.path.join(self.output_dir, "sessions")
+        os.makedirs(self.sessions_root, exist_ok=True)
+
         # Lock for job state
         self.job_lock = threading.Lock()

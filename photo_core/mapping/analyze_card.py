@@ -32,6 +32,8 @@ def analyze_card(sd_root):
     """
     folders = []
 
+    dcim_root = os.path.join(sd_root, "DCIM")
+
     for folder in list_candidate_folders(sd_root):
 
         # 1) SAMPLE JPEGs FIRST
@@ -80,8 +82,14 @@ def analyze_card(sd_root):
             raw_files = list(iter_raws(folder))
             sample = raw_files[0] if raw_files else None
 
+        # Build display name relative to DCIM to handle collisions:
+        # DCIM/929_FUJI/Medburn → "929_FUJI/Medburn"
+        # DCIM/105_PANA         → "105_PANA"
+        rel = os.path.relpath(folder, dcim_root) if os.path.isdir(dcim_root) else os.path.basename(folder)
+        display_name = rel.replace(os.sep, "/")
+
         folders.append({
-            "name": os.path.basename(folder),
+            "name": display_name,
             "path": folder,
             "photo_count": jpeg_count + raw_count,
             "jpeg_count": jpeg_count,
