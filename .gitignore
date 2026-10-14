@@ -137,6 +137,8 @@ pytestdebug.log
 # Reports
 *.html
 *.xml
+# ...but not the app's page template
+!templates/*.html
 
 # Local tooling / scratch
 .claude/

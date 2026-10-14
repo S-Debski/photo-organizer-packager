@@ -24,7 +24,6 @@
 import os
 import shutil
 import threading
-import time
 import logging
 from pathlib import Path
 
@@ -32,7 +31,6 @@ from photo_core.pre_import.session_state import (
     get_selected_assets,
     mark_asset_copied,
     save_session,
-    is_asset_fully_copied,
 )
 
 logger = logging.getLogger("copy_worker")

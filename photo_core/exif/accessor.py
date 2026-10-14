@@ -5,7 +5,6 @@
 # Unified Accessor for exif data
 # ------------------------------------------------------------
 
-from photo_core.exif.reader import read_exif
 
 from datetime import datetime
 

@@ -61,8 +61,6 @@ def classify_gps_quality(record):
 # Extract usable GPS points for mapping
 # =============================================================================
 
-from photo_core.exif.reader import get_exif_gps
-import os
 
 
 def get_base_name(path):

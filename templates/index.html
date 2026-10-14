@@ -1,0 +1,334 @@
+<!--
+==============================================================================
+ Photo Organizer UI (index.html)
+
+ Role:
+   Main UI shell. Sidebar step list + one view per step; main.js renders
+   the dynamic parts. All libraries are served locally (ui/static/libs)
+   so the app works offline — only map tiles need a connection.
+
+ Key IDs used by JS:
+   sdSelect, analyzeBtn, foldersList, thumbnailGallery, map, organizeBtn,
+   workingDirectoryInput (import destination), globalStatus (status line)
+==============================================================================
+-->
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ app_name }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="stylesheet" href="/static/libs/bootstrap/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/libs/bootstrap-icons/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/libs/leaflet/leaflet.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+
+<body>
+<div class="app">
+
+    <!-- ================================================================ -->
+    <!-- Sidebar                                                           -->
+    <!-- ================================================================ -->
+    <nav id="sidebar" class="sidebar">
+        <div class="brand">
+            <div class="brand-name">{{ app_name }}</div>
+            <div class="brand-version">{{ version }}</div>
+        </div>
+
+        <ul id="wizardNav">
+            <li><a class="sidebar-item active" data-step="1"><span class="step-no">1</span>Card</a></li>
+            <li><a class="sidebar-item" data-step="2"><span class="step-no">2</span>Folders</a></li>
+            <li><a class="sidebar-item" data-step="3"><span class="step-no">3</span>Browse &amp; cull</a></li>
+            <li><a class="sidebar-item sub" data-step="35">Review one by one</a></li>
+            <li><a class="sidebar-item" data-step="4"><span class="step-no">4</span>Cameras &amp; lenses</a></li>
+            <li><a class="sidebar-item" data-step="5"><span class="step-no">5</span>Locations</a></li>
+            <li><a class="sidebar-item" data-step="6"><span class="step-no">6</span>Import</a></li>
+        </ul>
+
+        <div class="sidebar-foot">
+            <kbd>K</kbd> keep &nbsp; <kbd>X</kbd> reject<br>
+            <kbd>&larr;</kbd><kbd>&rarr;</kbd> move &nbsp; <kbd>Esc</kbd> close
+        </div>
+    </nav>
+
+    <!-- ================================================================ -->
+    <!-- Content                                                           -->
+    <!-- ================================================================ -->
+    <main id="contentArea">
+
+        <div id="globalStatus" class="d-none"></div>
+
+        <!-- 1 — Card -------------------------------------------------- -->
+        <section class="wizard-step" data-step="1">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 1</p>
+                    <h1>Choose a card</h1>
+                </div>
+            </header>
+            <p class="lede">Insert an SD or CFexpress card. Photos are read in place —
+                nothing is copied until you import, and the card is never changed.</p>
+
+            <div class="panel">
+                <label class="field-label" for="sdSelect">Card</label>
+                <div class="card-picker">
+                    <select id="sdSelect" class="form-select">
+                        <option>No cards found yet</option>
+                    </select>
+                    <button id="refreshSdBtn" class="btn btn-quiet">
+                        <span id="sdSpinner" class="spinner-border spinner-border-sm d-none"></span>
+                        <span id="sdBtnText"><i class="bi bi-arrow-clockwise"></i> Detect cards</span>
+                    </button>
+                </div>
+                <div id="sdStatus" class="hint">
+                    <span id="sdStatusText"></span>
+                    <span id="sdTimer"></span>
+                </div>
+                <div class="form-check mt-2">
+                    <input type="checkbox" id="showVirtualDrives" class="form-check-input">
+                    <label for="showVirtualDrives" class="form-check-label text-muted">
+                        Include cloud and virtual drives
+                    </label>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button id="analyzeBtn" class="btn btn-primary" disabled>
+                    Read card <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- 2 — Folders ----------------------------------------------- -->
+        <section class="wizard-step d-none" data-step="2">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 2</p>
+                    <h1>Folders on the card</h1>
+                </div>
+            </header>
+            <p class="lede">Pick a folder to browse and cull.</p>
+            <div id="foldersList"></div>
+        </section>
+
+        <!-- 3 — Browse & cull ----------------------------------------- -->
+        <section class="wizard-step d-none" data-step="3">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 3 · <span id="currentFolderName" class="mono">–</span></p>
+                    <h1>Browse &amp; cull</h1>
+                </div>
+                <div class="step-meta">
+                    <span id="gpsStatusBadge" class="text-muted"></span>
+                    <div id="cullCounter" class="cull-legend d-none">
+                        <span id="cullTotal">0 photos</span>
+                        <span id="cullKept">0 kept</span>
+                        <span id="cullRejected">0 rejected</span>
+                        <span id="cullUnculled">0 unculled</span>
+                    </div>
+                </div>
+            </header>
+
+            <div id="thumbFolderTabs" class="d-none mb-3">
+                <ul class="nav nav-tabs" id="thumbFolderTabList"></ul>
+            </div>
+
+            <div id="thumbnailGallery"></div>
+        </section>
+
+        <!-- 3b — Review one by one ------------------------------------ -->
+        <section class="wizard-step d-none" data-step="35">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 3 · Review</p>
+                    <h1>One by one</h1>
+                </div>
+                <div id="cullReviewCounter" class="step-meta num"></div>
+            </header>
+
+            <div class="review-stage">
+                <button id="cullPrevBtn" class="review-nav prev" aria-label="Previous">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <img id="cullReviewImage" src="" alt="">
+                <button id="cullNextBtn" class="review-nav next" aria-label="Next">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+                <div id="cullReviewBadge"></div>
+            </div>
+
+            <div class="review-bar">
+                <div id="cullReviewFilename"></div>
+                <div class="actions">
+                    <button id="cullRejectBtn" class="btn btn-danger">
+                        <i class="bi bi-x-lg"></i> Reject <kbd>X</kbd>
+                    </button>
+                    <button id="cullKeepBtn" class="btn btn-success">
+                        <i class="bi bi-check-lg"></i> Keep <kbd>K</kbd>
+                    </button>
+                </div>
+            </div>
+
+            <div class="stat-grid">
+                <div class="panel">
+                    <p class="panel-title">Kept · <span id="keptCount" class="num">0</span></p>
+                    <div id="keptStrip" class="strip"></div>
+                </div>
+                <div class="panel">
+                    <p class="panel-title">Rejected · <span id="rejectedCount" class="num">0</span></p>
+                    <div id="rejectedStrip" class="strip"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4 — Cameras & lenses -------------------------------------- -->
+        <section class="wizard-step d-none" data-step="4">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 4</p>
+                    <h1>Cameras &amp; lenses</h1>
+                </div>
+                <div id="statsSummary" class="step-meta num"></div>
+            </header>
+            <div class="stat-grid">
+                <div class="panel">
+                    <p class="panel-title">Cameras</p>
+                    <div id="cameraStats"></div>
+                </div>
+                <div class="panel">
+                    <p class="panel-title">Lenses</p>
+                    <div id="lensStats"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5 — Locations --------------------------------------------- -->
+        <section class="wizard-step d-none" data-step="5">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 5</p>
+                    <h1>Locations</h1>
+                </div>
+                <div class="segmented">
+                    <button id="btnGrouped" class="active" onclick="setGroupMode('grouped')">By folder</button>
+                    <button id="btnAll" onclick="setGroupMode('all')">Every photo</button>
+                </div>
+            </header>
+
+            <div id="folderSelector" class="mb-2"></div>
+            <div id="map"></div>
+
+            <div id="locationDetails">
+                <div class="coord-row">
+                    <input id="latInput" type="number" step="0.000001"
+                           class="form-control form-control-sm num" placeholder="Latitude">
+                    <input id="lonInput" type="number" step="0.000001"
+                           class="form-control form-control-sm num" placeholder="Longitude">
+                    <button id="applyGpsBtn" class="btn btn-sm btn-primary">Assign location</button>
+                    <button id="copyDetectedGpsBtn" class="btn btn-sm btn-quiet">Use detected</button>
+                </div>
+                <p class="hint">Click the map or type coordinates. Locations are written
+                    to the imported copies, never to the card.</p>
+
+                <div id="writeProgressContainer" class="mt-2" style="display:none;">
+                    <div class="progress"><div id="writeProgressBar" class="progress-bar" style="width:0%"></div></div>
+                    <small id="writeProgressText" class="text-muted num"></small>
+                </div>
+            </div>
+
+            <div id="mapStatus"></div>
+        </section>
+
+        <!-- 6 — Import ------------------------------------------------ -->
+        <section class="wizard-step d-none" data-step="6">
+            <header class="step-head">
+                <div>
+                    <p class="eyebrow">Step 6</p>
+                    <h1>Import</h1>
+                </div>
+            </header>
+
+            <div class="panel">
+                <label class="field-label" for="workingDirectoryInput">Destination</label>
+                <div class="input-group">
+                    <input id="workingDirectoryInput" type="text" class="form-control"
+                           placeholder="Choose where the photos should go">
+                    <button id="browseworkingDirectoryBtn" class="btn btn-quiet">Browse…</button>
+                </div>
+                <p class="hint">Photos go into a sub-folder named after the card folder,
+                    e.g. <span class="mono">100_FUJI - CARDNAME</span>. Files already there are skipped.</p>
+            </div>
+
+            <div id="importSummary" class="panel d-none">
+                <p class="panel-title">Ready to import</p>
+                <div id="importSummaryText"></div>
+            </div>
+
+            <div id="importCullSummary" class="alert d-none">
+                <div id="importCullSummaryText" class="num"></div>
+                <div class="actions mt-2" id="importChoiceButtons">
+                    <button id="importKeptOnlyBtn" class="btn btn-primary btn-sm">Import kept only</button>
+                    <button id="importAllBtn" class="btn btn-quiet btn-sm">Import everything</button>
+                    <button id="importCancelChoiceBtn" class="btn btn-link-quiet btn-sm">Cancel</button>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button id="organizeBtn" class="btn btn-primary">
+                    <span id="organizeSpinner" class="spinner-border spinner-border-sm d-none"></span>
+                    <i id="organizeBtnIcon" class="bi bi-download"></i>
+                    <span id="organizeBtnText">Start import</span>
+                </button>
+                <button id="openPicturesBtn" class="btn btn-quiet d-none">
+                    <i class="bi bi-folder2-open"></i> Show in folder
+                </button>
+            </div>
+
+            <div id="importProgressContainer" class="mt-3 d-none" style="max-width:640px">
+                <div class="d-flex justify-content-between small text-muted mb-1 num">
+                    <span id="importProgressLabel">Copying files…</span>
+                    <span id="importProgressPct"></span>
+                </div>
+                <div class="progress">
+                    <div id="importProgressBar" class="progress-bar" style="width:0%"></div>
+                </div>
+                <div class="d-flex gap-3 mt-2 small text-muted" id="importTimingRow">
+                    <span>Elapsed <span id="importElapsed">0s</span></span>
+                    <span id="importRate">—</span>
+                    <span id="importEta">—</span>
+                </div>
+            </div>
+
+            <div id="importResult" class="mt-3 d-none"></div>
+        </section>
+
+    </main>
+</div>
+
+<!-- Full-image viewer (outside the steps so it overlays everything) -->
+<div id="imageModal" class="d-none"
+     onclick="if(event.target===this)this.classList.add('d-none')">
+    <button class="viewer-btn prev" aria-label="Previous"
+            onclick="event.stopPropagation();showPreviousImage()"><i class="bi bi-chevron-left"></i></button>
+
+    <figure class="viewer-figure">
+        <img id="previewImage" alt="">
+        <figcaption>
+            <div id="modalFilename"></div>
+            <div class="viewer-keys">K keep · X reject · ← → move · Esc close</div>
+        </figcaption>
+    </figure>
+
+    <button class="viewer-btn next" aria-label="Next"
+            onclick="event.stopPropagation();showNextImage()"><i class="bi bi-chevron-right"></i></button>
+    <button class="viewer-btn close" aria-label="Close"
+            onclick="document.getElementById('imageModal').classList.add('d-none')"><i class="bi bi-x-lg"></i></button>
+</div>
+
+<script src="/static/libs/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/static/libs/leaflet/leaflet.js"></script>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

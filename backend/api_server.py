@@ -46,12 +46,11 @@ from backend.routes.gps_data import api_gps_data
 from backend.routes.thumbs import api_thumbs, api_thumb, api_photo_proxy, api_full_image
 from backend.routes.write_gps import api_write_gps, write_gps_tags
 
-from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
+from backend.services.sdcard import detect_sd_cards
 
 # Session state (v3.0)
 from photo_core.pre_import.session_state import (
     create_session,
-    load_session,
     save_session,
     register_asset,
     set_asset_selected,
@@ -120,7 +119,6 @@ def touch_activity():
 @app.route("/")
 def index():
     touch_activity()
-    from version import APP_VERSION, APP_NAME
 
     ...
 
@@ -463,6 +461,20 @@ def photo_proxy():
     touch_activity()
     path = request.args.get("path")
     return api_photo_proxy(ctx, path)
+
+# -----------------------------------------------------------------------------
+# Per-file EXIF summary (camera, lens, date) for the stats step
+# -----------------------------------------------------------------------------
+@app.route("/api/exif-records")
+def exif_records():
+    records = ctx.state.get("exif_records") or []
+    return jsonify({
+        "ready": bool(records),
+        "records": [
+            {k: r.get(k) for k in ("path", "camera_model", "lens", "datetime")}
+            for r in records
+        ],
+    })
 
 # -----------------------------------------------------------------------------
 # Cached thumbnail / preview (size: grid | strip | preview)

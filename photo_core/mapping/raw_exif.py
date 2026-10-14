@@ -3,8 +3,6 @@
 # utils/raw_exif.py
 # Future RAW EXIF support via exiv2 or libraw
 
-import subprocess
-import json
 
 def extract_raw_exif(path):
     """

@@ -19,8 +19,6 @@ from pathlib import Path
 # Universal SD / CFexpress detection (Windows, macOS, Linux)
 # ------------------------------------------------------------
 
-import os
-import platform
 
 # Windows-specific imports
 if os.name == "nt":

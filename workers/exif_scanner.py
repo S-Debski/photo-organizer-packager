@@ -71,7 +71,6 @@
 import os
 import time
 
-from utils.fs_utils import iter_jpegs
 from utils.logging_bus import log_info
 
 from photo_core.mapping.exif_dates import (

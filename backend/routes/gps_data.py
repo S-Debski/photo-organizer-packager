@@ -64,7 +64,6 @@
 import logging
 from flask import jsonify, request
 
-from photo_core.mapping.gps_data import extract_gps_points
 
 logger = logging.getLogger("gps")
 

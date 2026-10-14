@@ -90,7 +90,12 @@ def build_thumb(cache_dir, img_path, size=320) -> str | None:
         else:
             im = _raw_preview(img_path)
             if im is None:
-                return None
+                # TIFF-based RAWs (some DNG/NEF) can be decoded directly
+                try:
+                    im = ImageOps.exif_transpose(Image.open(img_path))
+                    im.load()
+                except Exception:
+                    return None
 
         im = im.convert("RGB")
         im.thumbnail((size, size), Image.Resampling.LANCZOS)
