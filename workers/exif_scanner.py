@@ -97,6 +97,16 @@ error_count = 0
 # Helpers
 # =============================================================================
 
+def get_meta(meta, key):
+    """Return EXIF value handling ExifTool namespaces."""
+    return (
+        meta.get(key)
+        or meta.get(f"GPS:{key}")
+        or meta.get(f"EXIF:{key}")
+        or meta.get(f"Composite:{key}")
+    )
+
+
 def _folder_signature(paths: list[str]) -> tuple:
     """(path, size, mtime) for every file — changes when files are added/replaced."""
     sig = []
@@ -249,8 +259,10 @@ def exif_scanner_worker(ctx):
                 print("✅ RECORD:", path)
                 count += 1
 
-            except Exception:
+            except Exception as e:
                 error_count += 1
+                if error_count <= 3:   # enough to diagnose, without flooding
+                    print(f"⚠️ EXIF failed for {path}: {type(e).__name__}: {e}")
 
         # ✅ Store results
         if records:

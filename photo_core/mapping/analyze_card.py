@@ -100,9 +100,11 @@ def analyze_card(sd_root):
             "sample": sample,  # ✅ ALWAYS a single string or None
         })
 
-        total_raw = sum(f["raw_count"] for f in folders)
-        total_jpg = sum(f["jpeg_count"] for f in folders)
-        total_images = sum(f["photo_count"] for f in folders)
+    # Outside the loop: a card with no image folders must report zeros,
+    # not raise UnboundLocalError.
+    total_raw = sum(f["raw_count"] for f in folders)
+    total_jpg = sum(f["jpeg_count"] for f in folders)
+    total_images = sum(f["photo_count"] for f in folders)
 
     return {
         "folders": folders,
