@@ -65,8 +65,10 @@ logger = logging.getLogger("session_state")
 
 MANIFEST_FILENAME = "session.json"
 
-RAW_EXTENSIONS = {".raf", ".raw", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2"}
-JPG_EXTENSIONS = {".jpg", ".jpeg"}
+from utils.fs_utils import IMAGE_EXTS_JPEG, IMAGE_EXTS_RAW  # noqa: E402
+
+RAW_EXTENSIONS = set(IMAGE_EXTS_RAW) | {".raw"}
+JPG_EXTENSIONS = set(IMAGE_EXTS_JPEG)
 
 # Schema version — bump when manifest structure changes
 MANIFEST_VERSION = 1

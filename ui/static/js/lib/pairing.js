@@ -22,8 +22,10 @@
 //   v3.0 – folder-scoped pairing
 // ====================================================================
 
+// Keep in step with IMAGE_EXTS_RAW in utils/fs_utils.py
 const RAW_EXTENSIONS = [
-  "CR2", "CR3", "NEF", "ARW", "RAF", "ORF", "RW2", "DNG"
+  "RAF", "CR2", "CR3", "CRW", "NEF", "NRW", "ARW", "SR2", "SRF",
+  "ORF", "PEF", "RW2", "DNG"
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────

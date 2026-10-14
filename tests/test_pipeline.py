@@ -1,0 +1,200 @@
+# Role: Test suite (see Stability Contract)
+"""
+End-to-end checks for the ingest pipeline: EXIF scan, sessions/culling,
+import, GPS write-back and thumbnails.
+
+    python -m unittest discover -s tests -v
+
+Builds a throwaway "card" (DCIM/100TEST with JPG/RAW pairs) in a temp
+folder. Tests that need ExifTool are skipped when it is not installed.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from PIL import Image  # noqa: E402
+
+from photo_core.ctx.context import AppContext  # noqa: E402
+from photo_core.exif.reader import resolve_exiftool_cmd, NO_WINDOW  # noqa: E402
+import backend.api_server as srv  # noqa: E402
+
+EXIFTOOL = resolve_exiftool_cmd()
+needs_exiftool = unittest.skipUnless(EXIFTOOL, "ExifTool not installed")
+
+
+def _exiftool(*args):
+    return subprocess.run([EXIFTOOL, *args], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+
+
+def make_card(root: Path) -> Path:
+    """DCIM/100TEST: 0001 RAW+JPG (GPS), 0002 RAW+JPG, 0003 JPG, 0004 RAW only."""
+    src = root / "card" / "DCIM" / "100TEST"
+    src.mkdir(parents=True)
+    for i, colour in enumerate(["red", "green", "blue"], start=1):
+        Image.new("RGB", (1200, 800), colour).save(src / f"DSCF000{i}.JPG", quality=90)
+    # Stand-in RAWs: copies of JPEGs (exiftool reads them; previews come
+    # from the embedded-preview path, which fails cleanly)
+    shutil.copy(src / "DSCF0001.JPG", src / "DSCF0001.RAF")
+    shutil.copy(src / "DSCF0002.JPG", src / "DSCF0002.RAF")
+    shutil.copy(src / "DSCF0003.JPG", src / "DSCF0004.RAF")
+    (src / "DSCF0001.RAF.xmp").write_text("<x:xmpmeta/>")
+    if EXIFTOOL:
+        _exiftool("-q", "-overwrite_original", "-Make=FUJIFILM", "-Model=X-T5",
+                  "-DateTimeOriginal=2026:06:01 10:00:00", "-GPSLatitude=54.9783",
+                  "-GPSLatitudeRef=N", "-GPSLongitude=1.6178",
+                  "-GPSLongitudeRef=W", str(src / "DSCF0001.JPG"))
+    return src
+
+
+class PipelineTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="po-test-"))
+        cls.src = make_card(cls.tmp)
+        cls.ctx = AppContext()
+        cls.ctx.cache_dir = str(cls.tmp / "cache")
+        cls.ctx.sessions_root = str(cls.tmp / "sessions")
+        os.makedirs(cls.ctx.sessions_root)
+        srv.ctx = cls.ctx
+        cls.ctx.state.update(current_sd_root=str(cls.tmp / "card"),
+                             current_active_folder=str(cls.src),
+                             copy_complete=True)
+        cls.client = srv.app.test_client()
+        cls.src_bytes = {p: p.read_bytes() for p in cls.src.iterdir()}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.ctx.shutdown_event.set()
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def post(self, url, **body):
+        return self.client.post(url, json=body).get_json()
+
+    # -- EXIF scan ------------------------------------------------------------
+
+    @needs_exiftool
+    def test_01_scanner_produces_records_with_gps(self):
+        from workers.exif_scanner import exif_scanner_worker
+        threading.Thread(target=exif_scanner_worker, args=(self.ctx,),
+                         daemon=True).start()
+        for _ in range(60):
+            if self.ctx.state.get("exif_records"):
+                break
+            time.sleep(0.25)
+        records = {Path(r["path"]).name: r for r in self.ctx.state.get("exif_records", [])}
+        self.assertEqual(len(records), 6, "every JPG/RAW should produce a record")
+        rec = records["DSCF0001.JPG"]
+        self.assertEqual(rec["camera_model"], "FUJIFILM X-T5")
+        self.assertAlmostEqual(rec["gps"][0], 54.9783, places=4)
+        self.assertAlmostEqual(rec["gps"][1], -1.6178, places=4)
+
+        gps = self.post("/api/gps-data")
+        self.assertEqual([Path(p["path"]).name for p in gps["points"]], ["DSCF0001.JPG"])
+
+    def test_02_analyze_card(self):
+        r = self.post("/api/analyze-card", sd_card_path=str(self.tmp / "card") + os.sep)
+        folders = r["analysis"]["folders"]
+        self.assertEqual([f["name"] for f in folders], ["100TEST"])
+        self.assertEqual(r["analysis"]["counts"], {"total": 6, "raw": 3, "jpg": 3})
+
+    def test_03_analyze_empty_card(self):
+        empty = self.tmp / "empty"
+        (empty / "DCIM").mkdir(parents=True)
+        r = self.post("/api/analyze-card", sd_card_path=str(empty) + os.sep)
+        self.assertEqual(r["analysis"]["counts"]["total"], 0)
+
+    # -- Sessions / culling ---------------------------------------------------
+
+    def test_10_session_cull_and_resume(self):
+        r = self.post("/api/session/create", source_folder=str(self.src), session_name="100TEST")
+        self.assertTrue(r["success"])
+        self.assertEqual(self.client.get("/api/session/status").get_json()["total_assets"], 4)
+
+        self.post("/api/session/select", asset_id="DSCF0001", decision="keep")
+        self.post("/api/session/select", asset_id="DSCF0002", decision="reject")
+        self.post("/api/session/select", asset_id="DSCF0004", decision="keep")
+        self.post("/api/session/select", asset_id="DSCF0004", decision=None)
+
+        self.post("/api/session/close")
+        r = self.post("/api/session/create", source_folder=str(self.src), session_name="100TEST")
+        self.assertTrue(r["resumed"])
+        self.assertEqual(r["decisions"], {"DSCF0001": "keep", "DSCF0002": "reject"})
+        st = self.client.get("/api/session/status").get_json()
+        self.assertEqual((st["selected"], st["rejected"], st["unculled"]), (1, 1, 2))
+
+    # -- Import ---------------------------------------------------------------
+
+    def test_20_kept_import_needs_keepers(self):
+        r = self.post("/api/organize", source=str(self.src),
+                      destination=str(self.tmp / "dest-empty"), mode="kept", kept_paths=[])
+        self.assertFalse(r["success"])
+
+    @needs_exiftool
+    def test_21_kept_import_with_partners_and_gps(self):
+        dest = self.tmp / "dest"
+        r = self.post("/api/organize", source=str(self.src), destination=str(dest),
+                      mode="kept", kept_paths=[str(self.src / "DSCF0002.JPG")],
+                      gps=[{"path": str(self.src / "DSCF0002.JPG"), "lat": 51.5, "lon": -0.12}])
+        self.assertTrue(r["success"], r)
+        out = sorted(os.listdir(r["destination"]))
+        self.assertEqual(out, ["DSCF0002.JPG", "DSCF0002.RAF"])
+        self.assertEqual(r["gps_written"], 1)
+
+        tags = json.loads(_exiftool("-json", "-n", "-G1", "-GPS:all",
+                                    os.path.join(r["destination"], "DSCF0002.JPG")).stdout)[0]
+        self.assertEqual(tags["GPS:GPSLongitudeRef"], "W")
+        self.assertAlmostEqual(tags["GPS:GPSLongitude"], 0.12)
+
+    def test_22_import_all_skips_existing(self):
+        dest = self.tmp / "dest-all"
+        first = self.post("/api/organize", source=str(self.src), destination=str(dest), mode="all")
+        again = self.post("/api/organize", source=str(self.src), destination=str(dest), mode="all")
+        self.assertEqual(first["count"], 7)   # 6 images + .xmp sidecar
+        self.assertEqual((again["count"], again["skipped"]), (0, 7))
+
+    def test_23_write_gps_never_touches_source(self):
+        r = self.post("/api/write-gps", files=[str(self.src / "DSCF0003.JPG")], lat=1, lon=2)
+        self.assertEqual((r["deferred"], r["updated"]), (1, 0))
+
+    # -- Thumbnails -----------------------------------------------------------
+
+    def test_30_thumbnail_is_small_and_cached(self):
+        url = f"/api/thumb?path={self.src / 'DSCF0003.JPG'}&size=grid"
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        im = Image.open(__import__("io").BytesIO(r.data))
+        self.assertLessEqual(max(im.size), 320)
+        cached = os.listdir(os.path.join(self.ctx.cache_dir, "thumbs"))
+        self.assertEqual(len(cached), 1)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(len(os.listdir(os.path.join(self.ctx.cache_dir, "thumbs"))), 1)
+
+    def test_31_thumbs_list_is_not_capped(self):
+        files = self.client.post("/api/thumbs", json={"folder": str(self.src)}).get_json()
+        self.assertEqual(len(files), 6)
+
+    # -- Safety ---------------------------------------------------------------
+
+    def test_90_source_card_unchanged(self):
+        now = {p: p.read_bytes() for p in self.src.iterdir()}
+        self.assertEqual(now, self.src_bytes)
+
+    def test_91_no_cors_headers(self):
+        r = self.client.get("/api/session/status", headers={"Origin": "https://evil.example"})
+        self.assertNotIn("Access-Control-Allow-Origin", r.headers)
+
+
+if __name__ == "__main__":
+    unittest.main()

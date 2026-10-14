@@ -80,7 +80,7 @@ from photo_core.mapping.exif_dates import (
     extract_lens_model,
 )
 
-from photo_core.exif.reader import read_exif
+from photo_core.exif.reader import read_exif, prefetch_exif
 from utils.fs_utils import iter_images
 
 # Session registration (v3.0)
@@ -209,8 +209,13 @@ def exif_scanner_worker(ctx):
         _register_pairs_into_session(paths, ctx)
 
         # -----------------------------------------------------------------
-        # EXIF extraction (unchanged from v2.7)
+        # EXIF extraction — one batched exiftool run per 200 files, then
+        # the per-file helpers below read from that cache.
         # -----------------------------------------------------------------
+        t0 = time.perf_counter()
+        prefetch_exif(paths)
+        print(f"📖 EXIF read for {len(paths)} files in {time.perf_counter() - t0:.1f}s")
+
         records = []
         count = 0
         error_count = 0  # reset per scan

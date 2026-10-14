@@ -38,8 +38,7 @@ from photo_core.pre_import.session_state import (
 logger = logging.getLogger("copy_worker")
 
 # Recognised extensions — used to decide subfolder inside session
-RAW_EXTENSIONS = {".raf", ".raw", ".cr2", ".cr3", ".nef", ".arw", ".dng", ".orf", ".rw2"}
-JPG_EXTENSIONS = {".jpg", ".jpeg"}
+from photo_core.pre_import.session_state import RAW_EXTENSIONS, JPG_EXTENSIONS  # noqa: E402,F401
 
 
 # =============================================================================

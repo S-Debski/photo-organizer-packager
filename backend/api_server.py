@@ -35,7 +35,6 @@ except ImportError:
     Tk = None
 
 from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
 
 from photo_core.ctx.context import AppContext
 from workers.exif_scanner import exif_scanner_worker
@@ -44,7 +43,7 @@ from workers.exif_scanner import exif_scanner_worker
 from backend.routes.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
 from backend.routes.gps_data import api_gps_data
-from backend.routes.thumbs import api_thumbs, api_photo_proxy, api_full_image
+from backend.routes.thumbs import api_thumbs, api_thumb, api_photo_proxy, api_full_image
 from backend.routes.write_gps import api_write_gps, write_gps_tags
 
 from backend.services.sdcard import detect_sd_cards, auto_select_sd_card
@@ -66,7 +65,7 @@ from photo_core.pre_import.session_state import (
     RAW_EXTENSIONS,
     JPG_EXTENSIONS,
 )
-from utils.fs_utils import iter_images
+from utils.fs_utils import iter_images, IMAGE_EXTS_ALL
 
 from workers.copy_worker import start_copy_worker
 
@@ -100,7 +99,8 @@ app = Flask(
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
-CORS(app)
+# No CORS: the UI is same-origin. CORS(app) let any website read local
+# files through /api/photo-proxy while the app was running.
 
 # Shared application context
 ctx: AppContext | None = None
@@ -276,13 +276,7 @@ def api_organize():
         # Only copy recognised photo file types
         # Skips: .MTS .CPI .MPL .BIN (AVCHD/camera system files)
         # ------------------------------------------------------------------
-        ALLOWED_EXTENSIONS = {
-            ".jpg", ".jpeg",
-            ".raf", ".raw", ".cr2", ".cr3",
-            ".nef", ".arw", ".dng", ".orf", ".rw2",
-            ".png", ".tif", ".tiff",
-            ".xmp",
-        }
+        ALLOWED_EXTENSIONS = {*IMAGE_EXTS_ALL, ".png", ".tif", ".tiff", ".xmp"}
 
         # ------------------------------------------------------------------
         # Decide which files to copy.
@@ -469,6 +463,13 @@ def photo_proxy():
     touch_activity()
     path = request.args.get("path")
     return api_photo_proxy(ctx, path)
+
+# -----------------------------------------------------------------------------
+# Cached thumbnail / preview (size: grid | strip | preview)
+# -----------------------------------------------------------------------------
+@app.route("/api/thumb")
+def thumb():
+    return api_thumb(ctx, request.args.get("path"), request.args.get("size", "grid"))
 
 # -----------------------------------------------------------------------------
 # Full image

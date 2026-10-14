@@ -20,6 +20,9 @@ import os
 from flask import jsonify, send_file
 from urllib.parse import unquote
 
+from utils.fs_utils import iter_images
+from utils.thumb_cache import build_thumb
+
 
 # =============================================================================
 # THUMBNAILS API
@@ -40,20 +43,42 @@ def api_thumbs(ctx, payload):
         print("⚠️ Invalid folder:", folder)
         return []
 
-    # ✅ ✅ INCLUDE BOTH JPG AND RAW
-    SUPPORTED_EXTS = (".jpg", ".jpeg", ".raf")
+    # Every JPEG and RAW type (was .jpg/.jpeg/.raf only, capped at 100 —
+    # larger cards were silently truncated for culling)
+    files = sorted(iter_images(folder))
 
-    files = []
+    print(f"📸 Thumbnails (JPG + RAW): {len(files)}")
 
-    for root, _, filenames in os.walk(folder):
-        for f in filenames:
-            if f.lower().endswith(SUPPORTED_EXTS):
-                full_path = os.path.join(root, f)
-                files.append(full_path)
+    return files
 
-    print(f"📸 FAST thumbnails (JPG + RAW): {len(files)}")
 
-    return files[:100]  # limit for UI performance
+# =============================================================================
+# CACHED THUMBNAIL / PREVIEW
+# =============================================================================
+THUMB_SIZES = {"grid": 320, "strip": 160, "preview": 1600}
+
+
+def api_thumb(ctx, img_path, size_name):
+    """Downscaled JPEG (JPG or RAW source), cached on disk."""
+    if not img_path:
+        return jsonify({"success": False, "error": "No path"}), 400
+
+    img_path = os.path.normpath(unquote(img_path))
+    if not os.path.isfile(img_path):
+        return jsonify({"success": False, "error": "File not found"}), 404
+
+    size = THUMB_SIZES.get(size_name, THUMB_SIZES["grid"])
+    try:
+        tp = build_thumb(ctx.cache_dir, img_path, size)
+    except Exception as e:
+        print(f"Thumbnail failed for {img_path}: {e}")
+        tp = None
+
+    if not tp:
+        return jsonify({"success": False, "error": "No preview available"}), 415
+
+    # Cache key includes size+mtime, so the browser can keep it a long time
+    return send_file(tp, mimetype="image/jpeg", max_age=86400)
 
 
 # =============================================================================

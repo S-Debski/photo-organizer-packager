@@ -156,16 +156,89 @@ def exiftool_available() -> bool:
     return resolve_exiftool_cmd() is not None
 
 
-@lru_cache(maxsize=2048)
+# Records loaded by prefetch_exif(), keyed by normalised path. Starting
+# exiftool costs ~150 ms on Windows, so one call per batch of files is far
+# cheaper than one call per file.
+_PREFETCHED: dict[str, dict] = {}
+_PREFETCH_LIMIT = 20000
+_BATCH_SIZE = 200
+
+
+def _key(path) -> str:
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def _stamp(path):
+    """(size, mtime) — cards reuse names like DSCF0001, so path alone is not enough."""
+    try:
+        st = os.stat(path)
+        return st.st_size, st.st_mtime
+    except OSError:
+        return None
+
+
+def prefetch_exif(paths) -> int:
+    """
+    Read metadata for many files with as few exiftool runs as possible and
+    keep it for read_exif(). Returns the number of records loaded.
+    """
+    cmd = resolve_exiftool_cmd()
+    todo = [str(p) for p in paths
+            if _PREFETCHED.get(_key(p), (None,))[0] != _stamp(p)]
+    if not cmd or not todo:
+        return 0
+
+    if len(_PREFETCHED) + len(todo) > _PREFETCH_LIMIT:
+        _PREFETCHED.clear()
+
+    loaded = 0
+    for i in range(0, len(todo), _BATCH_SIZE):
+        batch = todo[i:i + _BATCH_SIZE]
+        try:
+            # File names go through stdin (-@ -) to avoid Windows'
+            # command-line length limit.
+            proc = subprocess.run(
+                [cmd, "-charset", "filename=utf8", "-json", "-n", "-G1", "-a",
+                 "-s", "-@", "-"],
+                input="\n".join(batch),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=NO_WINDOW,
+                timeout=30 + len(batch),
+            )
+            records = json.loads(proc.stdout) if proc.stdout else []
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+            logger.warning(f"exiftool batch failed ({e}); falling back per file")
+            continue
+
+        for rec in records:
+            src = rec.get("SourceFile")
+            if src:
+                _PREFETCHED[_key(src)] = (_stamp(src), rec)
+                loaded += 1
+
+    return loaded
+
+
 def read_exif(path: str | Path) -> dict:
     """
-    Read full metadata via exiftool
+    Read full metadata via exiftool (uses prefetch_exif() results first).
     """
+    stamp = _stamp(path)
+    hit = _PREFETCHED.get(_key(path))
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    return _read_exif_single(str(path), stamp)
+
+
+@lru_cache(maxsize=2048)
+def _read_exif_single(path: str, stamp=None) -> dict:
+    # `stamp` is only part of the cache key
     cmd = resolve_exiftool_cmd()
     if not cmd:
         return {}
-
-    path = str(path)
 
     try:
         proc = subprocess.run(

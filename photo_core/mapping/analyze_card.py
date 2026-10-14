@@ -6,6 +6,7 @@
 
 import os
 from utils.fs_utils import iter_jpegs, iter_raws, list_candidate_folders
+from photo_core.exif.reader import prefetch_exif
 from photo_core.mapping.exif_dates import (
     extract_camera_model,
     extract_lens_model,
@@ -36,21 +37,21 @@ def analyze_card(sd_root):
 
     for folder in list_candidate_folders(sd_root):
 
-        # 1) SAMPLE JPEGs FIRST
-        samples = list(iter_raws(folder))[:30] or list(iter_jpegs(folder))[:30]
+        # Walk the folder once (it was walked five times per folder before)
+        raw_files = list(iter_raws(folder))
+        jpeg_files = list(iter_jpegs(folder))
+        jpeg_count = len(jpeg_files)
+        raw_count = len(raw_files)
 
-        # 2) RAW fallback
+        if not raw_files and not jpeg_files:
+            continue
+
+        # 1) Samples for camera/lens: RAW first, else JPEG
+        samples = raw_files[:30] or jpeg_files[:30]
         raw_only = False
-        if not samples:
-            raw_files = list(iter_raws(folder))
-            if not raw_files:
-                continue
-            raw_only = True
-            jpeg_count = 0
-            raw_count = len(raw_files)
-        else:
-            jpeg_count = sum(1 for _ in iter_jpegs(folder))
-            raw_count = sum(1 for _ in iter_raws(folder))
+
+        # One batched exiftool run instead of one per sample
+        prefetch_exif(samples)
 
         # 3) Camera / lens extraction
         if raw_only:
@@ -72,15 +73,8 @@ def analyze_card(sd_root):
             model = model or "Camera not resolved - no camera EXIF"
             lens = lens or "Unknown Lens"
 
-        # Get JPEGs first (preferred for thumbnails)
-        jpeg_files = list(iter_jpegs(folder))
-
-        if jpeg_files:
-            sample = jpeg_files[0]
-        else:
-            # fallback to RAW only if no JPEGs exist
-            raw_files = list(iter_raws(folder))
-            sample = raw_files[0] if raw_files else None
+        # JPEG preferred for the folder's sample thumbnail
+        sample = jpeg_files[0] if jpeg_files else (raw_files[0] if raw_files else None)
 
         # Build display name relative to DCIM to handle collisions:
         # DCIM/929_FUJI/Medburn → "929_FUJI/Medburn"
