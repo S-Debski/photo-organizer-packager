@@ -70,7 +70,6 @@ from utils.fs_utils import iter_images
 
 from workers.copy_worker import start_copy_worker
 
-import pythoncom
 import logging
 
 # -----------------------------------------------------------------------------
@@ -171,6 +170,18 @@ def analyze_card():
 @app.route("/api/select-folder", methods=["GET"])
 def select_folder():
     try:
+        if platform.system() == "Darwin":
+            # Tk windows must be created on the main thread on macOS (this
+            # runs on a Flask worker thread), so use the native picker.
+            import subprocess
+            proc = subprocess.run(
+                ["osascript", "-e",
+                 'POSIX path of (choose folder with prompt "Choose destination folder")'],
+                capture_output=True, text=True,
+            )
+            path = proc.stdout.strip()
+            return {"path": path.rstrip("/") or None}
+
         if Tk is None:
             return {"path": None, "error": "tkinter not available"}
 
@@ -815,7 +826,21 @@ def _open_folder_in_explorer(path: str):
 # =============================================================================
 # Server runner
 # =============================================================================
-def run_api_server(app_ctx):
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("FLASK_PORT", 5000))
+APP_URL = f"http://{HOST}:{PORT}"
+
+
+def open_ui():
+    webbrowser.open_new(APP_URL)
+
+
+def start_api_server(app_ctx, open_browser=True) -> threading.Thread:
+    """
+    Start the EXIF worker and Flask in background threads and return the
+    Flask thread. The caller owns the main thread (tray icon on desktop
+    builds — macOS requires UI on the main thread).
+    """
     global ctx
     ctx = app_ctx
 
@@ -826,16 +851,19 @@ def run_api_server(app_ctx):
         daemon=True,
     ).start()
 
-    # Open browser once
-    threading.Timer(
-        1.0,
-        lambda: webbrowser.open_new("http://127.0.0.1:5000")
-    ).start()
+    if open_browser:
+        threading.Timer(1.0, open_ui).start()
 
-    # Run Flask
-    app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=False,
-        use_reloader=False
+    server = threading.Thread(
+        target=lambda: app.run(host=HOST, port=PORT, debug=False,
+                               use_reloader=False, threaded=True),
+        daemon=True,
+        name="flask",
     )
+    server.start()
+    return server
+
+
+def run_api_server(app_ctx):
+    """Blocking variant: run until the Flask thread exits."""
+    start_api_server(app_ctx).join()

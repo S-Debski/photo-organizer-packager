@@ -1,0 +1,56 @@
+name: Build desktop apps
+
+# Builds the standalone Windows and macOS apps and uploads them as
+# workflow artifacts. Run from the Actions tab, or push a v* tag.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  macos:
+    name: macOS (Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt pyinstaller
+          chmod +x build_mac.sh
+          ./build_mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhotoOrganizer-mac
+          path: dist/PhotoOrganizer-mac.zip
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch ExifTool
+        shell: pwsh
+        run: |
+          $ver = (Invoke-WebRequest https://exiftool.org/ver.txt).Content.Trim()
+          Invoke-WebRequest "https://exiftool.org/exiftool-${ver}_64.zip" -OutFile et.zip
+          Expand-Archive et.zip -DestinationPath et
+          $dir = (Get-ChildItem et -Directory | Select-Object -First 1).FullName
+          Rename-Item (Join-Path $dir "exiftool(-k).exe") "exiftool.exe"
+          "EXIFTOOL_DIR=$dir" >> $env:GITHUB_ENV
+      - name: Build
+        shell: cmd
+        run: |
+          python -m venv .venv
+          .venv\Scripts\pip install -q -r requirements.txt pyinstaller
+          build.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhotoOrganizer-windows
+          path: dist/Photo Organizer/

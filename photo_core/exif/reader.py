@@ -18,6 +18,7 @@ import subprocess
 import json
 import shutil
 import os
+import sys
 import logging
 
 from functools import lru_cache
@@ -113,15 +114,42 @@ class ExifToolError(RuntimeError):
     pass
 
 
+# In a windowed (no-console) Windows build every exiftool.exe call would
+# flash a console window without this.
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+@lru_cache(maxsize=1)
 def resolve_exiftool_cmd() -> str | None:
     """
-    Resolve exiftool executable path.
+    Resolve exiftool executable path, in order:
+      1. PHOTO_ORGANIZER_EXIFTOOL env var
+      2. copy bundled with a frozen (PyInstaller) build: <bundle>/exiftool/
+      3. PATH
+      4. common install locations — macOS apps started from Finder do not
+         inherit the shell PATH, so Homebrew's bin is not on it
     """
     explicit = os.environ.get("PHOTO_ORGANIZER_EXIFTOOL")
     if explicit and os.path.isfile(explicit):
         return explicit
 
-    return shutil.which("exiftool")
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        name = "exiftool.exe" if os.name == "nt" else "exiftool"
+        bundled = os.path.join(bundle_root, "exiftool", name)
+        if os.path.isfile(bundled):
+            return bundled
+
+    found = shutil.which("exiftool")
+    if found:
+        return found
+
+    for candidate in ("/opt/homebrew/bin/exiftool", "/usr/local/bin/exiftool",
+                      "/usr/bin/exiftool"):
+        if os.path.isfile(candidate):
+            return candidate
+
+    return None
 
 
 def exiftool_available() -> bool:
@@ -148,6 +176,10 @@ def read_exif(path: str | Path) -> dict:
             # decode some MakerNote bytes, which silently returned {} here.
             encoding="utf-8",
             errors="replace",
+            creationflags=NO_WINDOW,
+            # A windowed build has no valid stdin handle; inheriting it
+            # raises "The handle is invalid" on Windows.
+            stdin=subprocess.DEVNULL,
             timeout=5
         )
     except FileNotFoundError:

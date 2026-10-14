@@ -6,4 +6,5 @@ pillow>=10.0.0
 
 # Optional packages (comment out if having issues):
 # smbclient>=1.4.0  # Only needed for NAS backup feature
-# pywin32>=306  # Only for Windows drive detection enhancement
+pywin32>=306; sys_platform == "win32"   # SD card detection, COM
+pystray>=0.19.5                          # tray / menu-bar icon (pulls pyobjc on macOS)

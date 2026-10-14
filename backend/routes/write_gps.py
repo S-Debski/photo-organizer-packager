@@ -19,7 +19,7 @@ import subprocess
 from flask import jsonify
 from pathlib import Path
 
-from photo_core.exif.reader import resolve_exiftool_cmd
+from photo_core.exif.reader import resolve_exiftool_cmd, NO_WINDOW
 
 
 def _protected_roots(ctx) -> list[str]:
@@ -67,6 +67,8 @@ def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=NO_WINDOW,
+        stdin=subprocess.DEVNULL,
     )
 
 

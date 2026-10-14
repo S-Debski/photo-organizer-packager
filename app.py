@@ -2,77 +2,143 @@
 
 #!/usr/bin/env python3
 """
-Photo Organizer Backend – v3.0 Hybrid Ingest Edition
+Photo Organizer – v3.0 Hybrid Ingest Edition
+
+Starts the Flask backend in a background thread and keeps the main thread
+for the tray / menu-bar icon (Open, Quit). Falls back to running headless
+until Ctrl+C when no tray is available (e.g. Linux without a status tray).
 """
+import os
 import sys
+import socket
 import atexit
-# TODO(remove): unused import, not referenced anywhere in this file. Confirm no
-# future signal-handling need before deleting.
-# import signal
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import logging
-from queue import Queue
+# Bundled data (templates, icons, exiftool) lives in sys._MEIPASS when frozen
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", ROOT_DIR))
+FROZEN = getattr(sys, "frozen", False)
+
+
+def _log_dir() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Logs" / "PhotoOrganizer"
+    if os.name == "nt":
+        return Path.home() / "AppData" / "Local" / "PhotoWizardCache"
+    return Path.home() / ".cache" / "PhotoOrganizer"
+
+
+# A windowed build has no console: sys.stdout/stderr are None and every
+# print() and traceback vanishes. Send them to a log file instead.
+LOG_FILE = None
+if sys.stdout is None or sys.stderr is None:
+    _dir = _log_dir()
+    _dir.mkdir(parents=True, exist_ok=True)
+    LOG_FILE = _dir / "photo-organizer.log"
+    # Append (a second launch must not truncate the running instance's
+    # log); roll over to .old once it passes 2 MB.
+    try:
+        if LOG_FILE.stat().st_size > 2_000_000:
+            LOG_FILE.replace(LOG_FILE.with_suffix(".log.old"))
+    except OSError:
+        pass
+    _fh = open(LOG_FILE, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = sys.stdout or _fh
+    sys.stderr = sys.stderr or _fh
 
 # Emoji in worker print() calls raise UnicodeEncodeError on cp1252 streams
 # (redirected output), which silently kills the EXIF scanner thread.
 for _stream in (sys.stdout, sys.stderr):
-    if _stream is not None and hasattr(_stream, "reconfigure"):
+    if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-# TODO(remove): dead import — both names are immediately shadowed by the
-# local backend_log()/log_queue definitions below, so this import has no
-# effect. Safe to delete once confirmed nothing else relies on import order
-# side effects here.
-# from backend.utils.logging_utils import backend_log, log_queue
-from backend.api_server import run_api_server
-from photo_core.ctx.context import AppContext
+import logging  # noqa: E402
 
-from version import APP_NAME, APP_BUILD
-
-# ------------------------------------------------------------
-# Logging
-# ------------------------------------------------------------
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("PhotoOrganizerBackend")
 
-log_queue = Queue()
+from backend import api_server  # noqa: E402
+from photo_core.ctx.context import AppContext  # noqa: E402
+from photo_core.exif.reader import resolve_exiftool_cmd  # noqa: E402
+from version import APP_NAME, APP_BUILD, APP_VERSION  # noqa: E402
 
-def backend_log(msg: str):
-    logger.info(msg)
-    log_queue.put(msg)
 
 # ------------------------------------------------------------
 # Clean shutdown handler
 # ------------------------------------------------------------
-# Suppresses the Windows daemon-thread stdout lock crash on exit.
-# Daemon threads (EXIF scanner, thumbnail worker) may still be
-# running when Python shuts down and try to print — this redirects
-# stdout/stderr to devnull at that point to avoid the fatal error.
+# Daemon threads (EXIF scanner, Flask) may still be printing when Python
+# shuts down; redirecting to devnull avoids the Windows stdout-lock crash.
 # ------------------------------------------------------------
 def _suppress_output_on_exit():
     try:
-        sys.stdout = open(sys.devnull, 'w')
-        sys.stderr = open(sys.devnull, 'w')
+        sys.stdout = open(os.devnull, "w")
+        sys.stderr = open(os.devnull, "w")
     except Exception:
         pass
 
+
 atexit.register(_suppress_output_on_exit)
+
+
+def _already_running() -> bool:
+    """True if something is already listening on the app's port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((api_server.HOST, api_server.PORT)) == 0
+
+
+def _run_tray(ctx) -> bool:
+    """Run the tray icon on the main thread. False if unavailable."""
+    try:
+        from tray.tray_icon import run_tray
+        run_tray(ctx, RESOURCE_DIR / "assets" / "icon.png", api_server.open_ui,
+                 title=f"{APP_NAME} {APP_VERSION}")
+        return True
+    except Exception as e:
+        logger.warning(f"Tray icon unavailable ({e}); running without it")
+        return False
+
 
 # ------------------------------------------------------------
 # Entrypoint
 # ------------------------------------------------------------
 def main():
-    backend_log(f"Starting {APP_NAME} {APP_BUILD}")
+    logger.info(f"Starting {APP_NAME} {APP_VERSION} ({APP_BUILD})")
+    if LOG_FILE:
+        logger.info(f"Logging to {LOG_FILE}")
+
+    # Second launch: the first instance owns the port — just show its UI.
+    if _already_running():
+        logger.info("Already running — opening the existing window")
+        api_server.open_ui()
+        return
+
+    exiftool = resolve_exiftool_cmd()
+    if exiftool:
+        logger.info(f"ExifTool: {exiftool}")
+    else:
+        logger.warning("ExifTool not found — EXIF dates, camera and GPS will be missing")
+
     ctx = AppContext()
-    run_api_server(ctx)
+    api_server.start_api_server(ctx)
+
+    if not _run_tray(ctx):
+        try:
+            # Timed waits so Ctrl+C is delivered on Windows
+            while not ctx.shutdown_event.wait(0.5):
+                pass
+        except KeyboardInterrupt:
+            pass
+
+    ctx.shutdown_event.set()
+    logger.info("Shutting down")
+
 
 if __name__ == "__main__":
     main()
