@@ -39,7 +39,8 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Invoke-WebRequest https://exiftool.org/ver.txt).Content.Trim()
-          Invoke-WebRequest "https://exiftool.org/exiftool-${ver}_64.zip" -OutFile et.zip
+          # exiftool.org links its downloads to SourceForge
+          curl.exe -fsSL -o et.zip "https://sourceforge.net/projects/exiftool/files/exiftool-${ver}_64.zip/download"
           Expand-Archive et.zip -DestinationPath et
           $dir = (Get-ChildItem et -Directory | Select-Object -First 1).FullName
           Rename-Item (Join-Path $dir "exiftool(-k).exe") "exiftool.exe"
