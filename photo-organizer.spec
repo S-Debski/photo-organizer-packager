@@ -32,7 +32,14 @@ default_exiftool = r"C:\Users\Public\Tools\ExifTool" if IS_WIN else ""
 exiftool_dir = os.environ.get("EXIFTOOL_DIR", default_exiftool)
 exe_name = "exiftool.exe" if IS_WIN else "exiftool"
 if exiftool_dir and os.path.isfile(os.path.join(exiftool_dir, exe_name)):
-    datas.append((exiftool_dir, "exiftool"))
+    if IS_WIN:
+        datas.append((exiftool_dir, "exiftool"))
+    else:
+        # Only the script and its Perl modules. The full distribution also
+        # has t/ (test images, incl. a sample Mach-O file) that PyInstaller
+        # tries to sign as a binary and fails on.
+        datas.append((os.path.join(exiftool_dir, "exiftool"), "exiftool"))
+        datas.append((os.path.join(exiftool_dir, "lib"), "exiftool/lib"))
     print(f"Bundling ExifTool from {exiftool_dir}")
 else:
     print("WARNING: ExifTool not bundled — set EXIFTOOL_DIR")
