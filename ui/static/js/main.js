@@ -1537,11 +1537,11 @@ function initMap() {
         return;
     }
 
-    el.style.height = "400px";
-    el.style.width = "100%";
-    el.style.display = "block";
-
-    if (map) return;
+    // Size comes from styles.css (#map): fills the window height
+    if (map) {
+        map.invalidateSize();   // container may have changed size while hidden
+        return;
+    }
 
     map = L.map(el);
 

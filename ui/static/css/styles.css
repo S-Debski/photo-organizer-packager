@@ -770,8 +770,10 @@ body {
 /* ============================================================================
    Map
    ========================================================================== */
+/* Locations step uses the full width; map fills the window height */
+.wizard-step[data-step="5"] { max-width: none; }
 #map {
-    height: 440px;
+    height: max(440px, calc(100vh - 300px));
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: #0d0d0d;
