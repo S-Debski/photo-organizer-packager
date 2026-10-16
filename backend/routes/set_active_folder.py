@@ -189,6 +189,10 @@ def api_set_active_folder(payload):
 
     # ✅ release EXIF worker
     api_server.ctx.state["copy_complete"] = True
+    # Drop the previous folder's records so the map/stats don't show them
+    # while the scanner reads this one (exif_ready goes false until then)
+    if api_server.ctx.state.get("current_active_folder") != folder:
+        api_server.ctx.state["exif_records"] = []
     api_server.ctx.state["current_active_folder"] = folder
 
     # -------------------------------------------------------------------------

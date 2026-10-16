@@ -397,7 +397,7 @@ function getFolderGPS(folderName) {
 function updateFolderIndicators() {
     // just re-render selector
     if (currentImages) {
-        renderFolderSelector(currentImages);
+        renderFolderSelector();
     }
 }
 // ====================================================================
@@ -841,112 +841,98 @@ function groupByFolder(images) {
     return groups;
 }
 
-function renderFolderSelector(images) {
-    const container = document.getElementById("folderSelector");
+// Last path segment — the shoot folder's own name (also the key getFolderName() uses)
+function folderTitle(path) {
+    return (path || "").split(/[\\/]/).filter(Boolean).pop() || path;
+}
 
-    if (!container) {
-        console.warn("⚠️ folderSelector container not found");
-        return;
+// One way to open a folder, shared by the Folders list, the Browse tabs and
+// the Locations buttons: points the backend (EXIF scan, map, stats) at it.
+async function activateFolder(folder) {
+    if (!folder?.path) return false;
+
+    sourceFolderPath = folder.path;
+    selectedFolder   = folder.name;
+    currentGroup     = folderTitle(folder.path);
+    manualLocation   = null;
+    gpsRetryCount    = 0;
+
+    const nameEl = $("currentFolderName");
+    if (nameEl) nameEl.textContent = folder.name;
+    const status = $("mapStatus");
+    if (status) status.innerHTML = "";
+    document.querySelectorAll(".folder-item")
+        .forEach(el => el.classList.toggle("selected", el.dataset.path === folder.path));
+
+    try {
+        const res = await fetch("/api/set-active-folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ folder: folder.path, working_dir: workingDirectory })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showGlobalStatus(`Could not open ${folder.name}`, "error");
+            return false;
+        }
+        workingDirectory = data.working_dir;
+    } catch (err) {
+        console.error("❌ Error setting active folder:", err);
+        showGlobalStatus(`Could not open ${folder.name}`, "error");
+        return false;
     }
 
-    if (!images || images.length === 0) {
-        console.warn("⚠️ No images to group");
-        return;
-    }
+    updateHeaderStatus();
+    return true;
+}
 
-    // build groups from working images
-    folderGroups = groupByFolder(images);
+// Locations step: one button per shoot folder on the card (not just the
+// folders that already have GPS — those are the ones that need it).
+function renderFolderSelector() {
+    const container = $("folderSelector");
+    if (!container) return;
 
-    console.log("✅ Folder groups:", Object.keys(folderGroups));
+    // Kept for "Use detected", which groups map markers by folder
+    if (currentImages && currentImages.length) folderGroups = groupByFolder(currentImages);
 
-    // clear existing UI
     container.innerHTML = "";
-
-    Object.keys(folderGroups).forEach(folder => {
+    (analyzedFolders || []).forEach(folder => {
+        const gps = folderGPS[folder.name];
+        const hasGPS = gps && (gps.lon != null || gps.lng != null);
 
         const btn = document.createElement("button");
-        btn.className = "btn btn-sm btn-outline-secondary m-1";
-
-        const rawGPS = folderGPS[folder];
-        const hasGPS = rawGPS && (rawGPS.lon != null || rawGPS.lng != null);
-
+        btn.className = "btn btn-sm btn-quiet";
+        btn.classList.toggle("active", folder.name === selectedFolder);
+        btn.title = folder.name;
         btn.innerHTML =
-            `<span class="mono">${folder}</span> ` +
-            `<span class="text-muted num">${folderGroups[folder].length}</span>` +
+            `<span>${folderTitle(folder.path)}</span> ` +
+            `<span class="text-muted num">${folder.photo_count || 0}</span>` +
             (hasGPS ? ` <i class="bi bi-geo-alt-fill text-success" title="Location assigned"></i>` : "");
 
-        btn.onclick = () => {
+        btn.onclick = async () => {
+            if (folder.name === selectedFolder) return;
+            if (!(await activateFolder(folder))) return;
 
-            selectedFolder = folder;
-            currentGroup = folder; // force map to use this folder’s GPS
-            manualLocation = null; // CLEAR override
-            const folderNameEl = document.getElementById("currentFolderName");
-            if (folderNameEl) {
-                folderNameEl.textContent = folder;
-            }
+            // Assign location targets the loaded folder's photos
+            await loadThumbnails();
 
-            updateHeaderStatus();
-
-            const group = folderGroups[folder];
-            selectedFolderGroup = group;
-
-            if (!group || group.length === 0) {
-                sourceFolderPath = null;
-                return;
-            }
-
-            const firstImage = group[0];
-
-            if (firstImage && firstImage.path) {
-                sourceFolderPath = firstImage.path
-                    .split(/[\\/]/)
-                    .slice(0, -1)
-                    .join("\\");
+            const g = folderGPS[folder.name];
+            if (g) {
+                manualLocation = { lat: g.lat, lon: g.lon ?? g.lng };
+                $("latInput").value = manualLocation.lat.toFixed(6);
+                $("lonInput").value = manualLocation.lon.toFixed(6);
             } else {
-                sourceFolderPath = null;
+                $("latInput").value = "";
+                $("lonInput").value = "";
             }
-
-            container.querySelectorAll("button")
-                .forEach(b => b.classList.remove("active"));
-
-            btn.classList.add("active");
-
-            const gpsRaw = folderGPS[selectedFolder];
-
-            const gps = gpsRaw ? {
-                lat: gpsRaw.lat,
-                lon: gpsRaw.lon ?? gpsRaw.lng
-            } : null;
-
-            if (gps && gps.lat != null && gps.lon != null) {
-                manualLocation = { lat: gps.lat, lon: gps.lon };
-
-                const latInput = document.getElementById("latInput");
-                const lonInput = document.getElementById("lonInput");
-
-                if (latInput && lonInput) {
-                    latInput.value = gps.lat.toFixed(6);
-                    lonInput.value = gps.lon.toFixed(6);
-                }
-            }
-
-
-            // Only run when Mapping step is NOT active
-            const mappingActive =
-                document.querySelector('[data-step="5"]')
-                    ?.classList.contains('d-none') === false;
+            renderFolderSelector();
             loadMap();
-
-            if (!mappingActive) {
-                loadThumbnails();
-                switchStep(3);
-            }
         };
 
         container.appendChild(btn);
-
     });
 }
+
 function renderAnalyzeFolders() {
 
     const container = document.getElementById("foldersList");
@@ -995,75 +981,16 @@ function renderAnalyzeFolders() {
             return;
         }
 
+        item.dataset.path = folder.path;
         item.onclick = async () => {
-            const folderPath = folder.path;
+            if (!(await activateFolder(folder))) return;
 
-            if (!folderPath) {
-                console.error("❌ folder.path missing!", folder);
-                return;
-            }
+            document.querySelectorAll('#wizardNav .sidebar-item')
+                .forEach(el => el.classList.remove('recommended'));
+            document.querySelector('#wizardNav [data-step="3"]')?.classList.add('recommended');
 
-            // SOURCE (correct)
-            sourceFolderPath = folderPath;
-            selectedFolder = folder.name;
-            const folderNameEl = $("currentFolderName");
-            if (folderNameEl) folderNameEl.textContent = folder.name;
-
-            // Reset grouping when switching folder
-            currentGroup = null;
-
-            console.log("SOURCE:", sourceFolderPath);
-            console.log("WORKING:", workingDirectory);
-
-// Reset map state
-            gpsRetryCount = 0;
-            const status = document.getElementById("mapStatus");
-            if (status) status.innerHTML = "";
-
-            // API call
-            try {
-                const res = await fetch("/api/set-active-folder", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        folder: sourceFolderPath,
-                        working_dir: workingDirectory
-                    })
-                });
-
-                const data = await res.json();
-                workingDirectory = data.working_dir;
-
-                console.log("WORKING:", workingDirectory);
-                if (!data.success) {
-                    console.error("❌ Set active folder failed:", data);
-                    return;
-                }
-
-                // Highlight selection
-                document.querySelectorAll(".folder-item")
-                    .forEach(el => el.classList.remove("selected"));
-
-                item.classList.add("selected");
-
-                // UI update
-                document.querySelectorAll('#wizardNav .sidebar-item')
-                    .forEach(el => el.classList.remove('recommended'));
-
-                const nextStep = document.querySelector('#wizardNav [data-step="3"]');
-                nextStep?.classList.add('recommended');
-
-                const wdEl = document.getElementById("workingDirectoryDisplay");
-                if (wdEl) {
-                    wdEl.textContent = data.working_dir;
-                }
-
-                // Straight on to browsing (switchStep loads the thumbnails once)
-                switchStep(3);
-
-            } catch (err) {
-                console.error("❌ Error setting active folder:", err);
-            }
+            // Straight on to browsing (switchStep loads the thumbnails once)
+            switchStep(3);
         };
         // MUST be inside loop
         container.appendChild(item);
@@ -1668,6 +1595,9 @@ async function loadMap() {
 
         const gpsData = await res.json();
 
+        // Folder buttons don't depend on GPS — show them even when none is found
+        renderFolderSelector();
+
         const points = gpsData.points || [];
         combinedGPS = points.map(p => {
             const key = normalizePath(p.path); // normalize path here
@@ -1746,7 +1676,6 @@ async function loadMap() {
 
         // RENDER ONLY FROM combinedGPS
         renderMapMarkers(combinedGPS);
-        renderFolderSelector(combinedGPS);
 
         // Fit map
         if (map && combinedGPS.length > 0) {
@@ -1785,17 +1714,15 @@ function showManualLocation(lat, lon) {
 
     status.innerHTML = `
     <div class="map-status info">
-         <strong>Selected location</strong><br>
-        ${lat.toFixed(5)}, ${lon.toFixed(5)}<br>
-
-        <button id="applyGpsBtn"
-                class="btn btn-sm btn-primary mt-2">
-            Apply to images
-        </button>
+        <strong>Selected location</strong>
+        <span class="num">${lat.toFixed(5)}, ${lon.toFixed(5)}</span>
+        — press Assign location to apply it to ${selectedFolder ? folderTitle(selectedFolder) : "this folder"}
     </div>
 `;
-    document.getElementById("applyGpsBtn").onclick = applyManualGPS;
 }
+
+// Assign location works from typed coordinates too, not only after a map click
+$("applyGpsBtn")?.addEventListener("click", applyManualGPS);
 
 function updateFromInputs() {
     const latInput = document.getElementById("latInput");
@@ -1863,18 +1790,10 @@ async function applyManualGPS() {
     console.log("🔍 APPLY CLICK");
     console.log("Selected folder:", selectedFolder);
 
-    let targetImages;
-
-    // Prefer grouped folder
-    const group = folderGroups[selectedFolder];
-
-    if (group && group.length > 0) {
-        targetImages = group;
-        console.log("✅ Using folder group");
-    } else {
-        console.warn("⚠️ No group found — using all images");
-        targetImages = currentImages || [];
-    }
+    // The grid holds exactly the selected folder's photos (one folder is
+    // loaded at a time), so those are what the location applies to.
+    if (loadedThumbFolder !== sourceFolderPath) await loadThumbnails();
+    const targetImages = currentImages || [];
 
     console.log("✅ Applying GPS to:", targetImages.length, "images");
 
@@ -2565,34 +2484,18 @@ function renderThumbFolderTabs() {
     });
 }
 
-function _switchThumbFolder(folderName, explicitPath) {
-    // Update active tab
+async function _switchThumbFolder(folderName, explicitPath) {
+    const folder = analyzedFolders.find(f => f.name === folderName)
+        || { name: folderName, path: explicitPath || folderPathMap[folderName] };
+
+    // Point the backend at it too, so the map, EXIF and stats follow the tab
+    if (!(await activateFolder(folder))) return;
+
     document.querySelectorAll("#thumbFolderTabList .nav-link")
         .forEach(a => a.classList.toggle("active", a.dataset.folder === folderName));
 
-    selectedFolder = folderName;
-    currentGroup   = folderName;
-    manualLocation = null;
-
-    // Update folder name shown in header
-    const folderNameEl = document.getElementById("currentFolderName");
-    if (folderNameEl) folderNameEl.textContent = folderName;
-
-    // Use explicit path from analyzedFolders, then folderPathMap, then fallback
-    const group = folderGroups[folderName];
-    selectedFolderGroup = group;
-
-    sourceFolderPath = explicitPath
-        || folderPathMap[folderName]
-        || (group && group.length > 0 && group[0].path
-            ? group[0].path.split(/[\\/]/).slice(0, -1).join("\\")
-            : null);
-
-    // Reset cull overlay state isn't cleared — decisions persist across tab switches
-    // Reload thumbnails for the new folder
-    loadThumbnails();
-
-    // Update cull counter to reflect all decisions across all folders
+    // Decisions persist across tab switches; reload the grid for this folder
+    await loadThumbnails();
     _updateCullCounters();
 }
 
