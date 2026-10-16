@@ -1416,6 +1416,31 @@ function showPreviousImage() {
 window.showNextImage = showNextImage;
 window.showPreviousImage = showPreviousImage;
 
+// Thumbnail size (S / M / L), remembered per browser
+(function initThumbSize() {
+    const control = $("thumbSize");
+    const grid = $("thumbnailGallery");
+    if (!control || !grid) return;
+
+    const apply = size => {
+        grid.classList.remove("size-s", "size-l");
+        if (size !== "m") grid.classList.add(`size-${size}`);
+        control.querySelectorAll("button")
+            .forEach(b => b.classList.toggle("active", b.dataset.size === size));
+    };
+
+    let saved = "m";
+    try { saved = localStorage.getItem("thumbSize") || "m"; } catch (_) { /* storage blocked */ }
+    apply(saved);
+
+    control.addEventListener("click", e => {
+        const size = e.target.closest("button")?.dataset.size;
+        if (!size) return;
+        apply(size);
+        try { localStorage.setItem("thumbSize", size); } catch (_) { /* storage blocked */ }
+    });
+})();
+
 // Downscaled, disk-cached preview from the backend (size: grid | strip | preview)
 function thumbUrl(path, size = "grid") {
     return `/api/thumb?size=${size}&path=${encodeURIComponent(path)}`;

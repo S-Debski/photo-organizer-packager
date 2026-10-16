@@ -193,9 +193,24 @@ body {
    Steps
    ========================================================================== */
 .wizard-step {
-    max-width: 1180px;
+    max-width: 1500px;
 }
+/* Photo-heavy steps use the whole window on big monitors */
+.wizard-step[data-step="3"],
+.wizard-step[data-step="35"] { max-width: none; }
+/* Form-like steps stay at a comfortable reading width */
+.wizard-step[data-step="1"] .panel,
+.wizard-step[data-step="6"] .panel,
+.wizard-step[data-step="6"] .alert { max-width: 760px; }
 
+.wizard-step[data-step="3"] .step-head {
+    position: sticky;
+    top: -26px;
+    z-index: 10;
+    background: var(--bg);
+    margin-top: -26px;
+    padding-top: 26px;
+}
 .step-head {
     display: flex;
     align-items: flex-end;
@@ -271,19 +286,19 @@ body {
    Status line (showGlobalStatus)
    ========================================================================== */
 #globalStatus {
-    position: sticky;
-    top: -26px;
-    z-index: 20;
-    margin: -26px -34px 18px;
-    padding: 0;
+    position: fixed;
+    left: 216px;           /* sidebar width */
+    right: 0;
+    bottom: 0;
+    z-index: 30;
 }
 #globalStatus .status {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 34px;
+    padding: 7px 34px;
     background: var(--surface-2);
-    border-bottom: 1px solid var(--line);
+    border-top: 1px solid var(--line);
     color: var(--text);
     font-size: 0.82rem;
 }
@@ -498,6 +513,7 @@ body {
    ========================================================================== */
 #foldersList {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
     gap: 8px;
 }
 .folder-item { cursor: pointer; }
@@ -569,11 +585,16 @@ body {
 .cull-legend #cullTotal::before    { display: none; }
 
 #thumbnailGallery {
+    --tile: 220px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
     gap: 10px;
     margin: 0;
 }
+#thumbnailGallery.size-s { --tile: 150px; }
+#thumbnailGallery.size-l { --tile: 320px; }
+#thumbnailGallery.size-s .tile-foot { padding: 3px 6px 4px; }
+#thumbnailGallery.size-s .pair-badge { display: none; }
 #thumbnailGallery > .text-muted,
 #thumbnailGallery > .text-danger { grid-column: 1 / -1; }
 
@@ -673,7 +694,7 @@ body {
    Review (cull) step
    ========================================================================== */
 .review-stage {
-    --stage-h: min(62vh, 620px);
+    --stage-h: max(360px, calc(100vh - 300px));
     position: relative;
     background: #0b0b0b;
     border: 1px solid var(--line);
@@ -922,6 +943,10 @@ body {
     #wizardNav .sidebar-item.sub { padding-left: 10px; }
     .sidebar-foot { display: none; }
     #contentArea { padding: 18px 16px 40px; }
-    #globalStatus { margin: -18px -16px 14px; top: -18px; }
+    #globalStatus { left: 0; }
+    #thumbnailGallery { --tile: 140px; gap: 6px; }
+    #thumbnailGallery.size-s { --tile: 100px; }
+    #thumbnailGallery.size-l { --tile: 100%; }
     #globalStatus .status { padding: 8px 16px; }
+    .wizard-step[data-step="3"] .step-head { top: -18px; margin-top: -18px; padding-top: 18px; }
 }
