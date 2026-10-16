@@ -21,6 +21,7 @@
 
 from version import APP_VERSION, APP_NAME
 ctx = None   # ✅ shared global context
+import json
 import threading
 import time
 import webbrowser
@@ -44,7 +45,7 @@ from backend.routes.analyze_card import api_analyze_card
 from backend.routes.set_active_folder import api_set_active_folder
 from backend.routes.gps_data import api_gps_data
 from backend.routes.thumbs import api_thumbs, api_thumb, api_photo_proxy, api_full_image
-from backend.routes.write_gps import api_write_gps, write_gps_tags
+from backend.routes.write_gps import api_write_gps, write_gps_tags, write_gps_sidecar
 
 from backend.services.sdcard import detect_sd_cards
 
@@ -65,6 +66,12 @@ from photo_core.pre_import.session_state import (
     JPG_EXTENSIONS,
 )
 from utils.fs_utils import iter_images, IMAGE_EXTS_ALL
+from photo_core.organize.destination import (
+    resolve_destination,
+    check_writable,
+    is_within,
+    DestinationError,
+)
 
 from workers.copy_worker import start_copy_worker
 
@@ -225,48 +232,42 @@ def set_active_folder():
 @app.route("/api/organize", methods=["POST"])
 def api_organize():
     try:
-        data = request.json
+        data = request.json or {}
         source      = data.get("source")
         destination = data.get("destination")
 
         import shutil
 
+        if not source or not os.path.isdir(source):
+            return {"success": False,
+                    "error": "The source folder isn't available. Is the card still inserted?"}
+
         # ------------------------------------------------------------------
-        # Build destination subfolder name from the source path.
-        # source is now the specific folder tab path (e.g. G:\DCIM\929_FUJI\USB)
+        # Destination (design 07/09): <destination>/<template(title, date)>.
+        # Validated before anything is created; never on the card/source.
+        # Without a title, fall back to the old "<folder> - <card label>".
         # ------------------------------------------------------------------
-        sd_root   = ctx.state.get("current_sd_root", "")
-        dcim_path = os.path.join(sd_root, "DCIM") if sd_root else ""
-
-        # Get drive label for suffix
-        drive_label = ""
-        if sd_root:
-            try:
-                import win32api
-                vol_path = sd_root.rstrip("\\/ ") + "\\"
-                drive_label = win32api.GetVolumeInformation(vol_path)[0] or ""
-            except Exception:
-                drive_label = os.path.basename(sd_root.rstrip("\\/ ")) or ""
-
-        # Build camera folder name relative to DCIM
-        # e.g. G:\DCIM\929_FUJI\USB -> "929_FUJI - USB"
-        source_norm = os.path.normpath(source)
-        if dcim_path and source_norm.lower().startswith(dcim_path.lower()):
-            rel = os.path.relpath(source_norm, dcim_path)
-            camera_folder = rel.replace(os.sep, " - ")
-        else:
-            camera_folder = os.path.basename(source_norm)
-
-        if camera_folder and drive_label:
-            subfolder = f"{camera_folder} - {drive_label}"
-        elif camera_folder:
-            subfolder = camera_folder
-        else:
-            subfolder = "Imported"
-
-        dest_dir = os.path.join(destination, subfolder)
-        dest_dir = os.path.normpath(dest_dir)   # consistent backslashes on Windows
-        os.makedirs(dest_dir, exist_ok=True)
+        protected = [ctx.state.get("current_sd_root"), source]
+        title = (data.get("title") or "").strip()
+        relative = None
+        try:
+            if title:
+                dest_dir, relative = resolve_destination(
+                    destination=destination,
+                    template=data.get("template"),
+                    title=title,
+                    shoot_date=data.get("shoot_date"),
+                    protected=protected,
+                )
+            else:
+                if not (destination or "").strip():
+                    raise DestinationError("Choose a destination folder first.")
+                if any(p and is_within(destination, p) for p in protected):
+                    raise DestinationError("The destination can't be on the card or inside the folder being imported.")
+                dest_dir = os.path.normpath(os.path.join(destination, _legacy_subfolder(source)))
+            check_writable(dest_dir)
+        except DestinationError as e:
+            return {"success": False, "error": str(e)}
 
         logger.info(f"Organize → {dest_dir}")
 
@@ -289,7 +290,7 @@ def api_organize():
         if mode == "kept":
             if not kept_paths:
                 return {"success": False,
-                        "error": "No photos are marked Keep. Cull first, or choose Import all."}
+                        "error": "No photos are marked Keep. Cull first, or choose Import everything."}
             candidates = _with_same_stem_siblings(kept_paths)
         else:
             candidates = [os.path.join(root, f)
@@ -299,14 +300,24 @@ def api_organize():
                  if os.path.splitext(p)[1].lower() in ALLOWED_EXTENSIONS
                  and os.path.isfile(p)]
 
-        # ------------------------------------------------------------------
-        # Copy with progress (polled by the UI via /api/progress)
-        # ------------------------------------------------------------------
+        if not files:
+            return {"success": False, "error": "There are no photos to import in this folder."}
+
         if ctx.progress.get("active"):
             return {"success": False, "error": "Another import is already running"}
 
-        # GPS assigned in the Mapping step (source path → lat/lon). It is
-        # written into the imported JPG copies only — never to the card.
+        # ------------------------------------------------------------------
+        # Location: one for the whole import (Locations step), or per file
+        # (older clients). Applied after copying, to the copies only.
+        # ------------------------------------------------------------------
+        location = None
+        loc = data.get("location")
+        if loc:
+            try:
+                location = (float(loc["lat"]), float(loc["lon"]))
+            except (KeyError, TypeError, ValueError):
+                return {"success": False, "error": "The assigned location isn't valid."}
+
         gps_by_source = {}
         for g in data.get("gps") or []:
             try:
@@ -315,10 +326,13 @@ def api_organize():
             except (KeyError, TypeError, ValueError):
                 continue
 
+        # Nothing is created until validation has passed
+        os.makedirs(dest_dir, exist_ok=True)
+
         ctx.progress.update(stage="import", total=len(files), done=0,
                             active=True, message=f"Importing {len(files)} files…")
-        copied, skipped, errors = [], [], []
-        gps_written = 0
+        copied, skipped, conflicts, errors = [], [], [], []
+        to_tag = []          # (dst_path, (lat, lon)) — tagged after copying
         session = ctx.state.get("session")
 
         try:
@@ -327,24 +341,49 @@ def api_organize():
                 dst_path = os.path.join(dest_dir, f)
                 try:
                     if os.path.exists(dst_path):
-                        skipped.append(f)
+                        if os.path.getsize(dst_path) == os.path.getsize(src_path):
+                            skipped.append(f)          # already imported
+                        else:
+                            # Same name, different file (another card, or a
+                            # broken copy from an old version): never overwrite
+                            conflicts.append(f)
+                            ctx.progress["done"] += 1
+                            continue
                     else:
-                        shutil.copy2(src_path, dst_path)
+                        _safe_copy(shutil, src_path, dst_path)
                         copied.append(f)
 
-                        gps = gps_by_source.get(os.path.normcase(os.path.normpath(src_path)))
-                        if gps and os.path.splitext(f)[1].lower() in JPG_EXTENSIONS:
-                            result = write_gps_tags(dst_path, *gps)
-                            if result.returncode == 0:
-                                gps_written += 1
-                            else:
-                                errors.append(f"{f}: GPS write failed — {result.stderr.strip()}")
+                        gps = location or gps_by_source.get(
+                            os.path.normcase(os.path.normpath(src_path)))
+                        if gps:
+                            to_tag.append((dst_path, gps))
                     if session:
                         _mark_session_copied(session, f, dst_path)
                 except OSError as e:
                     errors.append(f"{f}: {e}")
                     logger.error(f"organize: copy failed {src_path} → {e}")
                 ctx.progress["done"] += 1
+
+            # GPS last, so a sidecar copied from the card is updated rather
+            # than clashing with one we created
+            gps_written = sidecars_written = 0
+            for dst_path, (lat, lon) in to_tag:
+                ext = os.path.splitext(dst_path)[1].lower()
+                if ext in JPG_EXTENSIONS:
+                    result = write_gps_tags(dst_path, lat, lon)
+                    counter = "jpg"
+                elif ext in RAW_EXTENSIONS:
+                    result = write_gps_sidecar(dst_path, lat, lon)
+                    counter = "xmp"
+                else:
+                    continue
+                if result.returncode == 0:
+                    if counter == "jpg":
+                        gps_written += 1
+                    else:
+                        sidecars_written += 1
+                else:
+                    errors.append(f"{os.path.basename(dst_path)}: location not written — {result.stderr.strip()}")
         finally:
             ctx.progress.update(stage="idle", active=False,
                                 message=f"Imported {len(copied)} files")
@@ -356,26 +395,177 @@ def api_organize():
                 "destination": dest_dir,
                 "copied": len(copied),
                 "skipped_existing": len(skipped),
+                "conflicts": len(conflicts),
                 "errors": len(errors),
+                "location": list(location) if location else None,
             })
             try:
                 save_session(ctx.state["session_dir"], session)
             except Exception as e:
                 logger.error(f"organize: session save failed — {e}")
 
+        problems = len(errors) + len(conflicts)
         return {
-            "success": not errors,
+            "success": not problems,
             "count": len(copied),
             "skipped": len(skipped),
+            "conflicts": conflicts[:20],
             "gps_written": gps_written,
+            "sidecars_written": sidecars_written,
             "errors": errors[:20],
-            "error": f"{len(errors)} file(s) failed to copy" if errors else None,
+            "error": (f"{len(conflicts)} file(s) already exist with different content and were not overwritten. "
+                      if conflicts else "") + (f"{len(errors)} file(s) failed." if errors else "") or None,
             "destination": dest_dir,
+            "relative": relative,
+            "mode": mode,
+            # Design: copy-only import of everything → the card can be formatted
+            "all_copied": mode == "all" and not problems,
         }
 
     except Exception as e:
         logger.exception("organize failed")
         return {"success": False, "error": str(e)}
+
+
+def _safe_copy(shutil, src_path: str, dst_path: str) -> None:
+    """
+    Copy via a temporary name and rename into place, so an interrupted copy
+    never leaves a partial file under the real name (which a later import
+    would otherwise skip as "already imported").
+    """
+    tmp = dst_path + ".part"
+    try:
+        shutil.copy2(src_path, tmp)
+        if os.path.getsize(tmp) != os.path.getsize(src_path):
+            raise OSError("copy incomplete (size mismatch)")
+        os.replace(tmp, dst_path)
+    except BaseException:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)   # our own partial temp file only
+        except OSError:
+            pass
+        raise
+
+
+def _legacy_subfolder(source: str) -> str:
+    """Old layout: "<path below DCIM, joined with ' - '> - <card label>"."""
+    sd_root   = ctx.state.get("current_sd_root", "")
+    dcim_path = os.path.join(sd_root, "DCIM") if sd_root else ""
+
+    drive_label = ""
+    if sd_root:
+        try:
+            import win32api
+            vol_path = sd_root.rstrip("\\/ ") + "\\"
+            drive_label = win32api.GetVolumeInformation(vol_path)[0] or ""
+        except Exception:
+            drive_label = os.path.basename(sd_root.rstrip("\\/ ")) or ""
+
+    source_norm = os.path.normpath(source)
+    if dcim_path and source_norm.lower().startswith(dcim_path.lower()):
+        camera_folder = os.path.relpath(source_norm, dcim_path).replace(os.sep, " - ")
+    else:
+        camera_folder = os.path.basename(source_norm)
+
+    if camera_folder and drive_label:
+        return f"{camera_folder} - {drive_label}"
+    return camera_folder or "Imported"
+
+
+# -----------------------------------------------------------------------------
+# POST /api/pre-import/preview — the exact folder an import would use
+# -----------------------------------------------------------------------------
+@app.route("/api/pre-import/preview", methods=["POST"])
+def pre_import_preview():
+    data = request.json or {}
+    source = data.get("source") or ctx.state.get("current_active_folder")
+    try:
+        full, relative = resolve_destination(
+            destination=data.get("destination"),
+            template=data.get("template"),
+            title=data.get("title"),
+            shoot_date=data.get("shoot_date"),
+            protected=[ctx.state.get("current_sd_root"), source],
+        )
+        check_writable(full)
+    except DestinationError as e:
+        return jsonify({"success": False, "error": str(e)})
+    return jsonify({"success": True, "path": full, "relative": relative,
+                    "exists": os.path.isdir(full)})
+
+
+# -----------------------------------------------------------------------------
+# /api/locations — locations assigned on the Locations step, kept on disk so
+# they survive a restart until the import writes them into the copies.
+# Keyed by folder path + first photo name, because the next card in the
+# same reader has the same paths (F:\DCIM\100_FUJI) but different photos.
+# -----------------------------------------------------------------------------
+def _locations_file() -> str:
+    return os.path.join(ctx.sessions_root, "locations.json")
+
+
+def _location_key(folder: str) -> str | None:
+    if not folder or not os.path.isdir(folder):
+        return None
+    first = next(iter(sorted(os.path.basename(p) for p in iter_images(folder))), "")
+    return f"{os.path.normcase(os.path.normpath(folder))}|{first.upper()}"
+
+
+def _load_locations() -> dict:
+    try:
+        # utf-8-sig: tolerate a BOM if the file was edited in Notepad
+        with open(_locations_file(), encoding="utf-8-sig") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_locations(locs: dict) -> None:
+    path = _locations_file()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(locs, fh, indent=1)
+    os.replace(tmp, path)
+
+
+@app.route("/api/locations", methods=["GET", "POST"])
+def api_locations():
+    locs = _load_locations()
+
+    if request.method == "POST":
+        data = request.json or {}
+        folders = data.get("folders") or []
+        if data.get("clear"):
+            for folder in folders:
+                key = _location_key(folder)
+                if key:
+                    locs.pop(key, None)
+        else:
+            try:
+                lat, lon = float(data["lat"]), float(data["lon"])
+            except (KeyError, TypeError, ValueError):
+                return jsonify({"success": False, "error": "lat and lon are required"}), 400
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return jsonify({"success": False, "error": "Coordinates out of range"}), 400
+            for folder in folders:
+                key = _location_key(folder)
+                if key:
+                    locs[key] = {"folder": folder, "lat": lat, "lon": lon,
+                                 "set_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+        _save_locations(locs)
+
+    # Report locations only for the folders asked about (the current card)
+    if request.method == "POST":
+        wanted = (request.json or {}).get("folders") or []
+    else:
+        wanted = request.args.getlist("folder")
+    result = {}
+    for folder in wanted:
+        hit = locs.get(_location_key(folder) or "")
+        if hit:
+            result[folder] = {"lat": hit["lat"], "lon": hit["lon"]}
+    return jsonify({"success": True, "locations": result})
 
 
 def _file_stem(name: str) -> str:

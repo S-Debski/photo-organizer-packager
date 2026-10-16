@@ -72,6 +72,33 @@ def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
     )
 
 
+def write_gps_sidecar(raw_path, lat, lon) -> subprocess.CompletedProcess:
+    """
+    Put GPS in the RAW's XMP sidecar (<stem>.xmp, the name Lightroom and
+    most raw editors read) rather than inside the RAW file. Updates an
+    existing sidecar in place, otherwise creates one.
+    XMP stores signed decimal coordinates, so no N/S/E/W ref tags.
+    """
+    cmd = resolve_exiftool_cmd() or "exiftool"
+    sidecar = os.path.splitext(str(raw_path))[0] + ".xmp"
+    tags = [f"-XMP-exif:GPSLatitude={float(lat)}", f"-XMP-exif:GPSLongitude={float(lon)}"]
+
+    if os.path.isfile(sidecar):
+        args = [cmd, "-q", "-overwrite_original", *tags, sidecar]
+    else:
+        args = [cmd, "-q", "-o", sidecar, *tags, str(raw_path)]
+
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=NO_WINDOW,
+        stdin=subprocess.DEVNULL,
+    )
+
+
 def api_write_gps(ctx, payload):
     files = payload.get("files")
     lat = payload.get("lat")

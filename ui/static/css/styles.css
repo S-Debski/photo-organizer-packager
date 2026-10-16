@@ -866,6 +866,25 @@ body {
     border: 1px solid var(--line-strong);
 }
 #importTimingRow { font-variant-numeric: tabular-nums; }
+.wizard-step[data-step="6"] #shootPanel,
+.wizard-step[data-step="6"] #importLocation { max-width: 960px; }
+.shoot-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(150px, 1fr) minmax(0, 1.4fr);
+    gap: 12px;
+}
+.dest-preview {
+    margin-top: 6px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+}
+#destPreview { font-size: 0.82rem; color: var(--text); word-break: break-all; margin-top: 2px; }
+#destPreview .rel { color: var(--accent); }
+#destPreview.invalid { color: var(--reject); font-family: var(--sans); }
+#resetShootBtn { margin-top: 8px; }
+@media (max-width: 860px) { .shoot-grid { grid-template-columns: 1fr; } }
 
 /* ============================================================================
    Full-image viewer

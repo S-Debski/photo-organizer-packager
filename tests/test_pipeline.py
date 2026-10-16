@@ -168,6 +168,65 @@ class PipelineTest(unittest.TestCase):
         r = self.post("/api/write-gps", files=[str(self.src / "DSCF0003.JPG")], lat=1, lon=2)
         self.assertEqual((r["deferred"], r["updated"]), (1, 0))
 
+    # -- Shoot title / folder layout (design 08/09) ------------------------------
+
+    def test_24_preview_matches_import_folder(self):
+        dest = self.tmp / "library"
+        body = dict(source=str(self.src), destination=str(dest), title="Wylam: Bike/Ride",
+                    shoot_date="2026-10-10", template="{YYYY}/{MM}/{DD} - {title}")
+        preview = self.post("/api/pre-import/preview", **body)
+        self.assertTrue(preview["success"], preview)
+        expected = dest / "2026" / "10" / "10 - Wylam- Bike-Ride"   # title sanitised
+        self.assertEqual(Path(preview["path"]), expected)
+        self.assertFalse(dest.exists(), "preview must not create folders")
+
+        r = self.post("/api/organize", mode="kept",
+                      kept_paths=[str(self.src / "DSCF0003.JPG")], **body)
+        self.assertTrue(r["success"], r)
+        self.assertEqual(Path(r["destination"]), expected)
+
+    def test_25_destination_inside_source_is_refused(self):
+        inside = self.src / "export"
+        r = self.post("/api/organize", source=str(self.src), destination=str(inside),
+                      mode="all", title="Test", shoot_date="2026-10-10")
+        self.assertFalse(r["success"])
+        self.assertFalse(inside.exists(), "nothing may be created on refusal")
+
+    @needs_exiftool
+    def test_26_location_goes_to_every_copy(self):
+        dest = self.tmp / "dest-loc"
+        r = self.post("/api/organize", source=str(self.src), destination=str(dest),
+                      mode="kept", kept_paths=[str(self.src / "DSCF0002.JPG"),
+                                               str(self.src / "DSCF0004.RAF")],
+                      location={"lat": 54.9616, "lon": -1.8617})
+        self.assertTrue(r["success"], r)
+        self.assertEqual((r["gps_written"], r["sidecars_written"]), (1, 2))
+        out = Path(r["destination"])
+        for name in ("DSCF0002.xmp", "DSCF0004.xmp"):
+            pos = _exiftool("-n", "-s3", "-Composite:GPSPosition", str(out / name)).stdout.split()
+            self.assertAlmostEqual(float(pos[1]), -1.8617, places=4, msg=name)
+        self.assertFalse(any(p.suffix == ".part" for p in out.iterdir()))
+
+    def test_27_same_name_different_file_is_not_overwritten(self):
+        dest = self.tmp / "dest-conflict"
+        first = self.post("/api/organize", source=str(self.src), destination=str(dest), mode="all")
+        victim = Path(first["destination"]) / "DSCF0003.JPG"
+        victim.write_bytes(b"a different photo with the same name")
+        again = self.post("/api/organize", source=str(self.src), destination=str(dest), mode="all")
+        self.assertEqual(again["conflicts"], ["DSCF0003.JPG"])
+        self.assertFalse(again["all_copied"])
+        self.assertEqual(victim.read_bytes(), b"a different photo with the same name")
+
+    def test_28_locations_survive_restart(self):
+        folder = str(self.src)
+        self.post("/api/locations", folders=[folder], lat=54.96, lon=-1.86)
+        got = self.client.get("/api/locations", query_string={"folder": folder}).get_json()
+        self.assertEqual(got["locations"][folder], {"lat": 54.96, "lon": -1.86})
+        self.assertTrue(os.path.isfile(os.path.join(self.ctx.sessions_root, "locations.json")))
+        self.post("/api/locations", folders=[folder], clear=True)
+        got = self.client.get("/api/locations", query_string={"folder": folder}).get_json()
+        self.assertEqual(got["locations"], {})
+
     # -- Thumbnails -----------------------------------------------------------
 
     def test_30_thumbnail_is_small_and_cached(self):

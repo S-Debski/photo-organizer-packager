@@ -231,11 +231,13 @@
                            class="form-control form-control-sm num" placeholder="Latitude">
                     <input id="lonInput" type="number" step="0.000001"
                            class="form-control form-control-sm num" placeholder="Longitude">
-                    <button id="applyGpsBtn" class="btn btn-sm btn-primary">Assign location</button>
+                    <button id="applyGpsBtn" class="btn btn-sm btn-primary">Assign to this folder</button>
+                    <button id="applyGpsAllBtn" class="btn btn-sm btn-quiet">Use for all folders</button>
                     <button id="copyDetectedGpsBtn" class="btn btn-sm btn-quiet">Use detected</button>
+                    <button id="clearGpsBtn" class="btn btn-sm btn-link-quiet d-none">Remove location</button>
                 </div>
-                <p class="hint">Click the map or type coordinates. Locations are written
-                    to the imported copies, never to the card.</p>
+                <p class="hint">Click the map or type coordinates. Locations are saved and written
+                    to every imported copy (JPG, plus an .xmp sidecar for RAW) — never to the card.</p>
 
                 <div id="writeProgressContainer" class="mt-2" style="display:none;">
                     <div class="progress"><div id="writeProgressBar" class="progress-bar" style="width:0%"></div></div>
@@ -262,8 +264,44 @@
                            placeholder="Choose where the photos should go">
                     <button id="browseworkingDirectoryBtn" class="btn btn-quiet">Browse…</button>
                 </div>
-                <p class="hint">Photos go into a sub-folder named after the card folder,
-                    e.g. <span class="mono">100_FUJI - CARDNAME</span>. Files already there are skipped.</p>
+                <p class="hint">Files already there are skipped; nothing is ever overwritten.</p>
+            </div>
+
+            <div class="panel" id="shootPanel">
+                <p class="panel-title">Shoot folder</p>
+                <div class="shoot-grid">
+                    <div>
+                        <label class="field-label" for="shootTitle">Title</label>
+                        <input id="shootTitle" type="text" class="form-control" placeholder="e.g. Wylam Waggonway Bike Ride">
+                        <p class="hint" id="shootTitleHint"></p>
+                    </div>
+                    <div>
+                        <label class="field-label" for="shootDate">Shoot date</label>
+                        <input id="shootDate" type="date" class="form-control num">
+                        <p class="hint" id="shootDateHint"></p>
+                    </div>
+                    <div>
+                        <label class="field-label" for="folderTemplate">Folder layout</label>
+                        <select id="folderTemplate" class="form-select">
+                            <option value="{YYYY}/{MM}/{DD} - {title}">Year / Month / Day - Title</option>
+                            <option value="{YYYY}/{date} - {title}">Year / Date - Title</option>
+                            <option value="{date} - {title}">Date - Title</option>
+                            <option value="{title}">Title only</option>
+                            <option value="">Card folder name (old layout)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="dest-preview">
+                    <span class="field-label">Photos will be copied to</span>
+                    <div id="destPreview" class="mono">Choose a destination above</div>
+                    <div id="destPreviewNote" class="hint"></div>
+                </div>
+                <button id="resetShootBtn" class="btn btn-link-quiet btn-sm">Reset title and date to the card's</button>
+            </div>
+
+            <div class="panel" id="importLocation">
+                <p class="panel-title">Location</p>
+                <div id="importLocationText" class="text-muted">No location assigned. You can add one in Locations.</div>
             </div>
 
             <div id="importSummary" class="panel d-none">

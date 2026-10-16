@@ -296,8 +296,20 @@ function setImportState(state, payload = {}) {
                 `<strong>${payload.count} file${payload.count !== 1 ? "s" : ""} imported</strong>` +
                 (totalElapsed ? ` <span class="text-muted fw-normal">in ${totalElapsed}</span>` : "") +
                 (payload.destination
-                    ? `<div class="small mt-1 text-muted">${payload.destination.replace(/\//g, "\\")}</div>`
-                    : "");
+                    ? `<div class="small mt-1">Copied to <span class="mono">${payload.destination.replace(/\//g, "\\")}</span></div>`
+                    : "") +
+                (payload.skipped
+                    ? `<div class="small text-muted">${payload.skipped} already there, skipped</div>`
+                    : "") +
+                (payload.gps_written || payload.sidecars_written
+                    ? `<div class="small text-muted">Location written to ${payload.gps_written || 0} JPG` +
+                      ` and ${payload.sidecars_written || 0} RAW sidecar${payload.sidecars_written === 1 ? "" : "s"}</div>`
+                    : "") +
+                (payload.all_copied
+                    ? `<div class="mt-2">Everything in this folder is copied. You can now safely format the card.</div>`
+                    : payload.mode === "kept"
+                        ? `<div class="mt-2 text-muted">Rejected and unculled photos were left on the card. Keep the card until you're sure.</div>`
+                        : "");
             result.classList.remove("d-none");
         }
         openBtn?.classList.remove("d-none");
@@ -581,6 +593,7 @@ function switchStep(step) {
 
             bindOrganizeEvents();
             clearGlobalStatus();
+            initShootPanel();
             break;
 // NOTE: Step 6 must not derive or modify title state.
 // Title defaults are established after Analyze and may be user-owned.
@@ -641,6 +654,7 @@ $("browseworkingDirectoryBtn")?.addEventListener("click", async () => {
 
         if (data?.path) {
             $("workingDirectoryInput").value = data.path;
+            previewDestination();
         } else {
             alert("Folder picker not available.");
         }
@@ -894,6 +908,8 @@ function renderFolderSelector() {
 
     // Kept for "Use detected", which groups map markers by folder
     if (currentImages && currentImages.length) folderGroups = groupByFolder(currentImages);
+
+    $("clearGpsBtn")?.classList.toggle("d-none", !folderGPS[selectedFolder]);
 
     container.innerHTML = "";
     (analyzedFolders || []).forEach(folder => {
@@ -1753,233 +1769,105 @@ function updateFromInputs() {
     }
 }
 
-async function applyManualGPS() {
-
-    if (folderGPS[selectedFolder]) {
-        const ok = confirm("This folder already has GPS.\nOverwrite?");
-        if (!ok) return;
-    }
-
-    updateFromInputs();
-
-    if (!manualLocation) return;
-
-    const lat = manualLocation.lat;
-    const lon = manualLocation.lon;
-    // start progress UI immediately
-    const container = document.getElementById("writeProgressContainer");
-    const bar = document.getElementById("writeProgressBar");
-    const text = document.getElementById("writeProgressText");
-
-    if (container) container.style.display = "block";
-    if (bar) bar.style.width = "5%";
-    if (text) text.textContent = "Starting...";
-
-    // Save folder-level GPS (UI state)
-    if (selectedFolder) {
-        folderGPS[selectedFolder] = { lat, lon };
-        console.log("📍 Saved GPS for folder:", selectedFolder, folderGPS[selectedFolder]);
-    }
-
-    if (!analyzedFolders || analyzedFolders.length === 0) {
-        console.warn("❌ No folder selected — refusing to apply GPS globally");
-        alert("Please select a folder before applying GPS");
-        return;
-    }
-
-    console.log("🔍 APPLY CLICK");
-    console.log("Selected folder:", selectedFolder);
-
-    // The grid holds exactly the selected folder's photos (one folder is
-    // loaded at a time), so those are what the location applies to.
-    if (loadedThumbFolder !== sourceFolderPath) await loadThumbnails();
-    const targetImages = currentImages || [];
-
-    console.log("✅ Applying GPS to:", targetImages.length, "images");
-
-    // Debug
-    targetImages.forEach(img => {
-        console.log("MATCH:", (img && img.path) ? img.path : img);
+// ====================================================================
+// Locations: assigned per folder, saved on disk (/api/locations) so they
+// survive a restart, and written into the imported copies at Import —
+// JPG EXIF plus XMP sidecars for RAW. The card is never written to.
+// ====================================================================
+async function _saveLocation(folders, loc) {
+    await fetch("/api/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loc
+            ? { folders: folders.map(f => f.path), lat: loc.lat, lon: loc.lon }
+            : { folders: folders.map(f => f.path), clear: true })
     });
 
-    // Clear markers before redraw
-    if (markerLayer) markerLayer.clearLayers();
-
-    // Apply GPS to metadataMap (ONLY place this happens)
-    targetImages.forEach(img => {
-
-        const pathKey = (img && img.path) ? img.path : img;
-
-        let matched = false;
-
-        // Direct match
-        if (metadataMap.has(pathKey)) {
-
-            const existing = metadataMap.get(pathKey) || {};
-
-            metadataMap.set(pathKey, {
-                ...existing,
-                lat: lat,
-                lon: lon
-            });
-
-            console.log("✅ UPDATED (direct):", pathKey);
-            matched = true;
-        }
-
-        // Fallback match by filename
-        if (!matched && pathKey) {
-            const fileName = pathKey.split(/[\\/]/).pop();
-
-            metadataMap.forEach((val, key) => {
-
-                if (key.endsWith(fileName)) {
-
-                    const existing = metadataMap.get(key) || {};
-
-                    metadataMap.set(key, {
-                        ...existing,
-                        lat: lat,
-                        lon: lon
-                    });
-
-                    console.log("✅ UPDATED (fallback):", key);
-                    matched = true;
-                }
-            });
-        }
-
-        if (!matched) {
-            console.warn("❌ NO MATCH:", pathKey);
-        }
-
+    folders.forEach(f => {
+        if (loc) folderGPS[f.name] = { lat: loc.lat, lon: loc.lon };
+        else delete folderGPS[f.name];
     });
 
-    // Refresh map
-    console.log("✅ metadataMap updated for all images");
-    setTimeout(() => loadMap(), 100);
-
-    // ============================
-    // EXIF WRITE LOGIC (unchanged)
-    // ============================
-
-    const flatFiles = (targetImages || [])
-        .map(img => (img && img.path) ? img.path : img)
-        .filter(Boolean);
-
-    const groups = pairImages(flatFiles);
-
-    const files = [];
-
-    groups.forEach(g => {
-        if (g.jpg) files.push(g.jpg);
-        if (g.raw) files.push(g.raw);
-    });
-
-    console.log("📤 File count:", files.length);
-
-    function pollWriteProgress() {
-
-        fetch("/api/write-progress")
-            .then(res => res.json())
-            .then(data => {
-
-                const container = document.getElementById("writeProgressContainer");
-                const bar = document.getElementById("writeProgressBar");
-                const text = document.getElementById("writeProgressText");
-
-                // show progress container
-                if (container) container.style.display = "block";
-
-                const pct = data.total
-                    ? Math.floor((data.done / data.total) * 100)
-                    : 0;
-
-                // update progress bar
-                if (bar) bar.style.width = pct + "%";
-
-                // update text
-                if (text) {
-                    text.textContent = `${data.done} / ${data.total} (${pct}%)`;
-                }
-
-                // finished
-                if (!data.active) {
-
-                    if (bar) bar.style.width = "100%";
-                    if (text) text.textContent = "Complete";
-
-                    setTimeout(() => {
-                        if (container) container.style.display = "none";
-                    }, 800);
-
-                    showGlobalStatus("GPS writing complete");
-                    return;
-                }
-
-                // continue polling
-                setTimeout(pollWriteProgress, 300);
-            });
-    }
-    showGlobalStatus("Writing GPS to images...");
-    pollWriteProgress();
-
-    const btn = document.getElementById("applyGpsBtn");
-    if (btn) btn.disabled = true;
-
-    try {
-        const res = await fetch("/api/write-gps", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                files: files,
-                lat: lat,
-                lon: lon
-            })
+    // Keep the loaded folder's map markers in step
+    if (folders.some(f => f.name === selectedFolder)) {
+        (currentImages || []).forEach(img => {
+            const key = (img && img.path) ? img.path : img;
+            const existing = metadataMap.get(key) || {};
+            metadataMap.set(key, { ...existing, lat: loc ? loc.lat : null, lon: loc ? loc.lon : null });
         });
-
-        const data = await res.json();
-
-        const status = document.getElementById("mapStatus");
-
-        if (data.success) {
-            if (selectedFolder) {
-                folderGPS[selectedFolder] = { lat, lon };
-                updateFolderIndicators();
-                updateHeaderStatus();
-            }
-
-            status.innerHTML = data.deferred
-                ? `
-                <div class="map-status success">
-                     <strong>Location assigned</strong><br>
-                    Will be written to the imported copies (the card is never modified)
-                </div>
-            `
-                : `
-                <div class="map-status success">
-                     <strong>GPS written to EXIF</strong><br>
-                    ${data.updated} updated
-                </div>
-            `;
-        } else {
-            status.innerHTML = `
-                <div class="map-status warning">
-                     <strong>EXIF write failed</strong>
-                </div>
-            `;
-        }
-
-        if (btn) btn.disabled = false;
-
-    } catch (err) {
-        console.error("❌ EXIF write failed:", err);
     }
 
-    console.log("✅ metadataMap updated with manual GPS");
-
+    renderFolderSelector();
+    updateHeaderStatus();
     loadMap();
 }
+
+// Load saved locations for the folders on this card (after Read card)
+async function loadSavedLocations() {
+    if (!analyzedFolders || !analyzedFolders.length) return;
+    try {
+        const qs = analyzedFolders.map(f => "folder=" + encodeURIComponent(f.path)).join("&");
+        const data = await (await fetch(`/api/locations?${qs}`)).json();
+        analyzedFolders.forEach(f => {
+            const hit = data.locations?.[f.path];
+            if (hit) folderGPS[f.name] = { lat: hit.lat, lon: hit.lon };
+        });
+    } catch (_) { /* non-critical */ }
+}
+
+function _currentFolderObj() {
+    return analyzedFolders.find(f => f.name === selectedFolder)
+        || (sourceFolderPath ? { name: selectedFolder, path: sourceFolderPath } : null);
+}
+
+async function applyManualGPS() {
+    updateFromInputs();
+    const folder = _currentFolderObj();
+
+    if (!manualLocation || !folder) {
+        showGlobalStatus("Pick a folder and a location (click the map or type coordinates) first.", "warning");
+        return;
+    }
+    if (folderGPS[folder.name] &&
+        !confirm(`${folderTitle(folder.path)} already has a location.\nReplace it?`)) return;
+
+    await _saveLocation([folder], manualLocation);
+    _locationStatus(`${folderTitle(folder.path)} — location saved. It's written to the copies when you import.`);
+}
+
+async function applyGPSToAllFolders() {
+    updateFromInputs();
+    if (!manualLocation || !analyzedFolders.length) {
+        showGlobalStatus("Choose a location first (click the map or type coordinates).", "warning");
+        return;
+    }
+    const n = analyzedFolders.length;
+    if (!confirm(`Use this location for all ${n} folder${n === 1 ? "" : "s"} on this card?` +
+                 `\nFolders that already have a location will be changed too.`)) return;
+
+    await _saveLocation(analyzedFolders, manualLocation);
+    _locationStatus(`Location saved for all ${n} folders. It's written to the copies when you import.`);
+}
+
+async function clearFolderLocation() {
+    const folder = _currentFolderObj();
+    if (!folder || !folderGPS[folder.name]) return;
+    await _saveLocation([folder], null);
+    $("latInput").value = "";
+    $("lonInput").value = "";
+    manualLocation = null;
+    _locationStatus(`${folderTitle(folder.path)} — location removed.`);
+}
+
+function _locationStatus(text) {
+    const status = $("mapStatus");
+    if (status) status.innerHTML = `<div class="map-status success">${text}</div>`;
+    const clearBtn = $("clearGpsBtn");
+    if (clearBtn) clearBtn.classList.toggle("d-none", !folderGPS[selectedFolder]);
+}
+
+$("applyGpsAllBtn")?.addEventListener("click", applyGPSToAllFolders);
+$("clearGpsBtn")?.addEventListener("click", clearFolderLocation);
 
 function showExifCommand(lat, lon) {
     const status = document.getElementById("mapStatus");
@@ -2066,16 +1954,207 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
 // ====================================================================
 // STEP 6 – Pre‑Import & Organize
 // ====================================================================
-function updateSessionMeta() {
-    fetch("/api/pre-import/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            title: $('session-title').value,
-            shoot_date: $('session-date').value
-        })
-    });
+// ====================================================================
+// IMPORT — shoot folder: title, date, layout, live preview (design 08/09)
+//
+// Defaults come from the card: the shoot folder's own name (minus a
+// leading date), or "Photos – <date range>" for camera-named folders;
+// the date from the photos' capture dates. Once the user edits a field
+// it is theirs and is never overwritten (Reset brings defaults back).
+// ====================================================================
+const shootMeta = {};   // per folder path: { title, titleOwned, date, dateOwned }
+const CAMERA_FOLDER_RE = /^\d{3}[A-Za-z0-9_]{0,5}$/;      // 100_FUJI, 100CANON, 100_2809
+const LEADING_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})\s*[-–—_ ]\s*/;
+
+const _escHtml = t => String(t).replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function _stepVisible(n) {
+    return !document.querySelector(`.wizard-step[data-step="${n}"]`)?.classList.contains("d-none");
 }
+
+function _shootMetaFor(folder) {
+    return (shootMeta[folder.path] ||= { title: "", titleOwned: false, date: "", dateOwned: false });
+}
+
+async function _shootDefaults(folder) {
+    const name = folderTitle(folder.path);
+
+    // Capture dates of this folder's photos, from the EXIF scan
+    let dates = [], ready = false;
+    try {
+        const data = await (await fetch("/api/exif-records")).json();
+        ready = !!data.ready;
+        const norm = p => (p || "").replace(/\\/g, "/").toLowerCase();
+        const base = norm(folder.path) + "/";
+        dates = (data.records || [])
+            .filter(r => r.datetime && norm(r.path).startsWith(base))
+            .map(r => String(r.datetime).replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").slice(0, 10))
+            .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+            .sort();
+    } catch (_) { /* fall through to other sources */ }
+
+    const earliest = dates[0];
+    const latest = dates[dates.length - 1];
+    const named = name.match(LEADING_DATE_RE);
+    const out = { ready };
+
+    if (!CAMERA_FOLDER_RE.test(name)) {
+        out.title = name.replace(LEADING_DATE_RE, "").trim() || name;
+        out.titleFrom = "From the folder name on the card";
+    } else {
+        out.title = inferOrganizationTitle
+            ? inferOrganizationTitle(earliest, latest)
+            : "Photos";
+        out.titleFrom = earliest
+            ? "Made from the photos' dates. Type a title to replace it."
+            : "This folder has a camera name. Type a title for the shoot.";
+    }
+
+    if (earliest) {
+        out.date = earliest;
+        out.dateFrom = earliest === latest
+            ? "From the camera"
+            : `Photos taken ${earliest} to ${latest}; earliest used`;
+    } else if (named) {
+        out.date = `${named[1]}-${named[2]}-${named[3]}`;
+        out.dateFrom = "From the folder name (photos have no capture date)";
+    } else {
+        out.date = new Date().toISOString().slice(0, 10);
+        out.dateFrom = ready ? "No capture date found. Today's date used." : "Reading photo dates…";
+    }
+    return out;
+}
+
+async function initShootPanel() {
+    const folder = _currentFolderObj();
+    if (!folder) return;
+
+    const meta = _shootMetaFor(folder);
+    const d = await _shootDefaults(folder);
+
+    if (!meta.titleOwned) meta.title = d.title;
+    if (!meta.dateOwned) meta.date = d.date;
+
+    $("shootTitle").value = meta.title;
+    $("shootDate").value = meta.date;
+    $("shootTitleHint").textContent = meta.titleOwned ? "Your title" : d.titleFrom;
+    $("shootDateHint").textContent = meta.dateOwned ? "Your date" : d.dateFrom;
+
+    try {
+        const t = localStorage.getItem("folderTemplate");
+        if (t !== null && [...$("folderTemplate").options].some(o => o.value === t)) {
+            $("folderTemplate").value = t;
+        }
+    } catch (_) { /* storage blocked */ }
+    _applyTemplateMode();
+    _updateImportLocation();
+    previewDestination();
+
+    // EXIF scan still running: fill in the real dates once they land
+    if (!d.ready && !(meta.titleOwned && meta.dateOwned)) {
+        setTimeout(() => {
+            if (_stepVisible(6) && _currentFolderObj()?.path === folder.path) initShootPanel();
+        }, 2000);
+    }
+}
+
+function _applyTemplateMode() {
+    const legacy = $("folderTemplate").value === "";
+    $("shootTitle").disabled = legacy;
+    $("shootDate").disabled = legacy;
+}
+
+function _updateImportLocation() {
+    const el = $("importLocationText");
+    if (!el) return;
+    const g = folderGPS[selectedFolder];
+    el.classList.toggle("text-muted", !g);
+    el.innerHTML = g
+        ? `<span class="num">${Number(g.lat).toFixed(5)}, ${Number(g.lon).toFixed(5)}</span>` +
+          ` is written to every imported photo: JPG EXIF, plus an .xmp sidecar for RAW files.`
+        : "No location assigned. You can add one in Locations.";
+}
+
+let _previewTimer = null;
+function previewDestinationSoon() {
+    clearTimeout(_previewTimer);
+    _previewTimer = setTimeout(previewDestination, 250);
+}
+
+async function previewDestination() {
+    const out = $("destPreview");
+    const note = $("destPreviewNote");
+    if (!out) return;
+
+    const dest = $("workingDirectoryInput").value.trim();
+    const template = $("folderTemplate").value;
+    out.classList.remove("invalid");
+    note.textContent = "";
+
+    if (!dest) {
+        out.textContent = "Choose a destination above";
+        return;
+    }
+    if (!template) {
+        out.innerHTML = `${_escHtml(dest)}\\<span class="rel">&lt;card folder&gt; - &lt;card label&gt;</span>`;
+        note.textContent = "Old layout: named after the folder on the card.";
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/pre-import/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                source: sourceFolderPath,
+                destination: dest,
+                template,
+                title: $("shootTitle").value,
+                shoot_date: $("shootDate").value,
+            })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            out.textContent = data.error;
+            out.classList.add("invalid");
+            return;
+        }
+        const root = data.path.slice(0, data.path.length - data.relative.length);
+        out.innerHTML = `${_escHtml(root)}<span class="rel">${_escHtml(data.relative)}</span>`;
+        note.textContent = data.exists
+            ? "This folder already exists. Files already in it are skipped, never overwritten."
+            : "A new folder will be created.";
+    } catch (err) {
+        out.textContent = "Couldn't check the destination.";
+        out.classList.add("invalid");
+    }
+}
+
+$("shootTitle")?.addEventListener("input", () => {
+    const folder = _currentFolderObj();
+    if (folder) Object.assign(_shootMetaFor(folder), { title: $("shootTitle").value, titleOwned: true });
+    $("shootTitleHint").textContent = "Your title";
+    previewDestinationSoon();
+});
+$("shootDate")?.addEventListener("change", () => {
+    const folder = _currentFolderObj();
+    if (folder) Object.assign(_shootMetaFor(folder), { date: $("shootDate").value, dateOwned: true });
+    $("shootDateHint").textContent = "Your date";
+    previewDestinationSoon();
+});
+$("folderTemplate")?.addEventListener("change", () => {
+    try { localStorage.setItem("folderTemplate", $("folderTemplate").value); } catch (_) { /* blocked */ }
+    _applyTemplateMode();
+    previewDestination();
+});
+$("workingDirectoryInput")?.addEventListener("input", previewDestinationSoon);
+$("resetShootBtn")?.addEventListener("click", () => {
+    const folder = _currentFolderObj();
+    if (!folder) return;
+    Object.assign(_shootMetaFor(folder), { titleOwned: false, dateOwned: false });
+    initShootPanel();
+});
 
 // ====================================================================
 // ORGANIZE
@@ -2393,10 +2472,10 @@ if (!analyzeBtn) {
                 folderPathMap[name] = f.path;
             });
 
-            updateProgress(`
-     <strong>Preparing thumbnails…</strong><br>
-    Loading preview images
-`);
+            // Locations assigned earlier for this card's folders (saved on disk)
+            folderGPS = {};
+            await loadSavedLocations();
+            clearGlobalStatus();
 
             renderAnalyzeFolders();
 
@@ -2949,7 +3028,15 @@ async function runOrganize(mode) {
     const source      = sourceFolderPath || $("sdSelect")?.value;
     const destination = $("workingDirectoryInput")?.value?.trim();
 
-    if (!source || !destination) return;
+    if (!source || !destination) {
+        showGlobalStatus("Choose a destination folder first.", "warning");
+        return;
+    }
+    if ($("folderTemplate")?.value && !($("shootTitle")?.value || "").trim()) {
+        showGlobalStatus("Enter a shoot title, or choose the card folder name layout.", "warning");
+        $("shootTitle")?.focus();
+        return;
+    }
 
     // Build kept-only list if needed
     const keptPaths = mode === "kept"
@@ -2961,13 +3048,17 @@ async function runOrganize(mode) {
     setImportState("running");
 
     try {
-        // GPS assigned in Mapping — written into the imported copies
-        const gps = [];
-        metadataMap.forEach((v, path) => {
-            if (v.lat != null && v.lon != null) gps.push({ path, lat: v.lat, lon: v.lon });
-        });
+        const template = $("folderTemplate")?.value ?? "";
+        const title = ($("shootTitle")?.value || "").trim();
+        const g = folderGPS[selectedFolder];
 
-        const body = { source, destination, mode, gps };
+        const body = {
+            source, destination, mode,
+            template,
+            title: template ? title : "",          // no title → old layout
+            shoot_date: $("shootDate")?.value || null,
+            location: g ? { lat: Number(g.lat), lon: Number(g.lon) } : null,
+        };
         if (keptPaths) body.kept_paths = keptPaths;
 
         const res  = await fetch("/api/organize", {
@@ -2978,7 +3069,7 @@ async function runOrganize(mode) {
         const data = await res.json();
 
         if (data.success) {
-            setImportState("done", { count: data.count, destination: data.destination });
+            setImportState("done", data);
         } else {
             setImportState("error", { message: data.error });
         }
