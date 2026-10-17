@@ -693,7 +693,8 @@ let chosenSourceFolder = null;
 
 const SOURCE_GROUPS = {
     card: "Camera cards",
-    disk: "This computer and USB drives",
+    external: "External drives",
+    disk: "This computer",
     network: "Network drives",
 };
 
@@ -732,8 +733,19 @@ function _addChosenFolderOption(sel) {
     sel.appendChild(group);
 }
 
+// Remember what the user picked, so automatic refreshes don't reset it
+$("sdSelect")?.addEventListener("change", e => { e.target.dataset.chosen = e.target.value; });
+
 // Ticking "Show all drives" refreshes the list straight away
 $("showVirtualDrives")?.addEventListener("change", () => fetchSDCards());
+
+// Look for cards when the app opens, and again when the window regains
+// focus on the Card step (e.g. after inserting a card) — unless the user
+// has chosen a folder there.
+fetchSDCards();
+window.addEventListener("focus", () => {
+    if (_stepVisible(1) && !chosenSourceFolder) fetchSDCards();
+});
 
 $("chooseSourceBtn")?.addEventListener("click", async () => {
     try {
@@ -811,9 +823,12 @@ async function fetchSDCards() {
         const visibleDrives = data.drives || [];
 
         if (visibleDrives.length === 0) {
+            sel.innerHTML = `<option value="">Nothing found</option>`;
+            _addChosenFolderOption(sel);
+            if (chosenSourceFolder) sel.value = chosenSourceFolder;
             $("sdStatusText").textContent = showVirtual
                 ? "No drives found. You can still choose a folder."
-                : "No camera cards found. Insert a card, show all drives, or choose a folder.";
+                : "No cards or external drives found. Insert one and press Detect, or choose a folder.";
 
             $("sdTimer").textContent = "";
             setSDButtonState('initial');
@@ -821,13 +836,16 @@ async function fetchSDCards() {
             return;
         }
 
-        // Populate dropdown, grouped by kind of drive
+        // Populate dropdown, grouped by kind of drive; keep the user's
+        // choice if that drive is still there
+        const previous = sel.dataset.chosen || "";
         sel.innerHTML = '';
         _fillSourceOptions(sel, visibleDrives);
 
-        // Auto-select first detected card
-        if (sel.options.length > 0) {
-            sel.selectedIndex = 0;
+        if (previous && [...sel.options].some(o => o.value === previous)) {
+            sel.value = previous;
+        } else if (sel.options.length > 0) {
+            sel.selectedIndex = 0;      // first card / external drive
         }
 
         // Enable Analyze button
@@ -841,11 +859,15 @@ async function fetchSDCards() {
         // Final message
         setTimeout(() => {
 
-            const cards = visibleDrives.filter(d => (d.kind || "card") === "card").length;
-            $("sdStatusText").textContent = showVirtual
-                ? `${visibleDrives.length} drive${visibleDrives.length === 1 ? "" : "s"} found` +
-                  (cards ? `, ${cards} of them camera card${cards === 1 ? "" : "s"}` : "")
-                : `${cards} camera card${cards === 1 ? "" : "s"} found`;
+            const count = kind => visibleDrives.filter(d => (d.kind || "card") === kind).length;
+            const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+            const parts = [
+                count("card") && plural(count("card"), "card"),
+                count("external") && plural(count("external"), "external drive"),
+                count("disk") && plural(count("disk"), "local disk"),
+                count("network") && plural(count("network"), "network drive"),
+            ].filter(Boolean);
+            $("sdStatusText").textContent = `Found ${parts.join(", ")}`;
 
             $("sdTimer").textContent = "";
             clearGlobalStatus();

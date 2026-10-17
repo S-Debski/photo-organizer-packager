@@ -47,7 +47,7 @@ from backend.routes.gps_data import api_gps_data
 from backend.routes.thumbs import api_thumbs, api_thumb, api_photo_proxy, api_full_image
 from backend.routes.write_gps import api_write_gps, write_gps_tags, write_gps_sidecar
 
-from backend.services.sdcard import detect_sd_cards, list_all_sources
+from backend.services.sdcard import list_all_sources
 
 # Session state (v3.0)
 from photo_core.pre_import.session_state import (
@@ -136,29 +136,16 @@ def index():
     )
 
 # -----------------------------------------------------------------------------
-# Filter cloud drives etc
-# -----------------------------------------------------------------------------
-def filter_drives(drives):
-    filtered = []
-    for d in drives:
-        if d.get("is_virtual"):
-            continue
-        filtered.append(d)
-    return filtered
-
-# -----------------------------------------------------------------------------
 # SD card detection
 # -----------------------------------------------------------------------------
 @app.route("/api/sd-cards", methods=["GET"])
 def api_sd_cards():
     try:
-        # all=true: every drive (local, USB, network) tagged by kind;
-        # otherwise camera cards only
-        if request.args.get("all") == "true" or request.args.get("includeVirtual") == "true":
-            return jsonify({"success": True, "drives": list_all_sources()})
-        drives = filter_drives(detect_sd_cards())
-        for d in drives:
-            d.setdefault("kind", "card")
+        # Default: camera cards and external (USB/FireWire) drives.
+        # all=true adds this computer's internal disks and network drives.
+        drives = list_all_sources()
+        if request.args.get("all") != "true":
+            drives = [d for d in drives if d["kind"] in ("card", "external")]
         return jsonify({"success": True, "drives": drives})
     except Exception as e:
         print("SD detection error:", e)
