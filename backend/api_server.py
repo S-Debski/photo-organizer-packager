@@ -508,8 +508,15 @@ def _locations_file() -> str:
 def _location_key(folder: str) -> str | None:
     if not folder or not os.path.isdir(folder):
         return None
-    first = next(iter(sorted(os.path.basename(p) for p in iter_images(folder))), "")
-    return f"{os.path.normcase(os.path.normpath(folder))}|{first.upper()}"
+    # First photo's name *and size*: another card can reuse DSCF0001
+    first = next(iter(sorted(iter_images(folder), key=lambda p: os.path.basename(p).upper())), None)
+    if not first:
+        return None
+    try:
+        size = os.path.getsize(first)
+    except OSError:
+        size = 0
+    return f"{os.path.normcase(os.path.normpath(folder))}|{os.path.basename(first).upper()}|{size}"
 
 
 def _load_locations() -> dict:
@@ -746,8 +753,11 @@ def api_session_create():
 
         # Resume the latest session for this folder if one exists on disk,
         # so culling decisions survive an app restart.
+        # ...but only a session made from these photos: the next card in
+        # the same reader slot has the same paths and often the same names.
+        current_files = list(iter_images(source_folder)) if os.path.isdir(source_folder) else []
         existing = None if data.get("new") else find_latest_session(
-            ctx.sessions_root, source_folder)
+            ctx.sessions_root, source_folder, current_files)
 
         if existing:
             session_dir, session_data = existing
@@ -762,7 +772,7 @@ def api_session_create():
         # Register every RAW/JPG pair now, so culling decisions made before
         # the EXIF scanner's next pass are never dropped as unknown assets.
         if os.path.isdir(source_folder):
-            register_paths(session_data, iter_images(source_folder))
+            register_paths(session_data, current_files)
             save_session(session_dir, session_data)
 
         ctx.state["session"]     = session_data

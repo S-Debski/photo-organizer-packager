@@ -165,15 +165,58 @@ def load_session(session_dir: str) -> dict:
     return session_data
 
 
-def find_latest_session(base_dir: str, source_folder: str) -> tuple[str, dict] | None:
+def same_photos(session_data: dict, current_files) -> bool:
+    """
+    True if the session was made from (essentially) the photos in
+    `current_files`, not merely from the same folder path.
+
+    Sessions with recorded sizes: at least half of the recorded files that
+    are still present by name must also match by size — a different card
+    reusing DSCF0001… has different sizes. Older sessions without sizes:
+    the photo names must match almost exactly (≥ 90% overlap both ways).
+    """
+    current = {}
+    for p in current_files:
+        try:
+            current[os.path.basename(p).upper()] = os.path.getsize(p)
+        except OSError:
+            continue
+    if not current:
+        return False
+
+    assets = session_data.get("assets", {})
+    recorded = {name: size for a in assets.values() for name, size in (a.get("sizes") or {}).items()}
+
+    if recorded:
+        present = [n for n in recorded if n in current]
+        if not present:
+            return False
+        matches = sum(1 for n in present if current[n] == recorded[n])
+        return matches > 0 and matches >= 0.5 * len(present)
+
+    # Legacy manifest: compare photo stems
+    stems_now = {n.split(".", 1)[0] for n in current}
+    stems_then = {a.upper() for a in assets}
+    if not stems_then:
+        return False
+    overlap = len(stems_now & stems_then)
+    return overlap >= 0.9 * len(stems_now) and overlap >= 0.9 * len(stems_then)
+
+
+def find_latest_session(base_dir: str, source_folder: str, current_files=None) -> tuple[str, dict] | None:
     """
     Find the most recently created session for `source_folder`, so culling
     can resume when the same card/folder is opened again.
+
+    With `current_files`, a session only counts if it was made from these
+    photos (same_photos) — otherwise a new card in the same reader slot
+    would inherit the previous card's keep/reject decisions.
 
     Returns (session_dir, session_data) or None.
     """
     target = os.path.normcase(os.path.normpath(str(source_folder)))
     best = None
+    current_files = list(current_files) if current_files is not None else None
 
     try:
         entries = list(os.scandir(base_dir))
@@ -188,6 +231,8 @@ def find_latest_session(base_dir: str, source_folder: str) -> tuple[str, dict] |
         except (FileNotFoundError, ValueError):
             continue
         if os.path.normcase(os.path.normpath(data["source_folder"])) != target:
+            continue
+        if current_files is not None and not same_photos(data, current_files):
             continue
         if best is None or data.get("created_at", "") > best[1].get("created_at", ""):
             best = (entry.path, data)
@@ -278,6 +323,15 @@ def register_asset(
         entry["raw_source"] = str(raw_source)
     if jpg_source is not None:
         entry["jpg_source"] = str(jpg_source)
+
+    # File sizes identify *these* photos: the next card in the reader can
+    # reuse the same folder path and file names (DCIM/100_FUJI/DSCF0001).
+    for src in (raw_source, jpg_source):
+        if src:
+            try:
+                entry.setdefault("sizes", {})[os.path.basename(str(src)).upper()] = os.path.getsize(src)
+            except OSError:
+                pass
 
     logger.debug(f"Asset registered: {asset_id} (raw={raw_source}, jpg={jpg_source})")
 

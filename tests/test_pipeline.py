@@ -134,6 +134,37 @@ class PipelineTest(unittest.TestCase):
         st = self.client.get("/api/session/status").get_json()
         self.assertEqual((st["selected"], st["rejected"], st["unculled"]), (1, 1, 2))
 
+    def test_11_new_card_in_same_slot_starts_fresh(self):
+        slot = self.tmp / "slot" / "DCIM" / "100_FUJI"
+        slot.mkdir(parents=True)
+
+        def insert_card(colour, size):
+            for p in slot.iterdir():
+                p.unlink()
+            for i in (1, 2, 3):
+                Image.new("RGB", size, colour).save(slot / f"DSCF000{i}.JPG", quality=90)
+
+        insert_card("red", (800, 600))
+        self.post("/api/session/create", source_folder=str(slot), session_name="100_FUJI")
+        self.post("/api/session/select", asset_id="DSCF0001", decision="reject")
+        self.post("/api/locations", folders=[str(slot)], lat=54.9, lon=-1.8)
+
+        # Same card again → resumes, location still there
+        self.post("/api/session/close")
+        again = self.post("/api/session/create", source_folder=str(slot), session_name="100_FUJI")
+        self.assertTrue(again["resumed"])
+        self.assertEqual(again["decisions"], {"DSCF0001": "reject"})
+
+        # Different card, same path and names, different photos → fresh
+        insert_card("blue", (1600, 1200))
+        self.post("/api/session/close")
+        other = self.post("/api/session/create", source_folder=str(slot), session_name="100_FUJI")
+        self.assertFalse(other["resumed"])
+        self.assertEqual(other["decisions"], {})
+        locs = self.client.get("/api/locations", query_string={"folder": str(slot)}).get_json()
+        self.assertEqual(locs["locations"], {})
+        self.post("/api/session/close")
+
     # -- Import ---------------------------------------------------------------
 
     def test_20_kept_import_needs_keepers(self):
