@@ -825,6 +825,8 @@ body {
     margin-top: 12px;
 }
 .coord-row .form-control { width: 150px; }
+.coord-row #placeSelect { width: auto; min-width: 190px; max-width: 280px; }
+.coord-row.place-row { margin-top: 4px; }
 .map-status {
     margin-top: 10px;
     padding: 8px 12px;

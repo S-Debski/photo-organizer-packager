@@ -1782,13 +1782,17 @@ async function loadMap() {
         // RENDER ONLY FROM combinedGPS
         renderMapMarkers(combinedGPS);
 
-        // Fit map
-        if (map && combinedGPS.length > 0) {
+        // Fit map to the photos — unless the user has picked a point
+        // (map click, typed coordinates or a saved place), which a late
+        // refresh must not pull the view away from
+        if (map && combinedGPS.length > 0 && !manualLocation) {
             const bounds = L.latLngBounds(
                 combinedGPS.map(p => [p.lat, p.lon])
             );
 
             map.fitBounds(bounds, { padding: [20, 20], maxZoom: 15 });
+        } else if (map && manualLocation) {
+            map.setView([manualLocation.lat, manualLocation.lon], Math.max(map.getZoom(), 14));
         }
 
         mapLoading = false;
@@ -1956,6 +1960,80 @@ function _locationStatus(text) {
 }
 
 $("applyGpsAllBtn")?.addEventListener("click", applyGPSToAllFolders);
+
+// --------------------------------------------------------------------
+// Saved places (venues, regular walks): pick one to fill the coordinates
+// --------------------------------------------------------------------
+let savedPlaces = [];
+
+function _renderPlaces(selectName = "") {
+    const sel = $("placeSelect");
+    if (!sel) return;
+    sel.innerHTML = `<option value="">Saved places…</option>` +
+        savedPlaces.map(p => `<option value="${_escHtml(p.name)}">${_escHtml(p.name)}</option>`).join("");
+    sel.value = selectName;
+    $("deletePlaceBtn")?.classList.toggle("d-none", !selectName);
+}
+
+async function loadPlaces(selectName = "") {
+    try {
+        savedPlaces = (await (await fetch("/api/places")).json()).places || [];
+    } catch (_) { savedPlaces = []; }
+    _renderPlaces(selectName);
+}
+
+async function _postPlace(body) {
+    const data = await (await fetch("/api/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    })).json();
+    if (!data.success) throw new Error(data.error || "Couldn't save the place");
+    savedPlaces = data.places;
+}
+
+$("placeSelect")?.addEventListener("change", e => {
+    const place = savedPlaces.find(p => p.name === e.target.value);
+    $("deletePlaceBtn")?.classList.toggle("d-none", !place);
+    if (!place) return;
+    $("latInput").value = place.lat.toFixed(6);
+    $("lonInput").value = place.lon.toFixed(6);
+    updateFromInputs();             // moves the map and marker
+    _locationStatus(`${_escHtml(place.name)}: press Assign to use it for this folder, or Use for all folders.`);
+});
+
+$("savePlaceBtn")?.addEventListener("click", async () => {
+    updateFromInputs();
+    if (!manualLocation) {
+        showGlobalStatus("Click the map or type coordinates first, then save them as a place.", "warning");
+        return;
+    }
+    const current = $("placeSelect").value;
+    const name = (prompt("Name for this place (e.g. Butley Village Hall):", current) || "").trim();
+    if (!name) return;
+    if (savedPlaces.some(p => p.name.toLowerCase() === name.toLowerCase()) &&
+        !confirm(`Replace the saved place "${name}" with these coordinates?`)) return;
+    try {
+        await _postPlace({ name, lat: manualLocation.lat, lon: manualLocation.lon });
+        _renderPlaces(name);
+        _locationStatus(`Saved place: ${_escHtml(name)}`);
+    } catch (err) {
+        showGlobalStatus(err.message, "error");
+    }
+});
+
+$("deletePlaceBtn")?.addEventListener("click", async () => {
+    const name = $("placeSelect").value;
+    if (!name || !confirm(`Delete the saved place "${name}"?\nLocations already assigned stay as they are.`)) return;
+    try {
+        await _postPlace({ name, delete: true });
+        _renderPlaces("");
+    } catch (err) {
+        showGlobalStatus(err.message, "error");
+    }
+});
+
+loadPlaces();
 $("clearGpsBtn")?.addEventListener("click", clearFolderLocation);
 
 function showExifCommand(lat, lon) {
@@ -2020,8 +2098,8 @@ function renderMapMarkers(points, start = 0, chunkSize = 25) {
 
     } else {
 
-        // FINAL ZOOM BEHAVIOUR (hybrid)
-        if (points.length > 0 && map) {
+        // FINAL ZOOM BEHAVIOUR (hybrid) — not when the user has picked a point
+        if (points.length > 0 && map && !manualLocation) {
 
             const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
 

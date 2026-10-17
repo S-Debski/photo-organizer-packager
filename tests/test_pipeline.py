@@ -258,6 +258,22 @@ class PipelineTest(unittest.TestCase):
         self.assertFalse(again["all_copied"])
         self.assertEqual(victim.read_bytes(), b"a different photo with the same name")
 
+    def test_29_saved_places(self):
+        first = self.client.get("/api/places").get_json()["places"]
+        self.assertIn("Butley Village Hall", [p["name"] for p in first])
+
+        self.post("/api/places", name="Wylam Station", lat=54.9757, lon=-1.8206)
+        self.post("/api/places", name="wylam station", lat=54.9760, lon=-1.8210)  # replace, any case
+        places = self.client.get("/api/places").get_json()["places"]
+        wylam = [p for p in places if p["name"].lower() == "wylam station"]
+        self.assertEqual(len(wylam), 1)
+        self.assertAlmostEqual(wylam[0]["lat"], 54.9760)
+
+        self.post("/api/places", name="Wylam Station", delete=True)
+        names = [p["name"] for p in self.client.get("/api/places").get_json()["places"]]
+        self.assertNotIn("Wylam Station", names)
+        self.assertIn("Butley Village Hall", names)
+
     def test_28_locations_survive_restart(self):
         folder = str(self.src)
         self.post("/api/locations", folders=[folder], lat=54.96, lon=-1.86)

@@ -231,6 +231,9 @@
 
             <div id="locationDetails">
                 <div class="coord-row">
+                    <select id="placeSelect" class="form-select form-select-sm" title="Saved places">
+                        <option value="">Saved places…</option>
+                    </select>
                     <input id="latInput" type="number" step="0.000001"
                            class="form-control form-control-sm num" placeholder="Latitude">
                     <input id="lonInput" type="number" step="0.000001"
@@ -239,6 +242,14 @@
                     <button id="applyGpsAllBtn" class="btn btn-sm btn-quiet">Use for all folders</button>
                     <button id="copyDetectedGpsBtn" class="btn btn-sm btn-quiet">Use detected</button>
                     <button id="clearGpsBtn" class="btn btn-sm btn-link-quiet d-none">Remove location</button>
+                </div>
+                <div class="coord-row place-row">
+                    <button id="savePlaceBtn" class="btn btn-sm btn-link-quiet">
+                        <i class="bi bi-bookmark-plus"></i> Save this point as a place
+                    </button>
+                    <button id="deletePlaceBtn" class="btn btn-sm btn-link-quiet d-none">
+                        <i class="bi bi-trash3"></i> Delete saved place
+                    </button>
                 </div>
                 <p class="hint">Click the map or type coordinates. Locations are saved and written
                     to every imported copy (JPG, plus an .xmp sidecar for RAW) — never to the card.</p>

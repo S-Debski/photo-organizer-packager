@@ -526,6 +526,65 @@ def _save_locations(locs: dict) -> None:
     os.replace(tmp, path)
 
 
+# -----------------------------------------------------------------------------
+# /api/places — named places reused across shoots (venues, regular walks).
+# Kept beside the sessions; shared by every card.
+# -----------------------------------------------------------------------------
+_DEFAULT_PLACES = [
+    # Example venue (previously hard-coded in analyze_card.py)
+    {"name": "Butley Village Hall", "lat": 52.1072, "lon": 1.4575},
+]
+
+
+def _places_file() -> str:
+    return os.path.join(ctx.sessions_root, "places.json")
+
+
+def _load_places() -> list[dict]:
+    path = _places_file()
+    if not os.path.exists(path):
+        return [dict(p) for p in _DEFAULT_PLACES]
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+        return [p for p in data if isinstance(p, dict) and p.get("name")]
+    except (OSError, ValueError):
+        return []
+
+
+def _save_places(places: list[dict]) -> None:
+    path = _places_file()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(places, fh, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+@app.route("/api/places", methods=["GET", "POST"])
+def api_places():
+    places = _load_places()
+
+    if request.method == "POST":
+        data = request.json or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"success": False, "error": "A place needs a name"}), 400
+
+        places = [p for p in places if p["name"].casefold() != name.casefold()]
+        if not data.get("delete"):
+            try:
+                lat, lon = float(data["lat"]), float(data["lon"])
+            except (KeyError, TypeError, ValueError):
+                return jsonify({"success": False, "error": "lat and lon are required"}), 400
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return jsonify({"success": False, "error": "Coordinates out of range"}), 400
+            places.append({"name": name, "lat": lat, "lon": lon})
+        _save_places(places)
+
+    places.sort(key=lambda p: p["name"].casefold())
+    return jsonify({"success": True, "places": places})
+
+
 @app.route("/api/locations", methods=["GET", "POST"])
 def api_locations():
     locs = _load_locations()
