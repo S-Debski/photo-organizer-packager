@@ -131,3 +131,27 @@ ctx.session = {
 ### Constraints
 - Must not be inferred
 - Must not be modified after ctx is frozen
+
+---
+## v3.0 Implementation
+
+### Title & Shoot Date
+- Defaults and ownership: [[Infer title from date and let user edit details]]
+- Edited on the Import step; per shoot folder
+
+### Location (supersedes `ctx.manual_gps`)
+- Assigned per shoot folder on the Locations step
+- "Use for all folders" assigns one location to every folder on the card
+- Saved: `sessions/locations.json` via `/api/locations`
+- Key: folder path + first photo name + size (a new card in the same slot does not inherit it)
+- Survives restart; removable ("Remove location")
+- Saved places offer reusable coordinates: [[14 - Saved Places]]
+
+### Application (at import, copies only)
+- JPG → EXIF GPS with N/S/E/W ref tags (`write_gps_tags`)
+- RAW → XMP sidecar `<stem>.xmp`, created or updated (`write_gps_sidecar`)
+- Written after copying, so a sidecar copied from the card is updated, not clashed
+- Source never written: `write_gps.py` defers any path under the card/source
+
+### Fields No Longer Used
+- `ctx.state["title"]`, `ctx.state["shoot_date"]` (set by analyse; ignored)

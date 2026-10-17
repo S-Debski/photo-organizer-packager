@@ -235,6 +235,50 @@ Must Not:
 
 ---
 
+## v3.0 Modules
+
+### `app.py`
+- Entry point (there is no `main.py`): logging, single‑instance check, starts server threads, runs tray on the main thread
+
+### `tray/tray_icon.py`
+- Tray / menu‑bar icon: Open, Quit
+- Must not contain application logic
+
+### **`photo_core/organize/destination.py`**
+- Resolve and validate the import destination (layout, title, date)
+- Shared by preview and import; pure path logic, creates nothing
+
+### **`photo_core/pre_import/session_state.py`**
+- Culling session manifests; same‑photos resume rule
+- One RAW/JPG extension list via `utils/fs_utils.py`
+
+### **`photo_core/export/pixel.py`**
+- Send to phone via adb; never overwrites on the phone
+- Must not read from the source card
+
+### `photo_core/exif/reader.py`
+- ExifTool resolution (env → bundled → PATH → Homebrew), batched `prefetch_exif`, per‑file `read_exif`
+- Caches keyed on path + size + mtime
+
+### `utils/thumb_cache.py`
+- Disk‑cached downscaled previews (grid 320 / strip 160 / preview 1600); RAW via embedded preview
+
+### `backend/services/sdcard.py`
+- Source detection: card / external / disk / network
+
+### `backend/routes/write_gps.py`
+- `write_gps_tags` (JPG EXIF), `write_gps_sidecar` (RAW XMP); defers any source path
+
+### Build files (current)
+- `photo-organizer.spec`, `build.bat`, `build_mac.sh`, `.github/workflows/build.yml`
+- Older `app.spec` / `photo-organizer-*.spec` / `build_exe.bat` references above are superseded
+
+### Tests
+- `tests/test_pipeline.py` — end‑to‑end pipeline checks on a temporary card
+- `tests/fake_adb.py` — stand‑in adb
+
+---
+
 ## Lock & Runtime Artifacts
 
 ### `my_wizard_app.lock`

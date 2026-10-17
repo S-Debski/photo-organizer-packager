@@ -1,3 +1,34 @@
+## Current (v3.0)
+
+See [[File Responsibilities (Design Contract)]] → v3.0 Modules for the authoritative list.
+
+---
+## main.js
+
+- Steps: 1 Card · 2 Folders · 3 Browse & cull · 3b Review · 4 Cameras & lenses · 5 Locations · 6 Import
+- Cameras & lenses: per photo, from scanner records (`/api/exif-records`); RAW+JPG pair counts once
+    - No Chart.js; list with bars
+- Folder switching anywhere: `activateFolder()`
+- Grid: `/api/thumb` previews, S/M/L size, pinned header
+- Import: shoot folder panel (`initShootPanel`), preview, Send to phone panel
+
+---
+## sdcard.py
+
+- See [[12 - Sources (Cards, Drives, Folders)]]
+- Replaces the v2 rules below (label exclusions, removable/DCIM inclusion)
+
+---
+## reader.py / lens.py
+
+- `reader.py` → **only** talks to ExifTool (`-json -n -G1`)
+- Batched reads (`prefetch_exif`), cache keyed on path + size + mtime
+- Missing ExifTool → `{}` (logged at start‑up: "ExifTool not found")
+- `lens.py` → interprets EXIF
+
+---
+## Superseded (v2 notes, kept for history)
+
 MAIN.js
 From your `main.js`, Step 3 is **purely derived state**:
 
@@ -12,10 +43,6 @@ From your `main.js`, Step 3 is **purely derived state**:
 - Trigger:
     - Clicking the sidebar item for Step 3
 
-✅ No backend calls  
-✅ No mutation of session state  
-✅ No coupling to Pre‑Import or Organize
-
 SD_CARDS.py
 Detects Camera cards not cloud drives
 ### HARD EXCLUSIONS (must happen first)
@@ -29,36 +56,9 @@ A drive is **never** an SD card if its label or path contains:
 - `icloud`
 - `box`
 
-### ✅ POSITIVE INCLUSION
+### POSITIVE INCLUSION
 
 A drive is an SD card if **any** of these are true:
 
 1. Windows reports it as **removable**
 2. It contains a `DCIM` directory at root
-
-===================================================
-- `reader.py` → **only** talks to ExifTool
-- `lens.py` → interprets EXIF
-
-photo_core/exif/reader.py
-------------------------------------------------------------
-ExifTool wrapper with caching
-
-- Uses exiftool (industry standard)
-- Reads EXIF + XMP + MakerNotes
-- Cached for performance
-- OS-agnostic
-------------------------------------------------------------
-
-### Design notes (important)
-
-- Uses **`-json`** → stable, machine‑readable
-- Uses **LRU cache** → extremely fast after first read
-- Raises a clear error if exiftool is missing
-- Does **not** guess or normalise yet (that’s higher‑level logic)
-
-
-photo_core/exif/lens.py
-Lens resolution logic
-
-

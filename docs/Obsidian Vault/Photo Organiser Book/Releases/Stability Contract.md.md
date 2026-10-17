@@ -134,6 +134,40 @@ Must include:
 
 ---
 
+## v3.0 Amendments (hybrid ingest)
+
+Version note: v3.0.0 — contract changes below are intentional and versioned.
+
+### Workflow Model (v3.0)
+
+Detect / choose source → Folders → Browse & cull → (Cameras & lenses, Locations) → Import → (Send to phone)
+
+### Added Invariants
+- The source (card, drive, folder) is never written — not by culling, Locations, or import
+- Import never overwrites: same name + different content is reported, not replaced
+- No partial files under real names (copy via `.part` + rename)
+- Destination validated before any directory is created; never on the card or inside the source
+- Culling decisions and locations resume only for the same photos (name + size), never by path alone
+- Location is applied to copies only (JPG EXIF, RAW `.xmp` sidecar)
+- Send to phone copies only; never overwrites on the phone; uploads nothing
+- "Safely format the card" shown only after a complete `all` import with no errors
+
+### Step Contracts (v3.0)
+- Card detection — read‑only; also runs on app open and window focus (Card step)
+- Folder change — clears the previous folder's EXIF records; any folder picker goes through `activateFolder()`
+- Browse — returning to the step reuses the loaded grid
+- Locations — selection persisted to disk, not to files
+- Import — explicit choice (kept / everything); refused when kept is empty
+
+### Release Checklist Additions
+- [ ] `python -m unittest discover -s tests` passes (includes source‑unchanged test)
+- [ ] Card swap in the same slot starts with no decisions or locations
+- [ ] Import preview path equals the actual import folder
+- [ ] Windows and macOS builds green in Actions
+- [ ] Standalone exe reads EXIF with the bundled ExifTool (no system ExifTool)
+
+---
+
 ## Explicit Non‑Goals
 
 This contract does not define:

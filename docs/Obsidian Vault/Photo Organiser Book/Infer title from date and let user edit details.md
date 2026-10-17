@@ -17,21 +17,39 @@ Inference happens once per analysis input change, not continuously. Per folder
 - ✅ Copy‑only Organize uses final title
 - ✅ Completion message uses title verbatim
 
-## 1. Data Source Rules
+## 1. Data Source Rules (v3.0 — two rules)
 
-1. The title **must be derived solely from Analyze results**.
-2. Only files with a **valid capture date** may be used for inference.
-3. Files without a capture date:
-    - Are excluded from range calculation
-    - Must not block inference if at least one dated file exists
+Title source is chosen per shoot folder, top‑down:
+
+1. **Named shoot folder** → folder name
+    - Folder name is not a camera DCF name (see below)
+    - Leading ISO date stripped: `2026-10-10 - Wylam Waggonay Bike Ride` → `Wylam Waggonay Bike Ride`
+    - Date stays available to the date template, never duplicated in the title
+2. **Camera‑named folder** → date‑range title (sections 2–5)
+    - DCF name pattern: `^\d{3}[A-Za-z0-9_]{0,5}$` (`100MEDIA`, `100_FUJI`, `100CANON`, `100_2809`)
+    - Camera names carry no shoot meaning
+
+Date‑range inputs:
+- Only files with a **valid capture date** (EXIF DateTimeOriginal)
+- Undated files excluded from the range; never block inference
 
 **Prohibited sources:**
-
-- Folder names
+- Camera folder names (rule 2 applies instead)
 - File modification times
 - Camera models
 - GPS/location data
-- User input other than title edits
+
+Resolved conflict: earlier text prohibited all folder names; [[09 - Directory Template Resolution (Pre‑Import)]] required the folder below DCIM. v3.0 uses both — named folders by rule 1, camera folders by rule 2.
+
+### Shoot Date Default (v3.0)
+
+Top‑down, first available:
+1. Earliest capture date of the folder's photos
+2. Leading ISO date in the folder name
+3. Today (hint states this explicitly)
+
+- Source of the default is always shown beside the field
+- Range shown when photos span several days; earliest used
 
 2. Date Range Determination Rules
 2.1 Eligible Dates
@@ -213,6 +231,13 @@ Copy‑only organize enables the final message:
 
 
 
+
+9a. Implementation (v3.0)
+
+- **`ui/static/js/main.js`** — `initShootPanel()`, `_shootDefaults()`; ownership in `shootMeta[folder.path]`
+- `ui/static/js/lib/inferOrganizationTitle.js` — date‑range formatting (rule 2)
+- Ownership is per shoot folder; "Reset title and date to the card's" returns ownership to inference
+- Dates read from scanner records (`/api/exif-records`); panel re‑infers once the scan lands unless owned
 
 10. Explicit Non‑Goals
 The title inference must not:

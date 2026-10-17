@@ -1,4 +1,45 @@
+## Installing the App (v3.0)
+
+Download from GitHub → Actions → latest "Build desktop apps" run → Artifacts.
+ExifTool is bundled; nothing else is required for importing.
+
+### Windows
+- Unzip `PhotoOrganizer-windows`
+- Keep `Photo Organizer.exe` together with its `_internal` folder
+- SmartScreen warning (unsigned) → More info → Run anyway
+- Tray icon → Open Photo Organizer / Quit
+
+### macOS
+- Unzip `PhotoOrganizer-mac` until you have `Photo Organizer.app` (GitHub wraps it in a second zip)
+- First launch: right‑click → Open → Open (unsigned app)
+- If macOS says the app is damaged or can't be verified, run once in Terminal, then open normally:
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/"Photo Organizer.app"
+```
+
+- Moved it to Applications first? Use that path instead:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/"Photo Organizer.app"
+```
+
+- Menu‑bar icon (no Dock icon) → Open Photo Organizer / Quit
+- Allow access to removable volumes when asked (needed to read cards)
+- Log: `~/Library/Logs/PhotoOrganizer/photo-organizer.log`
+
+### Optional: Send to Phone (adb)
+- Download Android "SDK Platform‑Tools" from developer.android.com/tools/releases/platform-tools
+- Unzip so you have `C:\Users\Public\Tools\platform-tools\adb.exe` (beside ExifTool)
+- Phone: Settings → About phone → tap Build number 7× → Developer options → USB debugging on
+- Plug in, tap Allow on "Allow USB debugging?" (tick Always allow)
+- See [[15 - Send to Phone]]
+
+---
+
 ## Optional: ExifTool (Recommended)
+
+Bundled with the v3.0 app builds. The notes below apply when running from source.
 
 For full camera and lens metadata detection, Photo Organizer can use
 [ExifTool](https://exiftool.org), the industry‑standard metadata utility.

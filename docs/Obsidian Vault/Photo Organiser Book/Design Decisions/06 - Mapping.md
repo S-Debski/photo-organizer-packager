@@ -182,6 +182,19 @@ Mapping may allow the user to select or assign a location.
 
 ### Output
 - Manual selection passed as:
-  - `ctx.manual_gps = { lat, lon }`
+  - `ctx.manual_gps = { lat, lon }` (v2.x)
+
+---
+## v3.0 Locations Step
+
+- One button per shoot folder on the card, by shoot name, pin when a location is set
+    - Built from analysed folders, not from photos that already have GPS
+- Point chosen by: map click, typed coordinates, saved place, or "Use detected"
+- "Assign to this folder" / "Use for all folders" / "Remove location"
+- Selection saved to disk (`/api/locations`), not to files — Mapping stays mutation‑free
+- Map keeps a user‑picked point; late refreshes do not re‑fit to photo markers
+- Map fills the window height; full width
+- Folder switching from any step goes through `activateFolder()` — map, EXIF and stats follow
+- See [[08 - Import Session Metadata]], [[14 - Saved Places]]
 - 
       

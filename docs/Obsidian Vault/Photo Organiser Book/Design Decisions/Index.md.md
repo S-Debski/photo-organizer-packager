@@ -10,12 +10,35 @@ Documentation format follows [[Documentation Style (Canonical)]].
 4. Organize
 5. Post‑Organize (Metadata Mutation)
 ---
+## Pipeline (v3.0)
+Source (card / external drive / folder)
+    ↓
+Browse & cull — source read in place
+    ↓
+Cameras & lenses · Locations (informational / intent only)
+    ↓
+Import — copy kept or all, apply location to copies
+    ↓
+Send to phone (optional)
+---
 ## Core Concepts
 - [[06 - Mapping]]
 - [[Organize – Behaviour & Guarantees]]
-- [[07 - Pre-Import Workflow]]
+- [[07 - Pre‑Import Workflow]]
 - [[01 - CTX]]
 - [[05 - Why Mapping Is Informational]]
+---
+## v3.0 Decisions
+- [[12 - Sources (Cards, Drives, Folders)]]
+- [[13 - Culling Sessions]]
+- [[08 - Import Session Metadata]] — title, date, location
+- [[09 - Directory Template Resolution (Pre‑Import)]] — layouts, preview, validation
+- [[Infer title from date and let user edit details]] — two title rules
+- [[14 - Saved Places]]
+- [[15 - Send to Phone]]
+- [[16 - Packaging & Runtime]]
+- [[11 - Post-Organize (Metadata Mutation)]]
+- [[02 - Known `ctx` Fields]]
   
 ---
 ## Post‑Organize (Metadata Mutation)

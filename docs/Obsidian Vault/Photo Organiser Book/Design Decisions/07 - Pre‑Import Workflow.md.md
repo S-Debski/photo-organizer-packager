@@ -140,4 +140,37 @@ Stored as:
 
 ### Notes
 - This is informational at this stage
-- Actual EXIF writing occurs post-organize
+- Actual EXIF writing occurs at import, on the copies only (see [[11 - Post-Organize (Metadata Mutation)]])
+
+---
+## v3.0 — Hybrid Ingest
+
+Source browsed in place; nothing copied before culling.
+
+Source (card / drive / folder)
+    ↓
+Browse & cull (K / X)
+    ↓
+Locations (optional)
+    ↓
+Import (destination + shoot folder + preview)
+
+### Culling Persistence
+- Decisions: `keep` | `reject` | unculled; stored per asset in the session manifest
+- Asset = RAW/JPG pair sharing a filename stem
+- Saved on every change; requests serialised (no out‑of‑order saves)
+- Restored on reload and on reopening the same photos
+- See [[13 - Culling Sessions]]
+
+### Import Modes
+- `kept`: kept files + same‑stem partners/sidecars (RAW, JPG, `.xmp`)
+- `kept` with nothing kept → refused; never falls back to all
+- `all`: every recognised file in the folder
+
+### Destination Validation
+- See [[09 - Directory Template Resolution (Pre‑Import)]]
+- Never on the card or inside the source
+
+### Metadata Intent (v3.0)
+- Locations persist on disk until import: [[08 - Import Session Metadata]]
+- `ctx.manual_gps` superseded by per‑folder saved locations

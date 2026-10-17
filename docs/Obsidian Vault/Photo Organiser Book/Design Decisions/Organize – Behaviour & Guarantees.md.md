@@ -172,6 +172,44 @@ Examples:
     
     - Configurable output directory
     - Core guarantees remain unchanged
+- **v3.0 (hybrid ingest)** — supersedes the v2.7 constraints above
+
+---
+## v3.0 Behaviour
+
+Endpoint: `POST /api/organize` (**`backend/api_server.py`**)
+
+Destination
+    ↓
+`<destination>/<layout(title, shoot date)>` — [[09 - Directory Template Resolution (Pre‑Import)]]
+    ↓
+Validate (nothing created on failure)
+    ↓
+Copy (kept or all)
+    ↓
+Apply location to copies
+    ↓
+Record in session manifest
+
+### Guarantees (added)
+- Destination chosen by the user; validated before any directory is created
+- Never on the card or inside the source
+- Copy via `<name>.part` then rename — an interrupted copy never leaves a partial file under the real name
+- Size verified before rename
+- Existing same name + same size → skipped (already imported)
+- Existing same name + different size → reported as a clash, never overwritten
+- RAW + JPG pairs and `.xmp` sidecars travel together (kept mode)
+- Progress via `ctx.progress`, polled by `/api/progress`
+- Source untouched; verified by tests
+
+### Completion
+- "Copied to <folder>"; counts copied / skipped / location written
+- "You can now safely format the card" only when mode is `all` with no errors or clashes
+- Kept mode: reminder that rejected/unculled photos remain on the card
+
+### Constraints (v3.0)
+- One destination folder per import
+- Copy‑only; no moves, deletes or renames at source
 
 - ## Verification
 

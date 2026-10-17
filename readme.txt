@@ -1,178 +1,159 @@
 # Role: User-facing documentation (see Stability Contract)
 
 ============================================================
-Photo Organizer v2.7 — Advanced EXIF Edition
+Photo Organizer v3.0 (beta) — Hybrid Ingest
 ============================================================
 
-This application ingests photos from SD / CFexpress cards and
-organizes them automatically using:
+Import photos from camera cards, external drives or any folder.
+Browse and cull the photos where they are, add a location, then copy
+the keepers into a dated shoot folder. The source is never changed.
 
-    • Camera Model (EXIF)
-    • Lens Model (EXIF)
-    • Event Name (chosen by user)
-    • RAW + JPG support
-    • Smart Defaults (auto-mapping based on EXIF)
-    • Live progress bar + percent + ETA
-    • Real-time backend logs (SSE)
-    • RAW thumbnail preview
-    • Full-size RAW decoding on double-click
-    • Charting for camera/lens usage
-
-It is designed for multi-camera shoots, rapid culling, and high-speed
-import workflows similar to Lightroom, PhotoMechanic, etc.
-
-------------------------------------------------------------
-REQUIREMENTS
-------------------------------------------------------------
-
-1. Windows (10 or later)
-2. Python 3.10–3.12 (if running from source)
-3. RAW engines:
-   - Pillow (JPG/PNG)
-   - rawpy (RAW: ARW, NEF, CR2, CR3, RAF, ORF, RW2)
-4. Flask (backend)
-5. SD card reader
-
-If running the EXE version: no Python needed.
+    • Cards and external drives found automatically (Windows, macOS)
+    • Any folder: this computer, USB drive or network share (NAS)
+    • RAW + JPG kept together (Fuji, Canon, Nikon, Sony, Olympus,
+      Pentax, Panasonic, DNG)
+    • Fast cached previews, including RAW-only shots
+    • Keep / reject with K and X; decisions saved per card
+    • Per-photo camera and lens summary
+    • Locations: per folder or all folders, saved places, map
+    • Import into <destination>\2026\10\10 - <Shoot title>\ (editable)
+    • Location written to the copies: JPG EXIF + .xmp sidecar for RAW
+    • Optional: send the imported shoot to an Android phone (adb)
 
 ------------------------------------------------------------
-RUNNING FROM SOURCE
+INSTALLING
 ------------------------------------------------------------
 
-1. Create & activate a venv:
-       python -m venv .venv
-       .\.venv\Scripts\activate
+Download the latest build from GitHub:
+    Actions → "Build desktop apps" → latest green run → Artifacts
 
-2. Install dependencies:
-       pip install flask flask-cors pillow rawpy pywin32
+ExifTool is bundled. No Python needed.
 
-3. Launch the app:
-       python app.py
+WINDOWS
+    1. Unzip PhotoOrganizer-windows anywhere.
+    2. Keep "Photo Organizer.exe" together with its _internal folder.
+    3. Double-click "Photo Organizer.exe".
+       SmartScreen (unsigned app): More info → Run anyway.
+    4. A tray icon appears and your browser opens the app.
+       Tray icon → Open Photo Organizer / Quit.
 
-4. Open browser:
-       http://127.0.0.1:5000
+MACOS
+    1. Unzip PhotoOrganizer-mac until you have "Photo Organizer.app"
+       (GitHub wraps it in a second zip).
+    2. First launch: right-click the app → Open → Open (unsigned app).
+    3. If macOS says the app is damaged or can't be verified, run this
+       once in Terminal, then open it normally:
 
-------------------------------------------------------------
-EXE VERSION (No Python Required)
-------------------------------------------------------------
+           xattr -dr com.apple.quarantine ~/Downloads/"Photo Organizer.app"
 
-Double-click:
-    dist\Photo Organizer\Photo Organizer.exe
+       (If you moved it to Applications, use
+        /Applications/"Photo Organizer.app" instead.)
+    4. The app lives in the menu bar (top right), not the Dock.
+       Menu-bar icon → Open Photo Organizer / Quit.
+    5. Allow access to removable volumes when asked (needed for cards).
 
-Everything is bundled, including:
-    • rawpy
-    • Pillow
-    • pythoncom/win32
-    • templates/static/js/css
-
-------------------------------------------------------------
-BUILDING THE EXE YOURSELF
-------------------------------------------------------------
-
-1. Activate venv:
-       .\.venv\Scripts\activate
-
-2. Build:
-       build_exe.bat
-
-3. Final EXE appears in:
-       dist\Photo Organizer\Photo Organizer.exe
-
-------------------------------------------------------------
-APPLICATION WORKFLOW
-------------------------------------------------------------
-
-STEP 1 — Select SD Card  
- • Automatically detects SD / CFexpress cards  
- • Choose a card and click "Analyze"  
-
-STEP 2 — Analyze  
- • Scans folders  
- • Extracts EXIF camera + lens from first image  
- • Shows photo counts per folder  
-
-STEP 3 — Camera + Lens Stats  
- • Lists counts per camera and lens  
- • Shows interactive bar charts (Chart.js)  
-
-STEP 4 — Thumbnails  
- • Displays JPG previews  
- • RAW thumbnails extracted from embedded preview  
- • Double-click → full RAW decode (JPEG 95%)  
-
-STEP 5 — Mapping  
- • For each folder, set:
-       - Camera
-       - Lens
-       - Event
- • Use Smart Defaults to auto-fill based on EXIF
- • Preview table shows final mapping  
-
-STEP 6 — Organize  
- • Copies photos to:
-       Pictures/Organized/{Camera}/{Event}/
- • Shows:
-       - Progress
-       - Percent
-       - ETA (live updated)
- • “Open Pictures Folder” opens the destination
-
-STEP 7 — Logs  
- • Live backend logs via SSE  
- • Each operation prints updates  
-
-STEP 8 — Settings  
- • Toggle automatic log scrolling  
+OPTIONAL — SEND TO PHONE (Android, via adb)
+    1. Download "SDK Platform-Tools" from
+       https://developer.android.com/tools/releases/platform-tools
+    2. Windows: unzip so you have
+           C:\Users\Public\Tools\platform-tools\adb.exe
+       macOS:  brew install --cask android-platform-tools
+    3. On the phone: Settings → About phone → tap Build number 7 times,
+       then Developer options → USB debugging on.
+    4. Plug in and tap Allow on "Allow USB debugging?".
+    The app only copies to the phone (DCIM/PhotoOrganizer); it uploads
+    nothing. The phone's own backup (e.g. Google Photos) does the rest.
 
 ------------------------------------------------------------
-KNOWN BEHAVIOUR
+USING IT
 ------------------------------------------------------------
 
-• RAW decode for full-size preview can be slow on older CPUs.  
-• Some older RAW formats may not include embedded previews.  
-• If camera/lens EXIF missing → defaults to "Unknown".  
+1  CARD        Pick a card or external drive (found automatically), or
+               "Choose a folder…". Tick "Also show this computer's disks
+               and network drives" for internal disks and NAS shares.
+2  FOLDERS     Pick a folder (shoot folders under DCIM are listed).
+3  BROWSE      Thumbnails. Hover and press K (keep) or X (reject), or
+               click the circle. S / M / L changes the size.
+   REVIEW      One photo at a time, full window.
+4  CAMERAS     Photos per camera and lens.
+5  LOCATIONS   Click the map, type coordinates or pick a saved place,
+               then "Assign to this folder" or "Use for all folders".
+6  IMPORT      Choose a destination, check the shoot title, date and
+               folder layout, then Start import → Import kept only or
+               Import everything. The exact folder is previewed first.
+               When everything is copied you'll see
+               "You can now safely format the card."
+               Then optionally "Send to phone".
+
+Nothing is overwritten: files already at the destination (or on the
+phone) are skipped; a different photo with the same name is reported.
+
+------------------------------------------------------------
+WHERE THINGS ARE KEPT
+------------------------------------------------------------
+
+Culling decisions, saved locations, saved places:
+    ~/Pictures/PhotoWizard/sessions/
+Preview cache:
+    Windows  %LOCALAPPDATA%\PhotoWizardCache\thumbs\
+Log file:
+    Windows  %LOCALAPPDATA%\PhotoWizardCache\photo-organizer.log
+    macOS    ~/Library/Logs/PhotoOrganizer/photo-organizer.log
 
 ------------------------------------------------------------
 TROUBLESHOOTING
 ------------------------------------------------------------
 
-1. SD cards not detected:
-   • Ensure EXE run as administrator (sometimes required for drive access)
-   • Check that pythoncom/win32 libs are included (PyInstaller spec handles this)
+Card not listed
+    • Wait a second and switch back to the app window, or press Detect.
+    • Still missing: tick "Also show…" or use "Choose a folder…".
+No dates / camera names / thumbnails
+    • Check the log for a line starting "ExifTool:". If it says
+      "ExifTool not found", the build is incomplete.
+"No phone connected"
+    • USB debugging on, cable connected, Allow tapped on the phone.
+The app seems to do nothing when started
+    • It's already running: look for the tray / menu-bar icon.
 
-2. Thumbnails missing:
-   • Some RAW types embed low-resolution previews
-   • Full-size RAW still works (double-click)
+------------------------------------------------------------
+RUNNING FROM SOURCE
+------------------------------------------------------------
 
-3. Mapping errors:
-   • Step 6 requires ALL selected folders have Camera + Lens + Event
-   • Smart Defaults auto-fills most fields
+    python -m venv .venv
+    .\.venv\Scripts\activate            (macOS: source .venv/bin/activate)
+    pip install -r requirements.txt
+    python app.py                       → http://127.0.0.1:5000
 
-4. Progress stuck at 0:
-   • update_progress() must exist in app.py v2.7
-   • Use complete v2.7 backend
+ExifTool must be installed when running from source (see the vault
+readme: docs/Obsidian Vault/Photo Organiser Book/readme.md.md).
+
+Tests:
+    python -m unittest discover -s tests -v
+
+------------------------------------------------------------
+BUILDING
+------------------------------------------------------------
+
+    Windows   build.bat        → dist\Photo Organizer\Photo Organizer.exe
+    macOS     ./build_mac.sh   → dist/Photo Organizer.app
+    Both      GitHub Actions → "Build desktop apps" → Run workflow
+
+Spec: photo-organizer.spec. Design notes: docs/Obsidian Vault/.
 
 ------------------------------------------------------------
 FILE STRUCTURE
 ------------------------------------------------------------
 
-photo-organizer-packager/
-│
-├── app.py                     (Backend server)
-├── build_exe.bat              (Build script)
-├── photo_organizer.spec       (PyInstaller spec)
-│
-├── templates/
-│   └── index.html             (UI)
-│
-├── static/
-│   ├── css/
-│   │   └── styles.css
-│   └── js/
-│       └── main.js
-│
-└── photo_core/
-    └── photo_organizer.py     (EXIF + RAW scanning engine)
+app.py                       Entry point, tray, logging
+backend/api_server.py        Flask app and routes
+backend/routes/              Analyse, thumbnails, GPS, write-GPS
+backend/services/sdcard.py   Cards, external drives, network drives
+photo_core/                  EXIF, sessions, destination, export
+workers/exif_scanner.py      Background EXIF scan
+utils/                       File helpers, thumbnail cache
+templates/index.html         Page
+ui/static/                   JS, CSS, local libraries
+tests/                       Pipeline tests
 
 ------------------------------------------------------------
 LICENSE
@@ -185,23 +166,5 @@ Free for personal or internal organizational use.
 VERSION
 ------------------------------------------------------------
 
-Photo Organizer v2.7  
-Advanced EXIF Edition  
-March 2026
-
-## Codebase Responsibilities
-
-The project follows a clear separation of concerns. Each major file or folder has a single, well-defined responsibility:
-
-| File / Directory              | Responsibility |
-|------------------------------|----------------|
-| `app.py`                     | Application bootstrap, version definition, and logging setup |
-| `backend/api_server.py`      | Single Flask application instance and route registration |
-| `backend/routes/`            | Feature-specific API endpoints (SD detection, analyze, EXIF, thumbnails, GPS, organize) |
-| `workers/`                   | Background processing (EXIF scanning, thumbnailing, folder watching) |
-| `templates/index.html`       | UI markup (served by Flask via `render_template`) |
-| `ui/static/js/main.js`       | Frontend behaviour and UI logic |
-| `ui/static/css/styles.css`   | UI styling and layout |
-``
-
-
+Photo Organizer v3.0.0 (beta) — Hybrid Ingest
+October 2026

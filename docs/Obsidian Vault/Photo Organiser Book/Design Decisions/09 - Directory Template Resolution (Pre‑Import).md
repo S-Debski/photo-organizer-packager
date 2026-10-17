@@ -137,24 +137,45 @@ If template resolution fails:
 - No automatic changes to existing sessions
 
 ### Notes
-- EXIF is not used for directory naming at this stage
-- Title is sanitized before substitution
-- **Questions to ask**
+- EXIF is not used for directory naming directly; it informs the default title/date only
+- Title is sanitized before substitution (`< > : " / \ | ? *` → `-`)
 
-- Is the DCIM‑subfolder rule exactly what you want?
-- What happens with:
-    - multiple shoot folders?
-    - mixed cameras?
-    - empty cards?
-- Is `date.today()` still acceptable, or do you want EXIF‑earliest next?
-- “Reset title/date to card defaults”?
+---
+## Offered Layouts (v3.0)
 
-assumes:
-each folder’s photo_count is reliable
-photos belong to exactly one camera/lens
+| Layout | Template | Example |
+|---|---|---|
+| Year / Month / Day - Title (default) | `{YYYY}/{MM}/{DD} - {title}` | `2026/10/10 - Wylam Waggonay Bike Ride` |
+| Year / Date - Title | `{YYYY}/{date} - {title}` | `2026/2026-10-10 - Wylam…` |
+| Date - Title | `{date} - {title}` | `2026-10-10 - Wylam…` |
+| Title only | `{title}` | `Wylam Waggonay Bike Ride` |
+| Card folder name (old layout) | — | `<path below DCIM> - <card label>` |
 
-Questions to answer:
-Does photo_count reflect files, not folders?
-Are mixed‑camera folders possible?
+- Tokens: `{title}` `{YYYY}` `{YY}` `{MM}` `{DD}` `{date}`
+- Layout choice is remembered per browser
+- Old layout sends no title; backend uses the legacy name
 
-chart.js - Does the chart add value over the list, or is it redundant?
+---
+## Resolution & Validation (v3.0)
+
+- One resolver for preview and import: **`photo_core/organize/destination.py`** `resolve_destination()`
+- Preview: `POST /api/pre-import/preview` — path only; creates nothing
+- Refused before any directory is created:
+    - destination missing, or a file
+    - destination on the card or inside the source folder
+    - unknown token, absolute path, drive letter, `..`
+    - resolved path outside the destination
+    - destination not writable
+- Preview shows root + highlighted relative part; states "new folder" or "exists — files skipped"
+
+---
+## Answered Questions (v3.0)
+
+- DCIM‑subfolder rule → kept, plus named‑folder rule: see [[Infer title from date and let user edit details]]
+- Multiple shoot folders → one import per folder; each has its own title/date/ownership
+- Mixed cameras → irrelevant to layout; stats are per photo
+- Empty cards → analysis reports zero folders; import refused ("no photos")
+- `date.today()` → replaced: earliest capture date, else folder‑name date, else today (stated)
+- Reset → "Reset title and date to the card's" link
+- `photo_count` → counts files (RAW+JPG pair = 2)
+- Chart.js → removed; per‑photo list with bars replaces it

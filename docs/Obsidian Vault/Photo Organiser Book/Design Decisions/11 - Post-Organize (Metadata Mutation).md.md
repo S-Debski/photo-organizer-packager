@@ -69,3 +69,14 @@ Backlink:
   - GPS application
   - Future EXIF enhancements
 - This stage isolates side effects from earlier steps
+
+---
+## v3.0
+
+- Runs inside `/api/organize`, after all copies complete — not a separate step
+- Inputs: copied file paths + the folder's saved location
+- JPG copies → EXIF GPS + Ref tags (signed values stored correctly; fixes east/west inversion)
+- RAW copies → XMP sidecar `<stem>.xmp` (created, or updated in place)
+- No working directory: copies in the destination are the only mutation targets
+- `/api/write-gps` on a source path → deferred (reported, nothing written)
+- Failures reported per file; copies remain
