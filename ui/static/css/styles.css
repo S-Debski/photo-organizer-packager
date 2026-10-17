@@ -496,9 +496,9 @@ body {
    ========================================================================== */
 .card-picker {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
     gap: 8px;
-    max-width: 640px;
+    max-width: 860px;
 }
 #sdStatus { margin-top: 8px; min-height: 1.2em; }
 #sdTimer {

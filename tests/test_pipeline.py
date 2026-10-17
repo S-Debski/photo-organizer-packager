@@ -109,6 +109,16 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual([f["name"] for f in folders], ["100TEST"])
         self.assertEqual(r["analysis"]["counts"], {"total": 6, "raw": 3, "jpg": 3})
 
+    def test_04_plain_folder_without_dcim(self):
+        # e.g. a folder on a NAS: photos directly inside, plus a sub-folder
+        plain = self.tmp / "Exports" / "Wylam ride"
+        (plain / "picks").mkdir(parents=True)
+        Image.new("RGB", (400, 300), "red").save(plain / "A.JPG")
+        Image.new("RGB", (400, 300), "blue").save(plain / "picks" / "B.JPG")
+        r = self.post("/api/analyze-card", sd_card_path=str(plain))
+        names = [f["name"] for f in r["analysis"]["folders"]]
+        self.assertEqual(names, ["Wylam ride", "picks"])
+
     def test_03_analyze_empty_card(self):
         empty = self.tmp / "empty"
         (empty / "DCIM").mkdir(parents=True)

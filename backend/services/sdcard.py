@@ -369,6 +369,74 @@ def filter_linux_sd_cards():
 
 
 # ------------------------------------------------------------
+# ALL SOURCES (cards + local/USB disks + network drives)
+# ------------------------------------------------------------
+_MAC_NETWORK_FS = {"smbfs", "afpfs", "nfs", "webdav", "cifs"}
+_CARD_FS = {"FAT", "FAT32", "EXFAT", "MSDOS"}
+
+
+def _windows_total_bytes(drive: str) -> int:
+    """GetDiskFreeSpaceEx works for network shares; GetDiskFreeSpace overflows."""
+    try:
+        _, total, _ = win32api.GetDiskFreeSpaceEx(drive)
+        return int(total)
+    except Exception:
+        return 0
+
+
+def list_all_sources():
+    """
+    Every mounted volume a user might import from, each tagged with
+    kind = "card" | "disk" | "network". Empty reader slots and optical
+    drives are left out. Used when the user asks to see all drives.
+    """
+    system = platform.system()
+    out = []
+
+    if system == "Windows":
+        cards = {c["path"].rstrip("\\").upper() for c in filter_windows_sd_cards()
+                 if not c.get("is_virtual")}
+        for d in win32api.GetLogicalDriveStrings().split("\x00"):
+            if not d:
+                continue
+            dtype = win32file.GetDriveType(d)
+            if dtype not in (win32file.DRIVE_REMOVABLE, win32file.DRIVE_FIXED,
+                             win32file.DRIVE_REMOTE):
+                continue
+            try:
+                label, _, _, _, fs = win32api.GetVolumeInformation(d)
+            except Exception:
+                continue                      # empty slot / disconnected share
+            path = d.rstrip("\\")
+            if dtype == win32file.DRIVE_REMOTE:
+                kind = "network"
+            elif path.upper() in cards:
+                kind = "card"
+            else:
+                kind = "disk"
+            out.append({"path": path, "label": label, "filesystem": fs,
+                        "size_bytes": _windows_total_bytes(d), "kind": kind})
+
+    elif system == "Darwin":
+        for v in detect_macos_volumes():
+            fs = (v.get("filesystem") or "").lower()
+            if fs in _MAC_NETWORK_FS:
+                kind = "network"
+            elif fs.upper() in _CARD_FS and size_within_sd_range(v.get("size_bytes") or 0):
+                kind = "card"
+            else:
+                kind = "disk"
+            out.append({**v, "kind": kind})
+
+    else:
+        for v in detect_sd_cards():
+            out.append({**v, "kind": "disk"})
+
+    order = {"card": 0, "disk": 1, "network": 2}
+    return sorted(out, key=lambda v: (order[v["kind"]], v["path"]))
+
+
+# ------------------------------------------------------------
 # UNIVERSAL ENTRY POINTS
 # ------------------------------------------------------------
 def detect_sd_cards(include_fixed: bool = False):

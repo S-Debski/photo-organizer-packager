@@ -65,21 +65,25 @@
             <header class="step-head">
                 <div>
                     <p class="eyebrow">Step 1</p>
-                    <h1>Choose a card</h1>
+                    <h1>Choose a card or folder</h1>
                 </div>
             </header>
-            <p class="lede">Insert an SD or CFexpress card. Photos are read in place —
-                nothing is copied until you import, and the card is never changed.</p>
+            <p class="lede">Insert an SD or CFexpress card, or pick any folder — on this computer,
+                a USB drive or a network share. Photos are read in place: nothing is copied until
+                you import, and the source is never changed.</p>
 
             <div class="panel">
-                <label class="field-label" for="sdSelect">Card</label>
+                <label class="field-label" for="sdSelect">Source</label>
                 <div class="card-picker">
                     <select id="sdSelect" class="form-select">
-                        <option>No cards found yet</option>
+                        <option value="">No cards found yet</option>
                     </select>
                     <button id="refreshSdBtn" class="btn btn-quiet">
                         <span id="sdSpinner" class="spinner-border spinner-border-sm d-none"></span>
                         <span id="sdBtnText"><i class="bi bi-arrow-clockwise"></i> Detect cards</span>
+                    </button>
+                    <button id="chooseSourceBtn" class="btn btn-quiet">
+                        <i class="bi bi-folder2-open"></i> Choose a folder…
                     </button>
                 </div>
                 <div id="sdStatus" class="hint">
@@ -89,14 +93,14 @@
                 <div class="form-check mt-2">
                     <input type="checkbox" id="showVirtualDrives" class="form-check-input">
                     <label for="showVirtualDrives" class="form-check-label text-muted">
-                        Include cloud and virtual drives
+                        Show all drives (this computer, USB and network)
                     </label>
                 </div>
             </div>
 
             <div class="actions">
                 <button id="analyzeBtn" class="btn btn-primary" disabled>
-                    Read card <i class="bi bi-arrow-right"></i>
+                    Read photos <i class="bi bi-arrow-right"></i>
                 </button>
             </div>
         </section>

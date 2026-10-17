@@ -685,6 +685,78 @@ $('refreshSdBtn')?.addEventListener('click', () => {
 
 
 // ====================================================================
+// Card step — sources: camera cards by default; "show all drives" adds
+// this computer's disks, USB drives and network shares; "Choose a
+// folder…" takes any folder (local, external or NAS).
+// ====================================================================
+let chosenSourceFolder = null;
+
+const SOURCE_GROUPS = {
+    card: "Camera cards",
+    disk: "This computer and USB drives",
+    network: "Network drives",
+};
+
+function _fmtSize(bytes) {
+    if (!bytes || bytes <= 0) return "";
+    return bytes >= 1e12 ? `${(bytes / 1e12).toFixed(1)} TB` : `${Math.round(bytes / 1e9)} GB`;
+}
+
+function _fillSourceOptions(sel, drives) {
+    for (const [kind, title] of Object.entries(SOURCE_GROUPS)) {
+        const items = drives.filter(d => (d.kind || "card") === kind);
+        if (!items.length) continue;
+        const group = document.createElement("optgroup");
+        group.label = title;
+        items.forEach(d => {
+            const opt = document.createElement("option");
+            opt.value = d.path;
+            opt.textContent = [d.path, d.label, _fmtSize(d.size_bytes)].filter(Boolean).join("   ·   ");
+            group.appendChild(opt);
+        });
+        sel.appendChild(group);
+    }
+    _addChosenFolderOption(sel);
+}
+
+function _addChosenFolderOption(sel) {
+    if (!chosenSourceFolder) return;
+    sel.querySelector("optgroup[data-chosen]")?.remove();
+    const group = document.createElement("optgroup");
+    group.label = "Chosen folder";
+    group.dataset.chosen = "1";
+    const opt = document.createElement("option");
+    opt.value = chosenSourceFolder;
+    opt.textContent = chosenSourceFolder;
+    group.appendChild(opt);
+    sel.appendChild(group);
+}
+
+// Ticking "Show all drives" refreshes the list straight away
+$("showVirtualDrives")?.addEventListener("change", () => fetchSDCards());
+
+$("chooseSourceBtn")?.addEventListener("click", async () => {
+    try {
+        const data = await (await fetch("/api/select-folder")).json();
+        if (!data?.path) return;
+        chosenSourceFolder = data.path;
+
+        const sel = $("sdSelect");
+        sel.disabled = false;
+        // Drop the "nothing found yet" placeholder
+        [...sel.options].filter(o => !o.value).forEach(o => o.remove());
+        _addChosenFolderOption(sel);
+        sel.value = chosenSourceFolder;
+
+        $("analyzeBtn").disabled = false;
+        $("sdStatusText").textContent = "Folder chosen. Press Read to see its photos.";
+    } catch (err) {
+        console.error("Folder picker failed:", err);
+        showGlobalStatus("The folder picker isn't available.", "error");
+    }
+});
+
+// ====================================================================
 // STEP 1 – Select Card (SD Card Detection)
 // ====================================================================
 async function fetchSDCards() {
@@ -718,7 +790,7 @@ async function fetchSDCards() {
     try {
         // Build URL safely (prevents malformed requests)
         const url = new URL("/api/sd-cards", window.location.origin);
-        url.searchParams.set("includeVirtual", showVirtual);
+        url.searchParams.set("all", showVirtual);
 
         console.log("Fetching:", url.toString()); // ✅ debug
 
@@ -740,8 +812,8 @@ async function fetchSDCards() {
 
         if (visibleDrives.length === 0) {
             $("sdStatusText").textContent = showVirtual
-                ? "No drives detected."
-                : "No camera cards detected. Insert a card or enable additional drives.";
+                ? "No drives found. You can still choose a folder."
+                : "No camera cards found. Insert a card, show all drives, or choose a folder.";
 
             $("sdTimer").textContent = "";
             setSDButtonState('initial');
@@ -749,15 +821,9 @@ async function fetchSDCards() {
             return;
         }
 
-        // Populate dropdown
+        // Populate dropdown, grouped by kind of drive
         sel.innerHTML = '';
-
-        visibleDrives.forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d.path;
-            opt.textContent = `${d.path} — ${d.label || ''}`;
-            sel.appendChild(opt);
-        });
+        _fillSourceOptions(sel, visibleDrives);
 
         // Auto-select first detected card
         if (sel.options.length > 0) {
@@ -775,13 +841,14 @@ async function fetchSDCards() {
         // Final message
         setTimeout(() => {
 
-            $("sdStatusText").innerHTML =
-                `${visibleDrives.length} ${visibleDrives.length === 1 ? "card": "cards"} detected in ${duration}s`;
+            const cards = visibleDrives.filter(d => (d.kind || "card") === "card").length;
+            $("sdStatusText").textContent = showVirtual
+                ? `${visibleDrives.length} drive${visibleDrives.length === 1 ? "" : "s"} found` +
+                  (cards ? `, ${cards} of them camera card${cards === 1 ? "" : "s"}` : "")
+                : `${cards} camera card${cards === 1 ? "" : "s"} found`;
 
             $("sdTimer").textContent = "";
-
-            showGlobalStatus("Cards detected");
-            setTimeout(clearGlobalStatus, 1200);
+            clearGlobalStatus();
 
         }, Math.max(0, MIN_VISIBLE_MS - elapsed));
 
@@ -2434,14 +2501,13 @@ if (!analyzeBtn) {
 
         let sd = document.getElementById("sdSelect")?.value;
 
-        if (!sd || !sd.includes(":")) {
+        if (!sd) {
             showGlobalStatus("Please detect and select a valid SD card first.");
             analyzeInProgress = false;
             analyzeBtn.disabled = false;
             return;
         }
 
-        if (!sd.endsWith("\\")) sd += "\\";
 
         try {
             const res = await fetch("/api/analyze-card", {

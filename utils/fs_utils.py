@@ -171,7 +171,13 @@ def list_candidate_folders(sd_root):
                         name_count[display] = name_count.get(display, 0) + 1
 
     else:
-        # No DCIM — top-level folders
+        # No DCIM (a plain folder, external drive or NAS share): the folder
+        # itself if it holds photos directly, then its top-level folders
+        if _has_images_direct(sd_root):
+            display = os.path.basename(os.path.normpath(sd_root)) or sd_root
+            candidates.append((sd_root, display, None))
+            name_count[display] = name_count.get(display, 0) + 1
+
         for name in sorted(os.listdir(sd_root)):
             p = os.path.join(sd_root, name)
             if os.path.isdir(p):

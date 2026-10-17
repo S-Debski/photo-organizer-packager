@@ -38,16 +38,18 @@ def derive_title_from_card(sd_root: str) -> str:
 
 
 def api_analyze_card(ctx, payload):
-    sd_root = payload.get("sd_card_path")
+    sd_root = (payload.get("sd_card_path") or "").strip()
+
+    # A bare drive ("F:") means the drive root; "F:" + "DCIM" would
+    # otherwise resolve relative to the drive's current directory.
+    if len(sd_root) == 2 and sd_root[1] == ":":
+        sd_root += os.sep
 
     if not sd_root or not os.path.isdir(sd_root):
-        return {"success": False, "error": "Invalid sd_card_path"}, 400
+        return {"success": False, "error": "That card or folder isn't available."}, 400
 
     # Required state updates
     ctx.state["current_sd_root"] = sd_root
-    # ❌ REMOVE this line entirely
-    # ctx.state["current_active_folder"] = sd_root    # TEMP: hardcoded test location (Butley Village Hall)
-    ctx.state["folder_location"] = (52.1072, 1.4575)
 
     # ✅ Session metadata for Pre‑Import
     ctx.state["title"] = derive_title_from_card(sd_root)
