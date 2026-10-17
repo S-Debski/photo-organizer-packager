@@ -284,6 +284,60 @@ class PipelineTest(unittest.TestCase):
         got = self.client.get("/api/locations", query_string={"folder": folder}).get_json()
         self.assertEqual(got["locations"], {})
 
+    # -- Send to Pixel (stand-in adb) ------------------------------------------
+
+    def _fake_adb(self):
+        phone = self.tmp / "phone"
+        phone.mkdir(exist_ok=True)
+        helper = Path(__file__).with_name("fake_adb.py")
+        if os.name == "nt":
+            wrapper = self.tmp / "adb.cmd"
+            wrapper.write_text(f'@"{sys.executable}" "{helper}" %*\r\n')
+        else:
+            wrapper = self.tmp / "adb"
+            wrapper.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{helper}" "$@"\n')
+            wrapper.chmod(0o755)
+        os.environ["PHOTO_ORGANIZER_ADB"] = str(wrapper)
+        os.environ["FAKE_PHONE_ROOT"] = str(phone)
+        return phone
+
+    def test_40_pixel_send(self):
+        from photo_core.export import pixel
+        phone = self._fake_adb()
+        try:
+            status = self.client.get("/api/pixel/status").get_json()
+            self.assertEqual([(d["model"], d["state"]) for d in status["devices"]],
+                             [("Pixel XL", "device")])
+
+            shoot = self.tmp / "shoot"
+            shoot.mkdir()
+            shutil.copy(self.src / "DSCF0001.JPG", shoot / "DSCF0001.JPG")
+            shutil.copy(self.src / "DSCF0002.JPG", shoot / "DSCF0002.JPG")
+            shutil.copy(self.src / "DSCF0001.RAF", shoot / "DSCF0001.RAF")
+            adb = pixel.resolve_adb()
+
+            first = pixel.send_folder(adb, "FA6AX0301234", str(shoot))       # JPG only
+            on_phone = phone / "sdcard" / "DCIM" / "PhotoOrganizer"
+            self.assertEqual((first["sent"], first["skipped"]), (2, 0))
+            self.assertEqual(sorted(os.listdir(on_phone)), ["DSCF0001.JPG", "DSCF0002.JPG"])
+
+            again = pixel.send_folder(adb, "FA6AX0301234", str(shoot))
+            self.assertEqual((again["sent"], again["skipped"]), (0, 2), "re-sending must not duplicate")
+
+            other = self.tmp / "other-card"
+            other.mkdir()
+            shutil.copy(self.src / "DSCF0003.JPG", other / "DSCF0001.JPG")    # same name, other photo
+            clash = pixel.send_folder(adb, "FA6AX0301234", str(other))
+            self.assertEqual(clash["sent"], 1)
+            self.assertIn("DSCF0001_2.JPG", os.listdir(on_phone))
+            self.assertEqual((on_phone / "DSCF0001.JPG").read_bytes(), (shoot / "DSCF0001.JPG").read_bytes())
+
+            scans = (phone / "scans.log").read_text().split()
+            self.assertEqual(len(scans), 3)
+            self.assertTrue(all(s.startswith("file:///sdcard/DCIM/PhotoOrganizer/") for s in scans))
+        finally:
+            os.environ.pop("PHOTO_ORGANIZER_ADB", None)
+
     # -- Thumbnails -----------------------------------------------------------
 
     def test_30_thumbnail_is_small_and_cached(self):

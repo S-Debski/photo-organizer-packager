@@ -360,6 +360,25 @@
             </div>
 
             <div id="importResult" class="mt-3 d-none"></div>
+
+            <div id="pixelPanel" class="panel mt-3 d-none">
+                <p class="panel-title">Send to phone</p>
+                <div id="pixelStatus" class="mb-2 text-muted">Checking for a phone…</div>
+                <div class="actions">
+                    <button id="pixelSendBtn" class="btn btn-quiet" disabled>
+                        <i class="bi bi-phone"></i> Send to phone
+                    </button>
+                    <label class="form-check-label text-muted ms-2">
+                        <input type="checkbox" id="pixelIncludeRaw" class="form-check-input me-1">Include RAW files
+                    </label>
+                    <button id="pixelRecheckBtn" class="btn btn-link-quiet btn-sm">Check again</button>
+                </div>
+                <div id="pixelProgress" class="hint num"></div>
+                <p class="hint">Photos go to <span class="mono">DCIM/PhotoOrganizer</span> on the phone.
+                    In Google Photos, turn on backup for that folder once
+                    (Library → PhotoOrganizer → Backup); after that every shoot uploads by itself.
+                    Photos already on the phone are skipped, never overwritten.</p>
+            </div>
         </section>
 
     </main>

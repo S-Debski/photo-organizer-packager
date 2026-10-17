@@ -313,6 +313,7 @@ function setImportState(state, payload = {}) {
             result.classList.remove("d-none");
         }
         openBtn?.classList.remove("d-none");
+        refreshPixelPanel();          // offer "Send to phone" for this shoot
     }
 
     else if (state === "error") {
@@ -2316,6 +2317,92 @@ $("folderTemplate")?.addEventListener("change", () => {
     previewDestination();
 });
 $("workingDirectoryInput")?.addEventListener("input", previewDestinationSoon);
+// ====================================================================
+// Send to phone (adb) — offered after an import, for the Pixel XL's
+// Google Photos backup. Backend: /api/pixel/*  (photo_core/export/pixel.py)
+// ====================================================================
+let pixelSerial = null;
+
+async function refreshPixelPanel() {
+    const panel = $("pixelPanel");
+    const status = $("pixelStatus");
+    const btn = $("pixelSendBtn");
+    if (!panel || !lastImportDestination) return;
+
+    panel.classList.remove("d-none");
+    btn.disabled = true;
+    status.textContent = "Checking for a phone…";
+
+    let data;
+    try {
+        data = await (await fetch("/api/pixel/status")).json();
+    } catch (_) {
+        status.textContent = "Couldn't check for a phone.";
+        return;
+    }
+
+    if (!data.adb) {
+        status.innerHTML = `Android platform tools aren't installed. Download
+            <a href="https://developer.android.com/tools/releases/platform-tools" target="_blank" rel="noopener">SDK Platform-Tools</a>
+            and unzip it to <span class="mono">C:\\Users\\Public\\Tools\\platform-tools</span>
+            (next to ExifTool), then press Check again.`;
+        return;
+    }
+
+    const ready = (data.devices || []).filter(d => d.state === "device");
+    const waiting = (data.devices || []).filter(d => d.state === "unauthorized");
+    if (ready.length) {
+        pixelSerial = ready[0].serial;
+        status.innerHTML = `<i class="bi bi-phone text-success"></i> ${_escHtml(ready[0].model)} connected.`;
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-phone"></i> Send to ${_escHtml(ready[0].model)}`;
+    } else if (waiting.length) {
+        status.textContent = "Phone found. Unlock it and tap Allow on the \"Allow USB debugging?\" prompt, then press Check again.";
+    } else {
+        status.textContent = "No phone connected. Plug the Pixel in with USB (USB debugging on), then press Check again.";
+    }
+}
+
+async function sendToPixel() {
+    if (!lastImportDestination || !pixelSerial) return;
+    const btn = $("pixelSendBtn");
+    const prog = $("pixelProgress");
+    btn.disabled = true;
+    prog.textContent = "Starting…";
+
+    const res = await fetch("/api/pixel/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            folder: lastImportDestination,
+            serial: pixelSerial,
+            include_raw: $("pixelIncludeRaw").checked,
+        })
+    });
+    const started = await res.json();
+    if (!started.success) {
+        prog.textContent = started.error;
+        btn.disabled = false;
+        return;
+    }
+
+    // Poll until the background send finishes
+    for (;;) {
+        await new Promise(r => setTimeout(r, 700));
+        const { result, progress } = await (await fetch("/api/pixel/result")).json();
+        if (result) {
+            prog.textContent = result.message;
+            prog.classList.toggle("text-danger", !result.success);
+            break;
+        }
+        prog.textContent = progress?.message || "Sending…";
+    }
+    btn.disabled = false;
+}
+
+$("pixelSendBtn")?.addEventListener("click", sendToPixel);
+$("pixelRecheckBtn")?.addEventListener("click", refreshPixelPanel);
+
 $("resetShootBtn")?.addEventListener("click", () => {
     const folder = _currentFolderObj();
     if (!folder) return;

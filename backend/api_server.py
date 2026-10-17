@@ -66,6 +66,7 @@ from photo_core.pre_import.session_state import (
     JPG_EXTENSIONS,
 )
 from utils.fs_utils import iter_images, IMAGE_EXTS_ALL
+from photo_core.export import pixel
 from photo_core.organize.destination import (
     resolve_destination,
     check_writable,
@@ -524,6 +525,79 @@ def _save_locations(locs: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(locs, fh, indent=1)
     os.replace(tmp, path)
+
+
+# -----------------------------------------------------------------------------
+# Send to Pixel (adb) — after import, push the shoot to the user's phone so
+# Google Photos backs it up. See photo_core/export/pixel.py.
+# -----------------------------------------------------------------------------
+@app.route("/api/pixel/status")
+def api_pixel_status():
+    adb = pixel.resolve_adb()
+    devices = []
+    error = None
+    if adb:
+        try:
+            devices = pixel.list_devices(adb)
+        except Exception as e:
+            error = str(e)
+    return jsonify({"adb": adb, "devices": devices, "error": error,
+                    "phone_folder": pixel.PHONE_FOLDER})
+
+
+@app.route("/api/pixel/send", methods=["POST"])
+def api_pixel_send():
+    data = request.json or {}
+    folder = data.get("folder") or ""
+    serial = data.get("serial") or ""
+    include_raw = bool(data.get("include_raw"))
+
+    adb = pixel.resolve_adb()
+    if not adb:
+        return jsonify({"success": False, "error": "Android platform tools (adb) aren't installed."}), 400
+    if not os.path.isdir(folder):
+        return jsonify({"success": False, "error": "The imported folder isn't there any more."}), 400
+    if any(p and is_within(folder, p) for p in (ctx.state.get("current_sd_root"),)):
+        return jsonify({"success": False, "error": "Send the imported copies, not the card."}), 400
+    if ctx.progress.get("active"):
+        return jsonify({"success": False, "error": "Another operation is running"}), 409
+
+    ready = [d for d in pixel.list_devices(adb) if d["state"] == "device"]
+    if serial:
+        ready = [d for d in ready if d["serial"] == serial]
+    if not ready:
+        return jsonify({"success": False, "error": "No phone ready. Connect it with USB and allow USB debugging."}), 400
+    serial = ready[0]["serial"]
+
+    def worker():
+        ctx.progress.update(stage="pixel", total=0, done=0, active=True,
+                            message="Checking the phone…")
+        try:
+            def on_progress(done, total, message):
+                ctx.progress.update(done=done, total=total, message=message)
+
+            result = pixel.send_folder(adb, serial, folder, include_raw, on_progress)
+            msg = f"Sent {result['sent']} to the phone" + (
+                f", {result['skipped']} already there" if result["skipped"] else "") + (
+                f", {len(result['failed'])} failed" if result["failed"] else "")
+            ctx.state["pixel_result"] = {**result, "success": not result["failed"], "message": msg}
+            ctx.progress.update(message=msg)
+        except Exception as e:
+            logger.exception("pixel send failed")
+            ctx.state["pixel_result"] = {"success": False, "message": f"Sending failed: {e}"}
+            ctx.progress.update(message=f"Sending failed: {e}")
+        finally:
+            ctx.progress.update(stage="idle", active=False)
+
+    ctx.state["pixel_result"] = None
+    threading.Thread(target=worker, daemon=True, name="pixel-send").start()
+    return jsonify({"success": True, "serial": serial})
+
+
+@app.route("/api/pixel/result")
+def api_pixel_result():
+    return jsonify({"result": ctx.state.get("pixel_result"),
+                    "progress": ctx.progress})
 
 
 # -----------------------------------------------------------------------------
