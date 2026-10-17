@@ -2,12 +2,13 @@
 
 # photo_core/export/pixel.py
 # -----------------------------------------------------------------------------
-# Send an imported shoot to an Android phone (the user's Pixel XL, whose
-# Google Photos backup stores originals free) using Android's adb tool.
+# Copy an imported shoot onto an Android phone using Android's adb tool.
+# The app only copies to the phone; it never uploads anywhere. (The author
+# sends to a Pixel XL, whose own Google Photos backup takes it from there.)
 #
 # A phone over USB is an MTP device, not a drive, so ordinary file copies
-# can't reach it; adb can. Photos go into ONE phone folder so Google Photos
-# backup only has to be switched on for it once.
+# can't reach it; adb can. Photos go into ONE phone folder so a phone-side
+# backup app (e.g. Google Photos) only has to be pointed at it once.
 #
 #   - Never overwrites on the phone: same name + same size → skipped
 #     (already sent); same name, different photo → numbered name
