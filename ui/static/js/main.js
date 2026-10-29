@@ -34,6 +34,31 @@
 // ====================================================================
 // Globals here //
 import { pairFiles } from './lib/pairing.js';
+
+// --------------------------------------------------------------------
+// App closed while the page is still open (tray Quit, or the app was
+// stopped): every request fails. Say that once, plainly, instead of each
+// feature reporting its own error. Clears itself when the app is back.
+// --------------------------------------------------------------------
+let appUnreachable = false;
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+    try {
+        const res = await _fetch(...args);
+        if (appUnreachable) {
+            appUnreachable = false;
+            clearGlobalStatus();
+        }
+        return res;
+    } catch (err) {
+        if (err instanceof TypeError) {          // network failure, not an HTTP error
+            appUnreachable = true;
+            showGlobalStatus("Photo Organizer isn't running. Start it again " +
+                "(or use Open in its tray icon), then reload this page.", "error");
+        }
+        throw err;
+    }
+};
 let currentImages = [];
 let pairedImages = [];
 let pairingMap = new Map();
@@ -765,7 +790,7 @@ $("chooseSourceBtn")?.addEventListener("click", async () => {
         $("sdStatusText").textContent = "Folder chosen. Press Read to see its photos.";
     } catch (err) {
         console.error("Folder picker failed:", err);
-        showGlobalStatus("The folder picker isn't available.", "error");
+        if (!appUnreachable) showGlobalStatus("The folder picker isn't available.", "error");
     }
 });
 
@@ -878,11 +903,17 @@ async function fetchSDCards() {
     } catch (err) {
         clearInterval(timer);
 
-        $("sdStatusText").textContent = "Failed to detect cards.";
+        $("sdStatusText").textContent = appUnreachable
+            ? "Can't reach Photo Organizer."
+            : "Failed to detect cards.";
         $("sdTimer").textContent = "";
+        const sel = $("sdSelect");
+        if (sel && (!sel.options.length || sel.options[0].textContent.startsWith("Scanning"))) {
+            sel.innerHTML = `<option value="">Nothing found</option>`;
+        }
 
         log("SD detection error: " + err);
-        clearGlobalStatus();
+        if (!appUnreachable) clearGlobalStatus();
 
     } finally {
         // Reset UI state
