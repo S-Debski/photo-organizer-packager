@@ -1165,6 +1165,21 @@ def _open_folder_in_explorer(path: str):
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("FLASK_PORT", 5000))
 APP_URL = f"http://{HOST}:{PORT}"
+APP_ID = "PhotoOrganizer"
+
+
+def set_port(port: int) -> None:
+    """Chosen at start-up by app.py (5000 may belong to another program)."""
+    global PORT, APP_URL
+    PORT = port
+    APP_URL = f"http://{HOST}:{port}"
+
+
+@app.route("/api/whoami")
+def whoami():
+    # Lets a second launch tell a running Photo Organizer apart from
+    # another program on the same port (e.g. macOS AirPlay on 5000)
+    return jsonify({"app": APP_ID, "version": APP_VERSION})
 
 
 def open_ui():

@@ -86,11 +86,39 @@ def _suppress_output_on_exit():
 atexit.register(_suppress_output_on_exit)
 
 
-def _already_running() -> bool:
-    """True if something is already listening on the app's port."""
+def _probe(port: int) -> str:
+    """'free', 'ours' (a running Photo Organizer) or 'other' (another program)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
-        return s.connect_ex((api_server.HOST, api_server.PORT)) == 0
+        if s.connect_ex((api_server.HOST, port)) != 0:
+            return "free"
+    try:
+        import json
+        import urllib.request
+        url = f"http://{api_server.HOST}:{port}/api/whoami"
+        with urllib.request.urlopen(url, timeout=1.5) as resp:
+            if json.load(resp).get("app") == api_server.APP_ID:
+                return "ours"
+    except Exception:
+        pass
+    return "other"
+
+
+def _choose_port() -> tuple[int | None, bool]:
+    """
+    (port, already_running). Port 5000 is often taken — macOS AirPlay
+    Receiver listens on it — so try the next few, and recognise a running
+    Photo Organizer on any of them.
+    """
+    base = api_server.PORT
+    for port in range(base, base + 10):
+        state = _probe(port)
+        if state == "ours":
+            return port, True
+        if state == "free":
+            return port, False
+        logger.info(f"Port {port} is used by another program; trying the next one")
+    return None, False
 
 
 def _run_tray(ctx) -> bool:
@@ -113,11 +141,18 @@ def main():
     if LOG_FILE:
         logger.info(f"Logging to {LOG_FILE}")
 
-    # Second launch: the first instance owns the port — just show its UI.
-    if _already_running():
-        logger.info("Already running — opening the existing window")
+    port, running = _choose_port()
+    if port is None:
+        logger.error("No free port found (tried 10); not starting")
+        return
+    api_server.set_port(port)
+
+    # Second launch: show the running instance's page and exit
+    if running:
+        logger.info(f"Already running on port {port} — opening the existing window")
         api_server.open_ui()
         return
+    logger.info(f"Using {api_server.APP_URL}")
 
     exiftool = resolve_exiftool_cmd()
     if exiftool:
