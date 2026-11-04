@@ -9,8 +9,8 @@ def extract_camera_model(path) -> str | None:
     if not record:
         return None
 
-    make = get_exif_value(record, "IFD0:Make", "Make")
-    model = get_exif_value(record, "IFD0:Model", "Model")
+    make = get_exif_value(record, "IFD0:Make", "ExifIFD:Make", "Make")
+    model = get_exif_value(record, "IFD0:Model", "ExifIFD:Model", "Model")
 
     if make and model:
         return f"{make.strip()} {model.strip()}"

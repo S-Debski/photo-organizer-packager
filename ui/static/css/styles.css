@@ -743,6 +743,55 @@ body {
     margin-bottom: 22px;
 }
 #cullReviewFilename { font-family: var(--mono); font-size: 0.8rem; color: var(--text-2); }
+
+/* Right-click menu on photos */
+.photo-menu {
+    position: fixed;
+    z-index: 2000;
+    min-width: 220px;
+    padding: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 0.82rem;
+}
+.photo-menu .menu-title {
+    padding: 4px 10px 6px;
+    color: var(--text-3);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+}
+.photo-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text);
+    text-align: left;
+}
+.photo-menu button:hover, .photo-menu button:focus { background: var(--raised); outline: none; }
+.photo-menu button i { width: 16px; color: var(--text-2); }
+.photo-menu button kbd { margin-left: auto; }
+.photo-menu hr { margin: 4px 2px; border-color: var(--line); opacity: 1; }
+
+/* Shooting details under the photo (viewer + review); I toggles */
+.photo-info {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+}
+.photo-info .info-row > span + span::before { content: " · "; color: var(--text-3); }
+.photo-info .loc i { color: var(--keep); margin-right: 3px; }
+.photo-info .muted { color: var(--text-3); }
+body.hide-photo-info .photo-info { display: none; }
+#imageModal .photo-info { max-width: 92vw; margin-left: auto; margin-right: auto; }
 .strip {
     display: flex;
     flex-wrap: wrap;

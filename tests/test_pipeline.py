@@ -351,6 +351,18 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(self.client.get(url).status_code, 200)
         self.assertEqual(len(os.listdir(os.path.join(self.ctx.cache_dir, "thumbs"))), 1)
 
+    @needs_exiftool
+    def test_32_photo_info(self):
+        r = self.client.get("/api/photo-info", query_string=[
+            ("path", str(self.src / "DSCF0001.RAF")), ("path", str(self.src / "DSCF0001.JPG"))]).get_json()
+        self.assertTrue(r["success"], r)
+        self.assertEqual(r["taken"], "1 Jun 2026, 10:00")
+        self.assertEqual(r["camera"], "Fujifilm X-T5")
+        self.assertAlmostEqual(r["gps"][0], 54.9783, places=4)
+        self.assertAlmostEqual(r["gps"][1], -1.6178, places=4)
+        self.assertEqual([f["name"] for f in r["files"]], ["DSCF0001.JPG", "DSCF0001.RAF"])
+        self.assertEqual(r["size"], "1200 × 800")
+
     def test_31_thumbs_list_is_not_capped(self):
         files = self.client.post("/api/thumbs", json={"folder": str(self.src)}).get_json()
         self.assertEqual(len(files), 6)

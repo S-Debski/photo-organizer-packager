@@ -169,7 +169,10 @@
             </div>
 
             <div class="review-bar">
-                <div id="cullReviewFilename"></div>
+                <div>
+                    <div id="cullReviewFilename"></div>
+                    <div id="cullReviewInfo" class="photo-info"></div>
+                </div>
                 <div class="actions">
                     <button id="cullRejectBtn" class="btn btn-danger">
                         <i class="bi bi-x-lg"></i> Reject <kbd>X</kbd>
@@ -396,7 +399,8 @@
         <img id="previewImage" alt="">
         <figcaption>
             <div id="modalFilename"></div>
-            <div class="viewer-keys">K keep · X reject · ← → move · Esc close</div>
+            <div id="modalInfo" class="photo-info"></div>
+            <div class="viewer-keys">K keep · X reject · I info · ← → move · Esc close</div>
         </figcaption>
     </figure>
 
@@ -405,6 +409,9 @@
     <button class="viewer-btn close" aria-label="Close"
             onclick="document.getElementById('imageModal').classList.add('d-none')"><i class="bi bi-x-lg"></i></button>
 </div>
+
+<!-- Right-click menu for photos (grid, viewer, review) -->
+<div id="photoMenu" class="photo-menu d-none" role="menu"></div>
 
 <script src="/static/libs/bootstrap/bootstrap.bundle.min.js"></script>
 <script src="/static/libs/leaflet/leaflet.js"></script>

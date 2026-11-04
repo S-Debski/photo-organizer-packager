@@ -67,6 +67,7 @@ from photo_core.pre_import.session_state import (
 )
 from utils.fs_utils import iter_images, IMAGE_EXTS_ALL
 from photo_core.export import pixel
+from photo_core.exif.reader import read_exif
 from photo_core.organize.destination import (
     resolve_destination,
     check_writable,
@@ -795,6 +796,148 @@ def exif_records():
             for r in records
         ],
     })
+
+# -----------------------------------------------------------------------------
+# POST /api/file-action — right-click menu: open, open with…, show in folder.
+# Photo files only (never anything that could be executed).
+# -----------------------------------------------------------------------------
+@app.route("/api/file-action", methods=["POST"])
+def file_action():
+    import subprocess
+    data = request.json or {}
+    path = os.path.normpath(data.get("path") or "")
+    action = data.get("action")
+
+    if not os.path.isfile(path) or \
+            os.path.splitext(path)[1].lower() not in {*IMAGE_EXTS_ALL, ".xmp", ".png", ".tif", ".tiff"}:
+        return jsonify({"success": False, "error": "Not a photo file"}), 400
+
+    system = platform.system()
+    try:
+        if action == "reveal":
+            if system == "Windows":
+                subprocess.Popen(f'explorer /select,"{path}"')
+            elif system == "Darwin":
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["xdg-open", os.path.dirname(path)])
+        elif action == "open":
+            if system == "Windows":
+                os.startfile(path)
+            elif system == "Darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        elif action == "openwith" and system == "Windows":
+            # Windows' own "How do you want to open this file?" chooser
+            subprocess.Popen(["rundll32.exe", "shell32.dll,OpenAs_RunDLL", path])
+        else:
+            return jsonify({"success": False, "error": "Not supported here"}), 400
+    except OSError as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+    return jsonify({"success": True})
+
+
+# -----------------------------------------------------------------------------
+# Photo info for the viewer / review step: shooting details from EXIF
+# (already cached by the scanner's batched read). Pass every file of the
+# photo (?path=JPG&path=RAW); each field comes from the first file that has it.
+# -----------------------------------------------------------------------------
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _fmt_taken(raw) -> str | None:
+    """'2026:10:10 14:32:05' → '10 Oct 2026, 14:32'."""
+    try:
+        d, t = str(raw).split(" ", 1)
+        y, m, day = d.split(":")
+        return f"{int(day)} {_MONTHS[int(m) - 1]} {y}, {t[:5]}"
+    except (ValueError, IndexError):
+        return str(raw) if raw else None
+
+
+def _fmt_shutter(t) -> str | None:
+    try:
+        t = float(t)
+    except (TypeError, ValueError):
+        return None
+    if t <= 0:
+        return None
+    return f"{t:g} s" if t >= 1 else f"1/{round(1 / t)} s"
+
+
+def _fmt_num(v, fmt="{:g}"):
+    try:
+        return fmt.format(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/api/photo-info")
+def photo_info():
+    paths = [p for p in request.args.getlist("path") if p and os.path.isfile(p)]
+    if not paths:
+        return jsonify({"success": False, "error": "Photo not found"}), 404
+
+    # JPG first (camera JPEGs carry the same shooting data), then RAW
+    paths.sort(key=lambda p: os.path.splitext(p)[1].lower() not in JPG_EXTENSIONS)
+    records = [read_exif(p) for p in paths]
+
+    def val(*keys):
+        for rec in records:
+            for k in keys:
+                v = rec.get(k)
+                if v not in (None, "", 0, "0"):
+                    return v
+        return None
+
+    # Some editors move Make/Model into the Exif IFD
+    make = str(val("IFD0:Make", "ExifIFD:Make") or "").strip()
+    model = str(val("IFD0:Model", "ExifIFD:Model") or "").strip()
+    camera = model if make and model.lower().startswith(make.split()[0].lower()) else \
+        " ".join(x for x in (make.title() if make.isupper() else make, model) if x)
+
+    focal = _fmt_num(val("ExifIFD:FocalLength"), "{:g} mm")
+    focal35 = _fmt_num(val("ExifIFD:FocalLengthIn35mmFormat"), "{:g} mm")
+    if focal and focal35 and focal35 != focal:
+        focal = f"{focal} ({focal35} eq.)"
+
+    ev = val("ExifIFD:ExposureCompensation")
+    ev_text = None
+    try:
+        if ev is not None and abs(float(ev)) >= 0.05:
+            ev_text = f"{float(ev):+.1f} EV"
+    except (TypeError, ValueError):
+        pass
+
+    w = val("File:ImageWidth", "ExifIFD:ExifImageWidth")
+    h = val("File:ImageHeight", "ExifIFD:ExifImageHeight")
+
+    lat, lon = val("Composite:GPSLatitude"), val("Composite:GPSLongitude")
+    gps = None
+    try:
+        if lat is not None and lon is not None:
+            gps = [float(lat), float(lon)]
+    except (TypeError, ValueError):
+        gps = None
+
+    return jsonify({
+        "success": True,
+        "taken": _fmt_taken(val("ExifIFD:DateTimeOriginal", "ExifIFD:CreateDate", "IFD0:ModifyDate")),
+        "camera": camera or None,
+        "lens": val("ExifIFD:LensModel", "Composite:LensID", "Composite:Lens"),
+        "focal": focal,
+        "aperture": _fmt_num(val("ExifIFD:FNumber", "Composite:Aperture"), "f/{:g}"),
+        "shutter": _fmt_shutter(val("ExifIFD:ExposureTime", "Composite:ShutterSpeed")),
+        "iso": _fmt_num(val("ExifIFD:ISO", "Composite:ISO"), "ISO {:g}"),
+        "ev": ev_text,
+        "size": f"{w} × {h}" if w and h else None,
+        "gps": gps,
+        "files": [{"name": os.path.basename(p), "bytes": os.path.getsize(p)} for p in paths],
+    })
+
 
 # -----------------------------------------------------------------------------
 # Cached thumbnail / preview (size: grid | strip | preview)

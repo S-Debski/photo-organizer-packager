@@ -1505,6 +1505,203 @@ window.showPreviousImage = showPreviousImage;
     });
 })();
 
+// ====================================================================
+// Photo info while culling (viewer + review): shooting details from EXIF
+// and location — camera GPS, else the folder's assigned location, plus the
+// nearest saved place. No online lookups. I toggles it (remembered).
+// ====================================================================
+const photoInfoCache = new Map();          // baseName → /api/photo-info result
+
+function _fmtBytes(n) {
+    if (!n) return "";
+    return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB`
+         : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB`
+         : `${Math.round(n / 1e3)} KB`;
+}
+
+function _distanceKm(a, b) {
+    const R = 6371, rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+    const h = Math.sin(dLat / 2) ** 2 +
+              Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function _nearestPlace(point, maxKm = 1.5) {
+    let best = null;
+    for (const p of (typeof savedPlaces !== "undefined" ? savedPlaces : [])) {
+        const d = _distanceKm(point, p);
+        if (d <= maxKm && (!best || d < best.d)) best = { name: p.name, d };
+    }
+    return best;
+}
+
+function _renderPhotoInfo(info) {
+    const esc = t => String(t).replace(/[&<>"]/g,
+        c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const row = parts => {
+        const items = parts.filter(Boolean);
+        return items.length ? `<div class="info-row">${items.map(p => `<span>${p}</span>`).join("")}</div>` : "";
+    };
+
+    // Location: camera GPS wins; otherwise the location assigned to the folder
+    let point = null, source = "";
+    if (info.gps) {
+        point = { lat: info.gps[0], lon: info.gps[1] };
+        source = "camera GPS";
+    } else if (folderGPS[selectedFolder]) {
+        const g = folderGPS[selectedFolder];
+        point = { lat: Number(g.lat), lon: Number(g.lon ?? g.lng) };
+        source = "assigned to folder";
+    }
+    let location = `<span class="muted">No location</span>`;
+    if (point) {
+        const near = _nearestPlace(point);
+        location = `<span class="loc"><i class="bi bi-geo-alt-fill"></i>` +
+            `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}</span>` +
+            ` <span class="muted">${source}</span>` +
+            (near ? ` <span class="muted">· near ${esc(near.name)}</span>` : "");
+    }
+
+    const files = (info.files || []).map(f =>
+        `${esc(f.name.split(".").pop().toUpperCase())} ${_fmtBytes(f.bytes)}`).join(" + ");
+
+    return row([info.taken && esc(info.taken), info.camera && esc(info.camera), info.lens && esc(info.lens)]) +
+        row([info.focal, info.aperture, info.shutter, info.iso, info.ev, info.size].map(v => v && esc(v))) +
+        row([location, files]);
+}
+
+async function showPhotoInfo(item, el) {
+    if (!el || !item) return;
+    const key = item.baseName;
+    el.dataset.for = key;
+
+    let info = photoInfoCache.get(key);
+    if (!info) {
+        el.innerHTML = `<span class="muted">Reading photo details…</span>`;
+        const qs = [item.jpg, item.raw].filter(Boolean)
+            .map(p => "path=" + encodeURIComponent(p)).join("&");
+        try {
+            info = await (await fetch(`/api/photo-info?${qs}`)).json();
+            if (info.success) photoInfoCache.set(key, info);
+        } catch (_) {
+            info = null;
+        }
+    }
+    if (el.dataset.for !== key) return;           // user has moved on
+    el.innerHTML = info && info.success ? _renderPhotoInfo(info) : `<span class="muted">No details available</span>`;
+}
+
+// --------------------------------------------------------------------
+// Right-click menu on a photo: keep / reject, open, open with…, show in
+// Explorer / Finder, copy path. Grid tiles, the viewer and the review image.
+// --------------------------------------------------------------------
+const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent);
+
+async function _fileAction(path, action) {
+    try {
+        const r = await (await fetch("/api/file-action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path, action })
+        })).json();
+        if (!r.success) showGlobalStatus(r.error || "That didn't work.", "error");
+    } catch (_) { /* unreachable app is reported by the fetch wrapper */ }
+}
+
+function _closePhotoMenu() {
+    $("photoMenu")?.classList.add("d-none");
+}
+
+function openPhotoMenu(item, x, y) {
+    const menu = $("photoMenu");
+    if (!menu || !item) return;
+
+    const ext = p => p.split(".").pop().toUpperCase();
+    const decision = cullDecisions.get(item.baseName);
+    const main = item.jpg || item.raw;
+    const entries = [];
+    const add = (icon, label, run, key = "") => entries.push({ icon, label, run, key });
+
+    if (decision !== "keep") add("bi-check-lg", "Keep", () => _setCull(item.baseName, "keep"), "K");
+    if (decision !== "reject") add("bi-x-lg", "Reject", () => _setCull(item.baseName, "reject"), "X");
+    if (decision) add("bi-circle", "Clear decision", () => _setCull(item.baseName, null));
+    entries.push(null);
+    if (item.jpg) add("bi-box-arrow-up-right", `Open ${ext(item.jpg)}`, () => _fileAction(item.jpg, "open"));
+    if (item.raw) add("bi-box-arrow-up-right", `Open ${ext(item.raw)}`, () => _fileAction(item.raw, "open"));
+    if (!IS_MAC) {
+        if (item.jpg) add("bi-grid-3x3-gap", `Open ${ext(item.jpg)} with…`, () => _fileAction(item.jpg, "openwith"));
+        if (item.raw) add("bi-grid-3x3-gap", `Open ${ext(item.raw)} with…`, () => _fileAction(item.raw, "openwith"));
+    }
+    add("bi-folder2-open", IS_MAC ? "Show in Finder" : "Show in Explorer", () => _fileAction(main, "reveal"));
+    entries.push(null);
+    add("bi-clipboard", "Copy file path", async () => {
+        try {
+            await navigator.clipboard.writeText([item.jpg, item.raw].filter(Boolean).join("\n"));
+            showGlobalStatus("File path copied", "success");
+            setTimeout(clearGlobalStatus, 1500);
+        } catch (_) {
+            showGlobalStatus("Couldn't copy to the clipboard.", "error");
+        }
+    });
+
+    menu.innerHTML = `<div class="menu-title">${item.baseName}</div>` + entries.map((e, i) => e === null
+        ? "<hr>"
+        : `<button type="button" data-i="${i}"><i class="bi ${e.icon}"></i>${e.label}${e.key ? `<kbd>${e.key}</kbd>` : ""}</button>`
+    ).join("");
+    menu.querySelectorAll("button").forEach(b => b.addEventListener("click", ev => {
+        ev.stopPropagation();
+        _closePhotoMenu();
+        entries[Number(b.dataset.i)].run();
+    }));
+
+    // Show, then keep it inside the window
+    menu.classList.remove("d-none");
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+    menu.querySelector("button")?.focus();
+}
+
+// Which photo was right-clicked
+document.addEventListener("contextmenu", e => {
+    let item = null;
+    const tile = e.target.closest(".cull-thumb");
+    if (tile) item = pairedImages.find(p => p.baseName === tile.dataset.assetId);
+    else if (e.target.closest("#previewImage")) item = pairedImages[currentPreviewIndex];
+    else if (e.target.closest("#cullReviewImage")) item = pairedImages[cullReviewIndex];
+    else if (e.target.closest("#photoMenu")) { e.preventDefault(); return; }
+    if (!item) { _closePhotoMenu(); return; }
+    e.preventDefault();
+    openPhotoMenu(item, e.clientX, e.clientY);
+});
+
+document.addEventListener("click", e => { if (!e.target.closest("#photoMenu")) _closePhotoMenu(); });
+// Esc with the menu open closes just the menu, not the viewer behind it
+document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !$("photoMenu")?.classList.contains("d-none")) {
+        _closePhotoMenu();
+        e.stopImmediatePropagation();
+        e.preventDefault();
+    }
+}, true);
+window.addEventListener("resize", _closePhotoMenu);
+document.getElementById("contentArea")?.addEventListener("scroll", _closePhotoMenu, { passive: true });
+
+// I shows / hides the details (viewer and review step), remembered
+(function initPhotoInfoToggle() {
+    try {
+        if (localStorage.getItem("hidePhotoInfo") === "1") document.body.classList.add("hide-photo-info");
+    } catch (_) { /* storage blocked */ }
+
+    document.addEventListener("keydown", e => {
+        if (e.key !== "i" && e.key !== "I") return;
+        if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+        const hidden = document.body.classList.toggle("hide-photo-info");
+        try { localStorage.setItem("hidePhotoInfo", hidden ? "1" : "0"); } catch (_) { /* blocked */ }
+    });
+})();
+
 // Downscaled, disk-cached preview from the backend (size: grid | strip | preview)
 function thumbUrl(path, size = "grid") {
     return `/api/thumb?size=${size}&path=${encodeURIComponent(path)}`;
@@ -1604,6 +1801,7 @@ function updatePreviewImage() {
             `${item.baseName}${mark}` +
             `<span class="text-muted num ms-3">${currentPreviewIndex + 1} / ${pairedImages.length}</span>`;
     }
+    showPhotoInfo(item, $("modalInfo"));
 }
 
 
@@ -3121,6 +3319,7 @@ function _renderCullReviewImage() {
     if (name) name.textContent =
         `${item.baseName}  (${cullReviewIndex + 1} / ${pairedImages.length})`;
 
+    showPhotoInfo(item, $("cullReviewInfo"));
     _refreshCullReviewBadge();
 }
 
