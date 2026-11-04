@@ -1,6 +1,7 @@
 # Role: Application module (see Stability Contract)
 
 # backend/routes/pre_import.py
+from datetime import date
 from flask import jsonify, request
 from pathlib import Path
 
@@ -104,7 +105,6 @@ def api_confirm_pre_import(ctx):
     # ✅ v2.8: confirmation only (no freezing yet)
     return jsonify({"success": True})
 
-from datetime import date
 
 def api_update_session_metadata(ctx):
     payload = request.json or {}

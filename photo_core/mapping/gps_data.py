@@ -1,3 +1,5 @@
+# Role: GPS helpers (not used by the route) (see Stability Contract)
+
 # =============================================================================
 # File: photo_core/mapping/gps_data.py
 #
@@ -74,7 +76,7 @@ def extract_gps_points(records, mode="logical"):
     gps_by_base = {}
 
     # ✅ STEP 1: build GPS from EXIF records
-    for i, r in enumerate(records):
+    for _i, r in enumerate(records):
         try:
             source = r.get("path")
             if not source:

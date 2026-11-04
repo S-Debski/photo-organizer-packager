@@ -187,3 +187,6 @@ diff.txt
 tree.txt
 newflist.txt
 folder_structure.txt
+
+# setuptools / py2app build download
+.eggs/

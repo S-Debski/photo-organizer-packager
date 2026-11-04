@@ -5,7 +5,7 @@
 
 from photo_core.exif.reader import read_exif
 from photo_core.exif.accessor import get_exif_value
-from photo_core.exif.lens import extract_lens_model
+from photo_core.exif.lens import extract_lens_model as extract_lens_model  # re-exported
 
 
 def extract_exif_datetime(path):

@@ -1,3 +1,5 @@
+# Role: GPS data API route (see Stability Contract)
+
 # =============================================================================
 # File: backend/routes/gps_data.py
 #
@@ -71,7 +73,7 @@ logger = logging.getLogger("gps")
 def api_gps_data(ctx):
 
     data = request.json or {}
-    manual = data.get("manualGPS", [])
+    data.get("manualGPS", [])
 
     records = ctx.state.get("exif_records", [])
     exif_ready = bool(records)

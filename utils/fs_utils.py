@@ -1,5 +1,6 @@
-# ============================================================================
 # Role: File system utilities (see Stability Contract)
+
+# ============================================================================
 # File: utils/fs_utils.py
 #
 # Responsibilities:
@@ -186,7 +187,6 @@ def list_candidate_folders(sd_root):
                 name_count[display] = name_count.get(display, 0) + 1
 
     # Yield paths; disambiguate display names where collisions exist
-    seen = {}
     for path, display, parent in candidates:
         if name_count.get(display, 0) > 1 and parent:
             # Collision — prefix with parent folder name

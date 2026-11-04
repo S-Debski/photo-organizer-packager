@@ -32,59 +32,6 @@ if os.name == "nt":
 
 
 
-def detect_sd_cards():
-    system = platform.system()
-    drives = []
-
-    try:
-        # ✅ Windows
-        if system == "Windows":
-            for drive in win32api.GetLogicalDriveStrings().split('\000')[:-1]:
-                drive_type = win32file.GetDriveType(drive)
-
-                # 2 = removable, 3 = fixed
-                if drive_type in (win32file.DRIVE_REMOVABLE, win32file.DRIVE_FIXED):
-                    drives.append({
-                        "path": drive,
-                        "label": win32api.GetVolumeInformation(drive)[0]
-                    })
-
-        # ✅ macOS
-        elif system == "Darwin":
-            base = "/Volumes"
-
-            if os.path.exists(base):
-                for name in os.listdir(base):
-                    path = os.path.join(base, name)
-
-                    if os.path.isdir(path):
-                        drives.append({
-                            "path": path,
-                            "label": name
-                        })
-
-        # ✅ Linux
-        else:
-            for base in ["/media", "/mnt"]:
-                if os.path.exists(base):
-                    for user in os.listdir(base):
-                        user_path = os.path.join(base, user)
-
-                        if os.path.isdir(user_path):
-                            for name in os.listdir(user_path):
-                                path = os.path.join(user_path, name)
-
-                                if os.path.isdir(path):
-                                    drives.append({
-                                        "path": path,
-                                        "label": name
-                                    })
-
-    except Exception as e:
-        print("SD detection error:", e)
-
-    return drives
-
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
@@ -283,7 +230,8 @@ def detect_macos_volumes():
 def get_macos_disk_info(path: Path):
     """(filesystem, total bytes, internal?) from diskutil; Nones if unknown."""
     try:
-        import subprocess, plistlib
+        import subprocess
+        import plistlib
         info = plistlib.loads(subprocess.check_output(
             ["diskutil", "info", "-plist", str(path)]
         ))
@@ -474,7 +422,7 @@ def list_all_sources():
         for v in detect_sd_cards():
             out.append({**v, "kind": "disk"})
 
-    order = {"card": 0, "disk": 1, "network": 2}
+    order = {"card": 0, "external": 1, "disk": 2, "network": 3}
     return sorted(out, key=lambda v: (order[v["kind"]], v["path"]))
 
 

@@ -45,7 +45,7 @@ def get_camera_model(path: str) -> str:
             for tag, value in exif.items():
                 if TAGS.get(tag) == "Model":
                     return str(value)
-    except:
+    except Exception:
         pass
 
     # RAW EXIF fallback
@@ -54,7 +54,7 @@ def get_camera_model(path: str) -> str:
             with rawpy.imread(path) as raw:
                 if raw.metadata.camera_model:
                     return raw.metadata.camera_model
-        except:
+        except Exception:
             pass
 
     return "Unknown"
@@ -71,7 +71,7 @@ def get_lens_model(path: str) -> str:
             for tag, value in exif.items():
                 if TAGS.get(tag) in ("LensModel","Lens","LensSpecification"):
                     return str(value)
-    except:
+    except Exception:
         pass
 
     if rawpy:
@@ -81,7 +81,7 @@ def get_lens_model(path: str) -> str:
                     return raw.metadata.lens
                 if raw.metadata.lens_model:
                     return raw.metadata.lens_model
-        except:
+        except Exception:
             pass
 
     return "Unknown"

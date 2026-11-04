@@ -147,8 +147,13 @@ def process_file(
         return
 
     # ✅ CHECK mode
+    # Any well-formed one-line Role header passes; ROLE_MAP / GENERIC_ROLES
+    # are only the defaults --apply writes (names like gps_data.py exist in
+    # more than one package, so the map can't be the authority).
     if check:
-        if not has_header or current_header.strip() != expected_header.strip():
+        header = (current_header or "").strip()
+        if not (has_header and header.endswith("(see Stability Contract)")
+                and len(header) > len(f"{comment} Role: (see Stability Contract)")):
             missing.append(path)
         return
 

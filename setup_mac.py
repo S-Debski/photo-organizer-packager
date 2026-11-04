@@ -7,7 +7,6 @@ Usage: python3 setup_mac.py py2app
 """
 
 from setuptools import setup
-import os
 
 APP = ['app.py']
 DATA_FILES = [

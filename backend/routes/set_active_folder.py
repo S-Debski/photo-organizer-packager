@@ -1,3 +1,5 @@
+# Role: Active folder selection API route (see Stability Contract)
+
 # backend/routes/set_active_folder.py
 
 # -----------------------------------------------------------------------------

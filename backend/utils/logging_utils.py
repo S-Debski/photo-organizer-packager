@@ -1,3 +1,5 @@
+# Role: Logging setup (see Stability Contract)
+
 # =============================================================================
 # File: backend/utils/logging_utils.py
 #

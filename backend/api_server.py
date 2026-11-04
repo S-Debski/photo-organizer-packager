@@ -1206,7 +1206,7 @@ def api_session_select():
 def api_session_register_asset():
     try:
         session     = ctx.state.get("session")
-        session_dir = ctx.state.get("session_dir")
+        ctx.state.get("session_dir")
 
         if not session:
             return jsonify({"success": False, "error": "No active session"}), 400

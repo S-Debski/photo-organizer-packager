@@ -72,4 +72,4 @@ def _validate_relative_path(path: str) -> None:
 
     if ".." in path.split("/"):
         raise TemplateError("Path traversal is not allowed")
-    
+

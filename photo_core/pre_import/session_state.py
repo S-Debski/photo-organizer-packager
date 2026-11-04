@@ -1,3 +1,5 @@
+# Role: Culling session manifest (see Stability Contract)
+
 """
 session_state.py
 

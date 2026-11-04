@@ -251,8 +251,13 @@ def _set_progress(ctx, stage=None, total=None, done=None, active=None, message=N
     Update ctx.progress fields. Only updates keys that are explicitly passed.
     Thread-safe for simple dict field writes (GIL protected).
     """
-    if stage   is not None: ctx.progress["stage"]   = stage
-    if total   is not None: ctx.progress["total"]   = total
-    if done    is not None: ctx.progress["done"]    = done
-    if active  is not None: ctx.progress["active"]  = active
-    if message is not None: ctx.progress["message"] = message
+    if stage is not None:
+        ctx.progress["stage"] = stage
+    if total is not None:
+        ctx.progress["total"] = total
+    if done is not None:
+        ctx.progress["done"] = done
+    if active is not None:
+        ctx.progress["active"] = active
+    if message is not None:
+        ctx.progress["message"] = message

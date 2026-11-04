@@ -1,1 +1,24 @@
-python tools/role_annotator.py --check
+name: Architecture hygiene
+
+# Every source file starts with a one-line "Role:" header
+# (see the Stability Contract). Fails if one is missing.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  roles:
+    name: Role headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Check Role headers
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/role_annotator.py --check

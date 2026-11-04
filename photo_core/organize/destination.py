@@ -78,14 +78,15 @@ def resolve_destination(
         try:
             shoot_date = date.fromisoformat(shoot_date)
         except ValueError:
-            raise DestinationError(f"Shoot date isn't a valid date: {shoot_date}")
+            raise DestinationError(
+                f"Shoot date isn't a valid date: {shoot_date}") from None
     shoot_date = shoot_date or date.today()
 
     try:
         relative = resolve_directory_template(
             template or DEFAULT_TEMPLATE, title=title, shoot_date=shoot_date)
     except TemplateError as e:
-        raise DestinationError(f"Folder layout: {e}")
+        raise DestinationError(f"Folder layout: {e}") from e
 
     full = os.path.normpath(os.path.join(destination, relative))
 

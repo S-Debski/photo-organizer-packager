@@ -36,7 +36,7 @@ def preview_destination(
             shoot_date=shoot_date,
         )
     except TemplateError as e:
-        raise PreImportError(str(e))
+        raise PreImportError(str(e)) from e
 
     return output_root / relative
 
