@@ -26,8 +26,9 @@ the keepers into a dated shoot folder. The source is never changed.
 INSTALLING
 ------------------------------------------------------------
 
-Download the latest build from GitHub:
-    Actions → "Build desktop apps" → latest green run → Artifacts
+Download the latest release from GitHub (no account needed):
+    https://github.com/S-Debski/photo-organizer-packager/releases
+    PhotoOrganizer-windows.zip  or  PhotoOrganizer-mac.zip
 
 ExifTool is bundled. No Python needed.
 
@@ -41,7 +42,8 @@ WINDOWS
 
 MACOS
     1. Unzip PhotoOrganizer-mac until you have "Photo Organizer.app"
-       (GitHub wraps it in a second zip).
+       (an Actions test build is wrapped in a second zip).
+       Apple Silicon, built on macOS 15.
     2. First launch: right-click the app → Open → Open (unsigned app).
     3. If macOS says the app is damaged or can't be verified, run this
        once in Terminal, then open it normally:
@@ -156,6 +158,13 @@ BUILDING
     Windows   build.bat        → dist\Photo Organizer\Photo Organizer.exe
     macOS     ./build_mac.sh   → dist/Photo Organizer.app
     Both      GitHub Actions → "Build desktop apps" → Run workflow
+              (test builds, under the run's Artifacts)
+
+Releasing: push a tag, e.g.
+    git tag v3.0.0-beta.2
+    git push origin v3.0.0-beta.2
+builds both apps and publishes them on the Releases page.
+A tag with a "-" (beta, rc) is marked pre-release.
 
 Spec: photo-organizer.spec. Design notes: docs/Obsidian Vault/.
 

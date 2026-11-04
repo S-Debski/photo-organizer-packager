@@ -1,7 +1,10 @@
 name: Build desktop apps
 
-# Builds the standalone Windows and macOS apps and uploads them as
-# workflow artifacts. Run from the Actions tab, or push a v* tag.
+# Builds the standalone Windows and macOS apps.
+#   Run from the Actions tab -> workflow artifacts only (for testing).
+#   Push a v* tag            -> also publishes a GitHub Release with both
+#                               zips attached (tags with a "-", e.g.
+#                               v3.0.0-beta.2, are marked pre-release).
 on:
   workflow_dispatch:
   push:
@@ -13,7 +16,10 @@ permissions:
 jobs:
   macos:
     name: macOS (Apple Silicon)
-    runs-on: macos-latest
+    # Pinned rather than macos-latest: -latest moves to new macOS versions
+    # gradually (and their runner pools can be slow to start), and an app
+    # built on an older macOS runs on more Macs. Move up deliberately.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -58,3 +64,48 @@ jobs:
         with:
           name: PhotoOrganizer-windows
           path: dist/Photo Organizer/
+
+  release:
+    name: Publish release
+    needs: [macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # only this job can create the release
+    steps:
+      - uses: actions/download-artifact@v6
+        # -> PhotoOrganizer-mac/PhotoOrganizer-mac.zip
+        #    PhotoOrganizer-windows/<contents of dist/Photo Organizer>
+      - name: Zip the Windows app
+        run: |
+          mv PhotoOrganizer-windows "Photo Organizer"
+          zip -qr PhotoOrganizer-windows.zip "Photo Organizer"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## Download
+
+          - **Windows:** `PhotoOrganizer-windows.zip`. Unzip, open the
+            `Photo Organizer` folder and run `Photo Organizer.exe`.
+            Windows may say it protected your PC (the app isn't
+            code-signed): click **More info** -> **Run anyway**.
+          - **Mac (Apple Silicon, macOS 15 or later):**
+            `PhotoOrganizer-mac.zip`. Unzip and move `Photo Organizer.app`
+            to Applications. First launch: right-click it -> **Open** ->
+            **Open** (the app isn't code-signed). If macOS says it's damaged,
+            run once in Terminal, then open it normally:
+            `xattr -dr com.apple.quarantine "/Applications/Photo Organizer.app"`
+
+          ExifTool is included. See readme.txt for details.
+          EOF
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Photo Organizer $TAG" \
+            --notes-file notes.md --generate-notes $prerelease \
+            PhotoOrganizer-windows.zip \
+            PhotoOrganizer-mac/PhotoOrganizer-mac.zip
