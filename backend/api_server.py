@@ -435,13 +435,19 @@ def api_organize():
             gps_written = sidecars_written = 0
             for dst_path, (lat, lon) in to_tag:
                 ext = os.path.splitext(dst_path)[1].lower()
-                if ext in JPG_EXTENSIONS:
-                    result = write_gps_tags(dst_path, lat, lon)
-                    counter = "jpg"
-                elif ext in RAW_EXTENSIONS:
-                    result = write_gps_sidecar(dst_path, lat, lon)
-                    counter = "xmp"
-                else:
+                try:
+                    if ext in JPG_EXTENSIONS:
+                        result = write_gps_tags(dst_path, lat, lon)
+                        counter = "jpg"
+                    elif ext in RAW_EXTENSIONS:
+                        result = write_gps_sidecar(dst_path, lat, lon)
+                        counter = "xmp"
+                    else:
+                        continue
+                except (TypeError, ValueError) as e:
+                    errors.append(
+                        f"{os.path.basename(dst_path)}: location not written — {e}"
+                    )
                     continue
                 if result.returncode == 0:
                     if counter == "jpg":

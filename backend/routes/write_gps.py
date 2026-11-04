@@ -45,6 +45,14 @@ def is_source_path(ctx, path) -> bool:
     return False
 
 
+def _coords(lat, lon) -> tuple[float, float]:
+    """Numbers in range only: these values become exiftool arguments."""
+    lat, lon = float(lat), float(lon)
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError(f"GPS out of range: {lat}, {lon}")
+    return lat, lon
+
+
 def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
     """
     Write GPS to one file with exiftool.
@@ -54,13 +62,14 @@ def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
     N/S and E/W — without them a west longitude is read back as east.
     """
     cmd = resolve_exiftool_cmd() or "exiftool"
+    lat, lon = _coords(lat, lon)
     return subprocess.run(
         [
             cmd,
             "-overwrite_original",
-            f"-GPSLatitude={abs(float(lat))}",
+            f"-GPSLatitude={abs(lat)}",
             f"-GPSLatitudeRef={lat}",
-            f"-GPSLongitude={abs(float(lon))}",
+            f"-GPSLongitude={abs(lon)}",
             f"-GPSLongitudeRef={lon}",
             os.path.abspath(str(path)),  # never starts with "-"
         ],
@@ -83,9 +92,10 @@ def write_gps_sidecar(raw_path, lat, lon) -> subprocess.CompletedProcess:
     cmd = resolve_exiftool_cmd() or "exiftool"
     raw_path = os.path.abspath(str(raw_path))  # never starts with "-"
     sidecar = os.path.splitext(raw_path)[0] + ".xmp"
+    lat, lon = _coords(lat, lon)
     tags = [
-        f"-XMP-exif:GPSLatitude={float(lat)}",
-        f"-XMP-exif:GPSLongitude={float(lon)}",
+        f"-XMP-exif:GPSLatitude={lat}",
+        f"-XMP-exif:GPSLongitude={lon}",
     ]
 
     if os.path.isfile(sidecar):
