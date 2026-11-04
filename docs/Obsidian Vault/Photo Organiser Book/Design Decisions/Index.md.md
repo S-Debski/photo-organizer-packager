@@ -37,6 +37,7 @@ Send to phone (optional)
 - [[14 - Saved Places]]
 - [[15 - Send to Phone]]
 - [[16 - Packaging & Runtime]]
+- [[17 - Photo Details & Photo Menu]]
 - [[11 - Post-Organize (Metadata Mutation)]]
 - [[02 - Known `ctx` Fields]]
   

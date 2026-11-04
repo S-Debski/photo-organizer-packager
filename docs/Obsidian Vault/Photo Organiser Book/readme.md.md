@@ -3,6 +3,11 @@
 Download from GitHub → Actions → latest "Build desktop apps" run → Artifacts.
 ExifTool is bundled; nothing else is required for importing.
 
+### Keep one copy
+- Starting the app while any copy is running opens the running copy — possibly an older one elsewhere
+- App looks out of date → tray / menu‑bar icon → Quit, then start the wanted copy
+- Delete old copies (e.g. old downloads); sessions, locations and places live in `~/Pictures/PhotoWizard/sessions` and are kept
+
 ### Windows
 - Unzip `PhotoOrganizer-windows`
 - Keep `Photo Organizer.exe` together with its `_internal` folder

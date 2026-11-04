@@ -14,6 +14,8 @@ the keepers into a dated shoot folder. The source is never changed.
       Pentax, Panasonic, DNG)
     • Fast cached previews, including RAW-only shots
     • Keep / reject with K and X; decisions saved per card
+    • Shooting details + location under each photo while culling
+    • Right-click: open, open with, show in Explorer / Finder
     • Per-photo camera and lens summary
     • Locations: per folder or all folders, saved places, map
     • Import into <destination>\2026\10\10 - <Shoot title>\ (editable)
@@ -74,7 +76,12 @@ USING IT
 2  FOLDERS     Pick a folder (shoot folders under DCIM are listed).
 3  BROWSE      Thumbnails. Hover and press K (keep) or X (reject), or
                click the circle. S / M / L changes the size.
-   REVIEW      One photo at a time, full window.
+               Click a photo for full screen: shooting details and
+               location are shown under it (press I to hide / show).
+               Right-click any photo: Keep / Reject, Open JPG / RAW,
+               Open with… (Windows), Show in Explorer / Finder,
+               Copy file path.
+   REVIEW      One photo at a time, full window, with the same details.
 4  CAMERAS     Photos per camera and lens.
 5  LOCATIONS   Click the map, type coordinates or pick a saved place,
                then "Assign to this folder" or "Use for all folders".
@@ -104,6 +111,15 @@ Log file:
 TROUBLESHOOTING
 ------------------------------------------------------------
 
+Keep ONE copy of the app
+    • Starting the app when a copy is already running just opens the
+      running one, even if it's an older copy somewhere else (e.g. an
+      old download). If the app looks out of date: tray icon → Quit,
+      then start the copy you want. Delete old copies; your decisions,
+      locations and saved places are stored separately and are kept.
+"Photo Organizer isn't running"
+    • The page was left open after the app quit. Start the app again
+      (or tray icon → Open Photo Organizer), then reload the page.
 Card not listed
     • Wait a second and switch back to the app window, or press Detect.
     • Still missing: tick "Also show…" or use "Choose a folder…".
@@ -114,6 +130,9 @@ No dates / camera names / thumbnails
     • USB debugging on, cable connected, Allow tapped on the phone.
 The app seems to do nothing when started
     • It's already running: look for the tray / menu-bar icon.
+Port in use (e.g. macOS AirPlay on 5000)
+    • Handled automatically: the app checks ports 5000-5009 and uses
+      the first free one. The address is in the log ("Using http://…").
 
 ------------------------------------------------------------
 RUNNING FROM SOURCE
@@ -167,4 +186,4 @@ VERSION
 ------------------------------------------------------------
 
 Photo Organizer v3.0.0 (beta) — Hybrid Ingest
-October 2026
+November 2026

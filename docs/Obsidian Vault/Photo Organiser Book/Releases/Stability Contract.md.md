@@ -151,6 +151,9 @@ Detect / choose source → Folders → Browse & cull → (Cameras & lenses, Loca
 - Location is applied to copies only (JPG EXIF, RAW `.xmp` sidecar)
 - Send to phone copies only; never overwrites on the phone; uploads nothing
 - "Safely format the card" shown only after a complete `all` import with no errors
+- Photo details are read‑only (cached EXIF); no online lookups of location
+- The photo menu acts on photo files only and never writes them (open / open with / reveal)
+- Start‑up never mistakes another program on the port for a running instance (`/api/whoami`)
 
 ### Step Contracts (v3.0)
 - Card detection — read‑only; also runs on app open and window focus (Card step)
@@ -165,6 +168,8 @@ Detect / choose source → Folders → Browse & cull → (Cameras & lenses, Loca
 - [ ] Import preview path equals the actual import folder
 - [ ] Windows and macOS builds green in Actions
 - [ ] Standalone exe reads EXIF with the bundled ExifTool (no system ExifTool)
+- [ ] App starts with port 5000 taken by another program (picks 5001+)
+- [ ] `/api/file-action` refuses a non‑photo file
 
 ---
 

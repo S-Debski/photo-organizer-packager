@@ -12,7 +12,11 @@ Standalone desktop app for Windows and macOS (Linux later). No Python install ne
 
 App start
     ↓
-Second launch? → open the running instance's page, exit
+Probe ports 5000–5009 (`/api/whoami`)
+    ↓
+Photo Organizer already on one? → open its page, exit
+Another program on it (e.g. macOS AirPlay on 5000)? → try the next port
+Free → use it
     ↓
 Flask + EXIF scanner in background threads
     ↓
@@ -25,6 +29,9 @@ Browser opens `http://127.0.0.1:5000`
     - Windows: `%LOCALAPPDATA%\PhotoWizardCache\photo-organizer.log`
     - macOS: `~/Library/Logs/PhotoOrganizer/photo-organizer.log`
 - macOS: menu‑bar only (`LSUIElement`), no Dock icon
+- Port: `FLASK_PORT` base (default 5000); chosen port logged ("Using http://127.0.0.1:<port>")
+- Single instance is per machine, not per copy: a second launch of *any* copy opens the running one — keep one installed copy
+- Page left open after Quit: network failures show one message ("Photo Organizer isn't running…"), cleared when the app answers again (`window.fetch` wrapper in `main.js`)
 - Same‑origin UI; no CORS
 - Front‑end libraries local (`ui/static/libs`) — offline except map tiles
 

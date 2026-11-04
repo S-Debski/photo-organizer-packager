@@ -266,6 +266,12 @@ Must Not:
 ### `backend/services/sdcard.py`
 - Source detection: card / external / disk / network
 
+### `backend/api_server.py` (v3.0 additions)
+- `/api/whoami` — identifies the app for the start‑up port check
+- `/api/photo-info` — read‑only EXIF summary for the viewer
+- `/api/file-action` — open / open with / reveal; photo files only
+- `/api/pre-import/preview`, `/api/locations`, `/api/places`, `/api/pixel/*`, `/api/exif-records`, `/api/thumb`
+
 ### `backend/routes/write_gps.py`
 - `write_gps_tags` (JPG EXIF), `write_gps_sidecar` (RAW XMP); defers any source path
 
