@@ -25,12 +25,10 @@ import backend.api_server as api_server
 
 from backend.utils.logging_utils import backend_log
 
-from utils.fs_utils import (
-    get_default_working_base,
-    iter_jpegs
-)
+from utils.fs_utils import get_default_working_base, iter_jpegs
 
 logger = logging.getLogger("set_active_folder")
+
 
 # -----------------------------------------------------------------------------
 # COPY OPERATION
@@ -51,64 +49,61 @@ def copy_to_working(src_folder, dst_folder):
         "/NP",
         "/NJH",
         "/NJS",
-        "/MT:16"
+        "/MT:16",
     ]
 
     print("RUNNING:", cmd)
 
-    result = subprocess.call(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
+    result = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     print("✅ ROBOCOPY FINISHED")
 
     return result
+
 
 # -----------------------------------------------------------------------------
 # MAIN ENTRY POINT
 # -----------------------------------------------------------------------------
 def api_set_active_folder(payload):
     """
-        Initialise a new processing session.
+    Initialise a new processing session.
 
-        Pipeline (v3.0 hybrid ingest — source is browsed in place):
-            1. Validate input folder
-            2. Resolve base working directory (no per-click folder created)
-            3. Compute file count from source
-            4. Clear EXIF + thumbnail caches
-            5. Set active folder to the source folder
-            6. Release EXIF worker to scan it
+    Pipeline (v3.0 hybrid ingest — source is browsed in place):
+        1. Validate input folder
+        2. Resolve base working directory (no per-click folder created)
+        3. Compute file count from source
+        4. Clear EXIF + thumbnail caches
+        5. Set active folder to the source folder
+        6. Release EXIF worker to scan it
 
-        Args:
-            payload (dict):
-                {
-                    "folder": str,       # source folder
-                    "working_dir": str   # optional override
-                }
+    Args:
+        payload (dict):
+            {
+                "folder": str,       # source folder
+                "working_dir": str   # optional override
+            }
 
-        Returns:
-            JSON response with:
-                success
-                working_dir
-                file_count
+    Returns:
+        JSON response with:
+            success
+            working_dir
+            file_count
 
-        ctx.state lifecycle:
-            copy_complete = False → worker waits
-            RoboCopy completes
-            caches cleared
-            current_active_folder → working_dir
-            copy_complete = True → worker scans copied files
+    ctx.state lifecycle:
+        copy_complete = False → worker waits
+        RoboCopy completes
+        caches cleared
+        current_active_folder → working_dir
+        copy_complete = True → worker scans copied files
 
-        Important:
-            • Original source files are NEVER modified
-            • All downstream processing uses working_dir
-            • GPS metadata updates target copied files only
+    Important:
+        • Original source files are NEVER modified
+        • All downstream processing uses working_dir
+        • GPS metadata updates target copied files only
 
-            Order matters:
-                copy → cache clear → active folder switch → copy_complete = True
-        """
+        Order matters:
+            copy → cache clear → active folder switch → copy_complete = True
+    """
 
     # -------------------------------------------------------------------------
     # ✅ STATE: mark pipeline not ready
@@ -126,10 +121,7 @@ def api_set_active_folder(payload):
     if not folder or not os.path.isdir(folder):
         logger.error(f"Invalid folder: {folder}")
 
-        return jsonify({
-            "success": False,
-            "error": "Invalid folder"
-        }), 400
+        return jsonify({"success": False, "error": "Invalid folder"}), 400
 
     # -------------------------------------------------------------------------
     # STEP 1 — resolve base working directory
@@ -200,9 +192,11 @@ def api_set_active_folder(payload):
     # -------------------------------------------------------------------------
     # RETURN
     # -------------------------------------------------------------------------
-    return jsonify({
-        "success": True,
-        "active_folder": working_dir,
-        "working_dir": working_dir,
-        "file_count": file_count
-    })
+    return jsonify(
+        {
+            "success": True,
+            "active_folder": working_dir,
+            "working_dir": working_dir,
+            "file_count": file_count,
+        }
+    )

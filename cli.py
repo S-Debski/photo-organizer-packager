@@ -5,6 +5,7 @@
 Command-line interface for Photo Organizer
 Usage: python cli.py <command> [options]
 """
+
 import argparse
 import sys
 from pathlib import Path
@@ -15,8 +16,7 @@ from core import PhotoOrganizer
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -58,12 +58,16 @@ class CLI:
             print(f"  ... and {len(photos) - 10} more")
         print()
 
-    def organize(self, sd_card_path: str, camera_name: str,
-                 backup_nas: bool = False,
-                 nas_address: Optional[str] = None,
-                 nas_share: str = "backups",
-                 nas_username: Optional[str] = None,
-                 nas_password: Optional[str] = None):
+    def organize(
+        self,
+        sd_card_path: str,
+        camera_name: str,
+        backup_nas: bool = False,
+        nas_address: Optional[str] = None,
+        nas_share: str = "backups",
+        nas_username: Optional[str] = None,
+        nas_password: Optional[str] = None,
+    ):
         """
         Main organization workflow
 
@@ -104,13 +108,15 @@ class CLI:
                 percent = (current / total * 100) if total > 0 else 0
                 bar_length = 40
                 filled = int(bar_length * current / total) if total > 0 else 0
-                bar = '█' * filled + '░' * (bar_length - filled)
-                print(f"\r   Progress: [{bar}] {current}/{total} ({percent:.1f}%)", end='', flush=True)
+                bar = "█" * filled + "░" * (bar_length - filled)
+                print(
+                    f"\r   Progress: [{bar}] {current}/{total} ({percent:.1f}%)",
+                    end="",
+                    flush=True,
+                )
 
             copied, copy_errors = self.organizer.copy_photos(
-                sd_card_path,
-                camera_folder,
-                progress_callback=progress_callback
+                sd_card_path, camera_folder, progress_callback=progress_callback
             )
             print()  # Newline after progress bar
             print(f"   ✓ Copied {copied} photos")
@@ -138,7 +144,7 @@ class CLI:
                     nas_share,
                     nas_username,
                     nas_password,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
                 )
                 print()  # Newline after progress bar
                 print(f"   ✓ Backed up {backed_up} photos")
@@ -181,7 +187,7 @@ class CLI:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Photo Organizer - Manage photos from SD cards',
+        description="Photo Organizer - Manage photos from SD cards",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -200,38 +206,44 @@ Examples:
 
   # Show statistics
   python cli.py stats
-        """
+        """,
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # drives command
-    subparsers.add_parser('drives', help='List connected removable drives')
+    subparsers.add_parser("drives", help="List connected removable drives")
 
     # list command
-    list_parser = subparsers.add_parser('list', help='List photos in a directory')
-    list_parser.add_argument('directory', help='Directory to scan for photos')
+    list_parser = subparsers.add_parser("list", help="List photos in a directory")
+    list_parser.add_argument("directory", help="Directory to scan for photos")
 
     # organize command
-    org_parser = subparsers.add_parser('organize', help='Organize photos from SD card')
-    org_parser.add_argument('sd_card', help='Path to SD card')
-    org_parser.add_argument('camera_name', help='Name of the camera (e.g., Canon EOS R5)')
-    org_parser.add_argument('--backup-nas', action='store_true',
-                           help='Backup to Synology NAS')
-    org_parser.add_argument('--nas-address', type=str,
-                           help='NAS IP address (e.g., 192.168.1.100)')
-    org_parser.add_argument('--nas-share', type=str, default='backups',
-                           help='NAS share name (default: backups)')
-    org_parser.add_argument('--nas-username', type=str,
-                           help='NAS username')
-    org_parser.add_argument('--nas-password', type=str,
-                           help='NAS password')
+    org_parser = subparsers.add_parser("organize", help="Organize photos from SD card")
+    org_parser.add_argument("sd_card", help="Path to SD card")
+    org_parser.add_argument(
+        "camera_name", help="Name of the camera (e.g., Canon EOS R5)"
+    )
+    org_parser.add_argument(
+        "--backup-nas", action="store_true", help="Backup to Synology NAS"
+    )
+    org_parser.add_argument(
+        "--nas-address", type=str, help="NAS IP address (e.g., 192.168.1.100)"
+    )
+    org_parser.add_argument(
+        "--nas-share",
+        type=str,
+        default="backups",
+        help="NAS share name (default: backups)",
+    )
+    org_parser.add_argument("--nas-username", type=str, help="NAS username")
+    org_parser.add_argument("--nas-password", type=str, help="NAS password")
 
     # stats command
-    subparsers.add_parser('stats', help='Show photo library statistics')
+    subparsers.add_parser("stats", help="Show photo library statistics")
 
     # version
-    parser.add_argument('--version', action='version', version='Photo Organizer 1.0.0')
+    parser.add_argument("--version", action="version", version="Photo Organizer 1.0.0")
 
     args = parser.parse_args()
 
@@ -242,13 +254,13 @@ Examples:
     cli = CLI()
 
     try:
-        if args.command == 'drives':
+        if args.command == "drives":
             cli.list_drives()
 
-        elif args.command == 'list':
+        elif args.command == "list":
             cli.list_photos(args.directory)
 
-        elif args.command == 'organize':
+        elif args.command == "organize":
             if args.backup_nas and not args.nas_address:
                 print("Error: --nas-address is required when using --backup-nas")
                 return 1
@@ -260,11 +272,11 @@ Examples:
                 nas_address=args.nas_address,
                 nas_share=args.nas_share,
                 nas_username=args.nas_username,
-                nas_password=args.nas_password
+                nas_password=args.nas_password,
             )
             return 0 if success else 1
 
-        elif args.command == 'stats':
+        elif args.command == "stats":
             cli.show_stats()
 
         return 0
@@ -277,5 +289,5 @@ Examples:
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

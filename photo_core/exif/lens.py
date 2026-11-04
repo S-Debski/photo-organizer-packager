@@ -11,9 +11,9 @@ from photo_core.exif.accessor import get_exif_value
 
 def extract_lens_model(path) -> str | None:
     """
-       Resolve a human-readable lens name.
-       Works for Fuji, Panasonic, Olympus, Sony, Canon, Nikon.
-       """
+    Resolve a human-readable lens name.
+    Works for Fuji, Panasonic, Olympus, Sony, Canon, Nikon.
+    """
     record = read_exif(path)
     if not record:
         return None

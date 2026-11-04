@@ -7,6 +7,7 @@
 from PIL import Image
 import io
 
+
 def generate_thumbnail(image_path, size=(256, 256), format="JPEG"):
     """
     Generate a thumbnail for an image.

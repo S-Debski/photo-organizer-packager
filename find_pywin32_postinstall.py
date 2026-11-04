@@ -12,7 +12,9 @@ root = os.path.dirname(sys.executable)
 patterns = [
     os.path.join(root, "Scripts", "pywin32_postinstall.py"),
     os.path.join(root, "Lib", "site-packages", "pywin32_postinstall.py"),
-    os.path.join(root, "Lib", "site-packages", "pywin32_system32", "pywin32_postinstall.py"),
+    os.path.join(
+        root, "Lib", "site-packages", "pywin32_system32", "pywin32_postinstall.py"
+    ),
     os.path.join(root, "Lib", "site-packages", "win32", "pywin32_postinstall.py"),
     os.path.join(root, "Lib", "site-packages", "win32", "*postinstall*.py"),
 ]

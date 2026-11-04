@@ -18,6 +18,7 @@
 
 from photo_core.exif.reader import read_exif
 
+
 # =============================================================================
 # Helper: Convert EXIF GPS to decimal
 # =============================================================================
@@ -34,7 +35,7 @@ def dms_to_decimal(value):
             return float(value)
 
         # ✅ Case 2: DMS format ("52 deg 6' 25.92\" N")
-        parts = value.replace("deg", "").replace("'", "").replace('"', '').split()
+        parts = value.replace("deg", "").replace("'", "").replace('"', "").split()
 
         if len(parts) < 3:
             print("❌ Unexpected GPS format:", value)
@@ -65,15 +66,9 @@ def extract_exif_gps(path):
         record = read_exif(path)
 
         # ✅ Try multiple EXIF sources
-        lat = (
-            record.get("EXIF:GPSLatitude")
-            or record.get("Composite:GPSLatitude")
-        )
+        lat = record.get("EXIF:GPSLatitude") or record.get("Composite:GPSLatitude")
 
-        lon = (
-            record.get("EXIF:GPSLongitude")
-            or record.get("Composite:GPSLongitude")
-        )
+        lon = record.get("EXIF:GPSLongitude") or record.get("Composite:GPSLongitude")
 
         if not lat or not lon:
             return None
@@ -84,10 +79,7 @@ def extract_exif_gps(path):
         if lat is None or lon is None:
             return None
 
-        return {
-            "lat": lat,
-            "lon": lon
-        }
+        return {"lat": lat, "lon": lon}
 
     except Exception as e:
         print("❌ GPS extraction error:", e)

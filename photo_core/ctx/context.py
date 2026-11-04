@@ -5,6 +5,7 @@ import threading
 import queue
 import os
 
+
 class AppContext:
     def __init__(self):
         self.shutdown_event = threading.Event()
@@ -42,14 +43,13 @@ class AppContext:
             "total": 0,
             "done": 0,
             "active": False,
-            "message": ""
+            "message": "",
         }
 
         self.state = {
             "current_sd_root": None,
             "current_active_folder": None,
-            "job": {"active": False, "progress": 0, "status": "Idle"}
-
+            "job": {"active": False, "progress": 0, "status": "Idle"},
         }
 
         # Logging bus for SSE (currently unused / deferred)
@@ -57,10 +57,7 @@ class AppContext:
 
         # Cache directory
         self.cache_dir = os.path.join(
-            os.path.expanduser("~"),
-            "AppData",
-            "Local",
-            "PhotoWizardCache"
+            os.path.expanduser("~"), "AppData", "Local", "PhotoWizardCache"
         )
         os.makedirs(self.cache_dir, exist_ok=True)
 
@@ -79,9 +76,7 @@ class AppContext:
         # - Do not introduce alternative destination fields.
         #
         self.output_dir = os.path.join(
-            os.path.expanduser("~"),
-            "Pictures",
-            "PhotoWizard"
+            os.path.expanduser("~"), "Pictures", "PhotoWizard"
         )
         os.makedirs(self.output_dir, exist_ok=True)
 

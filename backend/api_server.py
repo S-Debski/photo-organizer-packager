@@ -20,7 +20,8 @@
 # =============================================================================
 
 from version import APP_VERSION, APP_NAME
-ctx = None   # ✅ shared global context
+
+ctx = None  # ✅ shared global context
 import json
 import threading
 import time
@@ -28,7 +29,6 @@ import webbrowser
 import os
 import platform
 from pathlib import Path
-
 
 try:
     from tkinter import Tk, filedialog
@@ -82,7 +82,7 @@ import logging
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
-logging.getLogger('werkzeug').setLevel(logging.WARNING)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 logger = logging.getLogger("api_server")
 
 # -----------------------------------------------------------------------------
@@ -101,7 +101,7 @@ app = Flask(
     __name__,
     template_folder=str(BASE_DIR / "templates"),
     static_folder=str(BASE_DIR / "ui" / "static"),
-    static_url_path="/static"
+    static_url_path="/static",
 )
 
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -128,8 +128,11 @@ PHOTO_EXTS = {*IMAGE_EXTS_ALL, ".png", ".tif", ".tiff", ".xmp"}
 
 
 def is_photo_file(path: str) -> bool:
-    return bool(path) and os.path.splitext(path)[1].lower() in PHOTO_EXTS \
+    return (
+        bool(path)
+        and os.path.splitext(path)[1].lower() in PHOTO_EXTS
         and os.path.isfile(path)
+    )
 
 
 def _host_name(host: str) -> str:
@@ -148,8 +151,8 @@ def _only_local_requests():
 
 @app.after_request
 def _security_headers(resp):
-    resp.headers["X-Content-Type-Options"] = "nosniff"     # JSON is never sniffed as HTML
-    resp.headers["X-Frame-Options"] = "DENY"               # no embedding in other sites
+    resp.headers["X-Content-Type-Options"] = "nosniff"  # JSON is never sniffed as HTML
+    resp.headers["X-Frame-Options"] = "DENY"  # no embedding in other sites
     resp.headers["Referrer-Policy"] = "no-referrer"
     return resp
 
@@ -171,11 +174,8 @@ def index():
 
     ...
 
-    return render_template(
-        'index.html',
-        version=APP_VERSION,
-        app_name=APP_NAME
-    )
+    return render_template("index.html", version=APP_VERSION, app_name=APP_NAME)
+
 
 # -----------------------------------------------------------------------------
 # SD card detection
@@ -193,6 +193,7 @@ def api_sd_cards():
         print("SD detection error:", e)
         return jsonify({"success": False, "error": str(e), "drives": []})
 
+
 # -----------------------------------------------------------------------------
 # Analyze SD card
 # -----------------------------------------------------------------------------
@@ -200,6 +201,7 @@ def api_sd_cards():
 def analyze_card():
     touch_activity()
     return api_analyze_card(ctx, request.json)
+
 
 # -----------------------------------------------------------------------------
 # Working Dir Browser
@@ -211,10 +213,15 @@ def select_folder():
             # Tk windows must be created on the main thread on macOS (this
             # runs on a Flask worker thread), so use the native picker.
             import subprocess
+
             proc = subprocess.run(
-                ["osascript", "-e",
-                 'POSIX path of (choose folder with prompt "Choose destination folder")'],
-                capture_output=True, text=True,
+                [
+                    "osascript",
+                    "-e",
+                    'POSIX path of (choose folder with prompt "Choose destination folder")',
+                ],
+                capture_output=True,
+                text=True,
             )
             path = proc.stdout.strip()
             return {"path": path.rstrip("/") or None}
@@ -224,7 +231,7 @@ def select_folder():
 
         root = Tk()
         root.withdraw()
-        root.attributes('-topmost', True)
+        root.attributes("-topmost", True)
 
         path = filedialog.askdirectory()
         root.destroy()
@@ -238,6 +245,7 @@ def select_folder():
         print("Folder picker error:", e)
         return {"path": None, "error": str(e)}
 
+
 # -----------------------------------------------------------------------------
 # Set active folder
 # -----------------------------------------------------------------------------
@@ -245,6 +253,7 @@ def select_folder():
 def set_active_folder():
     touch_activity()
     return api_set_active_folder(request.json)
+
 
 # =============================================================================
 # /api/organize
@@ -265,14 +274,16 @@ def set_active_folder():
 def api_organize():
     try:
         data = request.json or {}
-        source      = data.get("source")
+        source = data.get("source")
         destination = data.get("destination")
 
         import shutil
 
         if not source or not os.path.isdir(source):
-            return {"success": False,
-                    "error": "The source folder isn't available. Is the card still inserted?"}
+            return {
+                "success": False,
+                "error": "The source folder isn't available. Is the card still inserted?",
+            }
 
         # ------------------------------------------------------------------
         # Destination (design 07/09): <destination>/<template(title, date)>.
@@ -295,8 +306,12 @@ def api_organize():
                 if not (destination or "").strip():
                     raise DestinationError("Choose a destination folder first.")
                 if any(p and is_within(destination, p) for p in protected):
-                    raise DestinationError("The destination can't be on the card or inside the folder being imported.")
-                dest_dir = os.path.normpath(os.path.join(destination, _legacy_subfolder(source)))
+                    raise DestinationError(
+                        "The destination can't be on the card or inside the folder being imported."
+                    )
+                dest_dir = os.path.normpath(
+                    os.path.join(destination, _legacy_subfolder(source))
+                )
             check_writable(dest_dir)
         except DestinationError as e:
             return {"success": False, "error": str(e)}
@@ -321,19 +336,30 @@ def api_organize():
 
         if mode == "kept":
             if not kept_paths:
-                return {"success": False,
-                        "error": "No photos are marked Keep. Cull first, or choose Import everything."}
+                return {
+                    "success": False,
+                    "error": "No photos are marked Keep. Cull first, or choose Import everything.",
+                }
             candidates = _with_same_stem_siblings(kept_paths)
         else:
-            candidates = [os.path.join(root, f)
-                          for root, _, files in os.walk(source) for f in files]
+            candidates = [
+                os.path.join(root, f)
+                for root, _, files in os.walk(source)
+                for f in files
+            ]
 
-        files = [p for p in candidates
-                 if os.path.splitext(p)[1].lower() in ALLOWED_EXTENSIONS
-                 and os.path.isfile(p)]
+        files = [
+            p
+            for p in candidates
+            if os.path.splitext(p)[1].lower() in ALLOWED_EXTENSIONS
+            and os.path.isfile(p)
+        ]
 
         if not files:
-            return {"success": False, "error": "There are no photos to import in this folder."}
+            return {
+                "success": False,
+                "error": "There are no photos to import in this folder.",
+            }
 
         if ctx.progress.get("active"):
             return {"success": False, "error": "Another import is already running"}
@@ -354,17 +380,24 @@ def api_organize():
         for g in data.get("gps") or []:
             try:
                 gps_by_source[os.path.normcase(os.path.normpath(g["path"]))] = (
-                    float(g["lat"]), float(g["lon"]))
+                    float(g["lat"]),
+                    float(g["lon"]),
+                )
             except (KeyError, TypeError, ValueError):
                 continue
 
         # Nothing is created until validation has passed
         os.makedirs(dest_dir, exist_ok=True)
 
-        ctx.progress.update(stage="import", total=len(files), done=0,
-                            active=True, message=f"Importing {len(files)} files…")
+        ctx.progress.update(
+            stage="import",
+            total=len(files),
+            done=0,
+            active=True,
+            message=f"Importing {len(files)} files…",
+        )
         copied, skipped, conflicts, errors = [], [], [], []
-        to_tag = []          # (dst_path, (lat, lon)) — tagged after copying
+        to_tag = []  # (dst_path, (lat, lon)) — tagged after copying
         session = ctx.state.get("session")
 
         try:
@@ -374,7 +407,7 @@ def api_organize():
                 try:
                     if os.path.exists(dst_path):
                         if os.path.getsize(dst_path) == os.path.getsize(src_path):
-                            skipped.append(f)          # already imported
+                            skipped.append(f)  # already imported
                         else:
                             # Same name, different file (another card, or a
                             # broken copy from an old version): never overwrite
@@ -386,7 +419,8 @@ def api_organize():
                         copied.append(f)
 
                         gps = location or gps_by_source.get(
-                            os.path.normcase(os.path.normpath(src_path)))
+                            os.path.normcase(os.path.normpath(src_path))
+                        )
                         if gps:
                             to_tag.append((dst_path, gps))
                     if session:
@@ -415,22 +449,27 @@ def api_organize():
                     else:
                         sidecars_written += 1
                 else:
-                    errors.append(f"{os.path.basename(dst_path)}: location not written — {result.stderr.strip()}")
+                    errors.append(
+                        f"{os.path.basename(dst_path)}: location not written — {result.stderr.strip()}"
+                    )
         finally:
-            ctx.progress.update(stage="idle", active=False,
-                                message=f"Imported {len(copied)} files")
+            ctx.progress.update(
+                stage="idle", active=False, message=f"Imported {len(copied)} files"
+            )
 
         if session:
-            session.setdefault("imports", []).append({
-                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "mode": mode,
-                "destination": dest_dir,
-                "copied": len(copied),
-                "skipped_existing": len(skipped),
-                "conflicts": len(conflicts),
-                "errors": len(errors),
-                "location": list(location) if location else None,
-            })
+            session.setdefault("imports", []).append(
+                {
+                    "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "mode": mode,
+                    "destination": dest_dir,
+                    "copied": len(copied),
+                    "skipped_existing": len(skipped),
+                    "conflicts": len(conflicts),
+                    "errors": len(errors),
+                    "location": list(location) if location else None,
+                }
+            )
             try:
                 save_session(ctx.state["session_dir"], session)
             except Exception as e:
@@ -445,8 +484,13 @@ def api_organize():
             "gps_written": gps_written,
             "sidecars_written": sidecars_written,
             "errors": errors[:20],
-            "error": (f"{len(conflicts)} file(s) already exist with different content and were not overwritten. "
-                      if conflicts else "") + (f"{len(errors)} file(s) failed." if errors else "") or None,
+            "error": (
+                f"{len(conflicts)} file(s) already exist with different content and were not overwritten. "
+                if conflicts
+                else ""
+            )
+            + (f"{len(errors)} file(s) failed." if errors else "")
+            or None,
             "destination": dest_dir,
             "relative": relative,
             "mode": mode,
@@ -474,7 +518,7 @@ def _safe_copy(shutil, src_path: str, dst_path: str) -> None:
     except BaseException:
         try:
             if os.path.exists(tmp):
-                os.remove(tmp)   # our own partial temp file only
+                os.remove(tmp)  # our own partial temp file only
         except OSError:
             pass
         raise
@@ -482,13 +526,14 @@ def _safe_copy(shutil, src_path: str, dst_path: str) -> None:
 
 def _legacy_subfolder(source: str) -> str:
     """Old layout: "<path below DCIM, joined with ' - '> - <card label>"."""
-    sd_root   = ctx.state.get("current_sd_root", "")
+    sd_root = ctx.state.get("current_sd_root", "")
     dcim_path = os.path.join(sd_root, "DCIM") if sd_root else ""
 
     drive_label = ""
     if sd_root:
         try:
             import win32api
+
             vol_path = sd_root.rstrip("\\/ ") + "\\"
             drive_label = win32api.GetVolumeInformation(vol_path)[0] or ""
         except Exception:
@@ -523,8 +568,14 @@ def pre_import_preview():
         check_writable(full)
     except DestinationError as e:
         return jsonify({"success": False, "error": str(e)})
-    return jsonify({"success": True, "path": full, "relative": relative,
-                    "exists": os.path.isdir(full)})
+    return jsonify(
+        {
+            "success": True,
+            "path": full,
+            "relative": relative,
+            "exists": os.path.isdir(full),
+        }
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -541,7 +592,10 @@ def _location_key(folder: str) -> str | None:
     if not folder or not os.path.isdir(folder):
         return None
     # First photo's name *and size*: another card can reuse DSCF0001
-    first = next(iter(sorted(iter_images(folder), key=lambda p: os.path.basename(p).upper())), None)
+    first = next(
+        iter(sorted(iter_images(folder), key=lambda p: os.path.basename(p).upper())),
+        None,
+    )
     if not first:
         return None
     try:
@@ -582,8 +636,14 @@ def api_pixel_status():
             devices = pixel.list_devices(adb)
         except Exception as e:
             error = str(e)
-    return jsonify({"adb": adb, "devices": devices, "error": error,
-                    "phone_folder": pixel.PHONE_FOLDER})
+    return jsonify(
+        {
+            "adb": adb,
+            "devices": devices,
+            "error": error,
+            "phone_folder": pixel.PHONE_FOLDER,
+        }
+    )
 
 
 @app.route("/api/pixel/send", methods=["POST"])
@@ -595,11 +655,29 @@ def api_pixel_send():
 
     adb = pixel.resolve_adb()
     if not adb:
-        return jsonify({"success": False, "error": "Android platform tools (adb) aren't installed."}), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Android platform tools (adb) aren't installed.",
+                }
+            ),
+            400,
+        )
     if not os.path.isdir(folder):
-        return jsonify({"success": False, "error": "The imported folder isn't there any more."}), 400
+        return (
+            jsonify(
+                {"success": False, "error": "The imported folder isn't there any more."}
+            ),
+            400,
+        )
     if any(p and is_within(folder, p) for p in (ctx.state.get("current_sd_root"),)):
-        return jsonify({"success": False, "error": "Send the imported copies, not the card."}), 400
+        return (
+            jsonify(
+                {"success": False, "error": "Send the imported copies, not the card."}
+            ),
+            400,
+        )
     if ctx.progress.get("active"):
         return jsonify({"success": False, "error": "Another operation is running"}), 409
 
@@ -607,25 +685,44 @@ def api_pixel_send():
     if serial:
         ready = [d for d in ready if d["serial"] == serial]
     if not ready:
-        return jsonify({"success": False, "error": "No phone ready. Connect it with USB and allow USB debugging."}), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "No phone ready. Connect it with USB and allow USB debugging.",
+                }
+            ),
+            400,
+        )
     serial = ready[0]["serial"]
 
     def worker():
-        ctx.progress.update(stage="pixel", total=0, done=0, active=True,
-                            message="Checking the phone…")
+        ctx.progress.update(
+            stage="pixel", total=0, done=0, active=True, message="Checking the phone…"
+        )
         try:
+
             def on_progress(done, total, message):
                 ctx.progress.update(done=done, total=total, message=message)
 
             result = pixel.send_folder(adb, serial, folder, include_raw, on_progress)
-            msg = f"Sent {result['sent']} to the phone" + (
-                f", {result['skipped']} already there" if result["skipped"] else "") + (
-                f", {len(result['failed'])} failed" if result["failed"] else "")
-            ctx.state["pixel_result"] = {**result, "success": not result["failed"], "message": msg}
+            msg = (
+                f"Sent {result['sent']} to the phone"
+                + (f", {result['skipped']} already there" if result["skipped"] else "")
+                + (f", {len(result['failed'])} failed" if result["failed"] else "")
+            )
+            ctx.state["pixel_result"] = {
+                **result,
+                "success": not result["failed"],
+                "message": msg,
+            }
             ctx.progress.update(message=msg)
         except Exception as e:
             logger.exception("pixel send failed")
-            ctx.state["pixel_result"] = {"success": False, "message": f"Sending failed: {e}"}
+            ctx.state["pixel_result"] = {
+                "success": False,
+                "message": f"Sending failed: {e}",
+            }
             ctx.progress.update(message=f"Sending failed: {e}")
         finally:
             ctx.progress.update(stage="idle", active=False)
@@ -637,8 +734,7 @@ def api_pixel_send():
 
 @app.route("/api/pixel/result")
 def api_pixel_result():
-    return jsonify({"result": ctx.state.get("pixel_result"),
-                    "progress": ctx.progress})
+    return jsonify({"result": ctx.state.get("pixel_result"), "progress": ctx.progress})
 
 
 # -----------------------------------------------------------------------------
@@ -690,9 +786,15 @@ def api_places():
             try:
                 lat, lon = float(data["lat"]), float(data["lon"])
             except (KeyError, TypeError, ValueError):
-                return jsonify({"success": False, "error": "lat and lon are required"}), 400
+                return (
+                    jsonify({"success": False, "error": "lat and lon are required"}),
+                    400,
+                )
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                return jsonify({"success": False, "error": "Coordinates out of range"}), 400
+                return (
+                    jsonify({"success": False, "error": "Coordinates out of range"}),
+                    400,
+                )
             places.append({"name": name, "lat": lat, "lon": lon})
         _save_places(places)
 
@@ -716,14 +818,24 @@ def api_locations():
             try:
                 lat, lon = float(data["lat"]), float(data["lon"])
             except (KeyError, TypeError, ValueError):
-                return jsonify({"success": False, "error": "lat and lon are required"}), 400
+                return (
+                    jsonify({"success": False, "error": "lat and lon are required"}),
+                    400,
+                )
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                return jsonify({"success": False, "error": "Coordinates out of range"}), 400
+                return (
+                    jsonify({"success": False, "error": "Coordinates out of range"}),
+                    400,
+                )
             for folder in folders:
                 key = _location_key(folder)
                 if key:
-                    locs[key] = {"folder": folder, "lat": lat, "lon": lon,
-                                 "set_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+                    locs[key] = {
+                        "folder": folder,
+                        "lat": lat,
+                        "lon": lon,
+                        "set_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
         _save_locations(locs)
 
     # Report locations only for the folders asked about (the current card)
@@ -780,6 +892,7 @@ def _mark_session_copied(session: dict, filename: str, dst_path: str) -> None:
             mark_asset_copied(session, asset_id, filetype, dst_path)
             return
 
+
 # -----------------------------------------------------------------------------
 # Thumbnails
 # -----------------------------------------------------------------------------
@@ -789,30 +902,31 @@ def thumbs():
         return jsonify([])
     return api_thumbs(ctx, request.json)
 
+
 # -----------------------------------------------------------------------------
 # Progress (read)
 # -----------------------------------------------------------------------------
 @app.route("/api/progress")
 def api_progress():
     touch_activity()
-    return jsonify(getattr(ctx, "progress", {
-        "stage": "idle",
-        "total": 0,
-        "done": 0,
-        "active": False,
-        "message": ""
-    }))
+    return jsonify(
+        getattr(
+            ctx,
+            "progress",
+            {"stage": "idle", "total": 0, "done": 0, "active": False, "message": ""},
+        )
+    )
+
 
 # -----------------------------------------------------------------------------
 # Write progress
 # -----------------------------------------------------------------------------
 @app.route("/api/write-progress")
 def get_write_progress():
-    return jsonify(getattr(ctx, "write_progress", {
-        "total": 0,
-        "done": 0,
-        "active": False
-    }))
+    return jsonify(
+        getattr(ctx, "write_progress", {"total": 0, "done": 0, "active": False})
+    )
+
 
 # -----------------------------------------------------------------------------
 # Photo proxy
@@ -835,19 +949,23 @@ def photo_proxy():
         return jsonify({"success": False, "error": "Photo not found"}), 404
     return api_photo_proxy(ctx, path)
 
+
 # -----------------------------------------------------------------------------
 # Per-file EXIF summary (camera, lens, date) for the stats step
 # -----------------------------------------------------------------------------
 @app.route("/api/exif-records")
 def exif_records():
     records = ctx.state.get("exif_records") or []
-    return jsonify({
-        "ready": bool(records),
-        "records": [
-            {k: r.get(k) for k in ("path", "camera_model", "lens", "datetime")}
-            for r in records
-        ],
-    })
+    return jsonify(
+        {
+            "ready": bool(records),
+            "records": [
+                {k: r.get(k) for k in ("path", "camera_model", "lens", "datetime")}
+                for r in records
+            ],
+        }
+    )
+
 
 # -----------------------------------------------------------------------------
 # POST /api/file-action — right-click menu: open, open with…, show in folder.
@@ -856,6 +974,7 @@ def exif_records():
 @app.route("/api/file-action", methods=["POST"])
 def file_action():
     import subprocess
+
     data = request.json or {}
     path = _photo_arg(data.get("path"))
     action = data.get("action")
@@ -896,8 +1015,20 @@ def file_action():
 # (already cached by the scanner's batched read). Pass every file of the
 # photo (?path=JPG&path=RAW); each field comes from the first file that has it.
 # -----------------------------------------------------------------------------
-_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+_MONTHS = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
 
 
 def _fmt_taken(raw) -> str | None:
@@ -948,8 +1079,11 @@ def photo_info():
     # Some editors move Make/Model into the Exif IFD
     make = str(val("IFD0:Make", "ExifIFD:Make") or "").strip()
     model = str(val("IFD0:Model", "ExifIFD:Model") or "").strip()
-    camera = model if make and model.lower().startswith(make.split()[0].lower()) else \
-        " ".join(x for x in (make.title() if make.isupper() else make, model) if x)
+    camera = (
+        model
+        if make and model.lower().startswith(make.split()[0].lower())
+        else " ".join(x for x in (make.title() if make.isupper() else make, model) if x)
+    )
 
     focal = _fmt_num(val("ExifIFD:FocalLength"), "{:g} mm")
     focal35 = _fmt_num(val("ExifIFD:FocalLengthIn35mmFormat"), "{:g} mm")
@@ -975,20 +1109,31 @@ def photo_info():
     except (TypeError, ValueError):
         gps = None
 
-    return jsonify({
-        "success": True,
-        "taken": _fmt_taken(val("ExifIFD:DateTimeOriginal", "ExifIFD:CreateDate", "IFD0:ModifyDate")),
-        "camera": camera or None,
-        "lens": val("ExifIFD:LensModel", "Composite:LensID", "Composite:Lens"),
-        "focal": focal,
-        "aperture": _fmt_num(val("ExifIFD:FNumber", "Composite:Aperture"), "f/{:g}"),
-        "shutter": _fmt_shutter(val("ExifIFD:ExposureTime", "Composite:ShutterSpeed")),
-        "iso": _fmt_num(val("ExifIFD:ISO", "Composite:ISO"), "ISO {:g}"),
-        "ev": ev_text,
-        "size": f"{w} × {h}" if w and h else None,
-        "gps": gps,
-        "files": [{"name": os.path.basename(p), "bytes": os.path.getsize(p)} for p in paths],
-    })
+    return jsonify(
+        {
+            "success": True,
+            "taken": _fmt_taken(
+                val("ExifIFD:DateTimeOriginal", "ExifIFD:CreateDate", "IFD0:ModifyDate")
+            ),
+            "camera": camera or None,
+            "lens": val("ExifIFD:LensModel", "Composite:LensID", "Composite:Lens"),
+            "focal": focal,
+            "aperture": _fmt_num(
+                val("ExifIFD:FNumber", "Composite:Aperture"), "f/{:g}"
+            ),
+            "shutter": _fmt_shutter(
+                val("ExifIFD:ExposureTime", "Composite:ShutterSpeed")
+            ),
+            "iso": _fmt_num(val("ExifIFD:ISO", "Composite:ISO"), "ISO {:g}"),
+            "ev": ev_text,
+            "size": f"{w} × {h}" if w and h else None,
+            "gps": gps,
+            "files": [
+                {"name": os.path.basename(p), "bytes": os.path.getsize(p)}
+                for p in paths
+            ],
+        }
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -1001,6 +1146,7 @@ def thumb():
         return jsonify({"success": False, "error": "Photo not found"}), 404
     return api_thumb(ctx, path, request.args.get("size", "grid"))
 
+
 # -----------------------------------------------------------------------------
 # Full image
 # -----------------------------------------------------------------------------
@@ -1012,6 +1158,7 @@ def full_image():
         return jsonify({"success": False, "error": "Photo not found"}), 404
     return api_full_image(ctx, path)
 
+
 # -----------------------------------------------------------------------------
 # GPS data
 # -----------------------------------------------------------------------------
@@ -1020,12 +1167,14 @@ def gps_data():
     touch_activity()
     return api_gps_data(ctx)
 
+
 # -----------------------------------------------------------------------------
 # Write GPS
 # -----------------------------------------------------------------------------
 @app.route("/api/write-gps", methods=["POST"])
 def write_gps():
     return api_write_gps(ctx, request.json)
+
 
 # -----------------------------------------------------------------------------
 # Working directory setter
@@ -1045,6 +1194,7 @@ def set_working_dir():
 # =============================================================================
 # SESSION ENDPOINTS (v3.0)
 # =============================================================================
+
 
 # -----------------------------------------------------------------------------
 # POST /api/session/create
@@ -1069,18 +1219,26 @@ def api_session_create():
     try:
         data = request.json or {}
         source_folder = data.get("source_folder") or ctx.state.get("current_sd_root")
-        session_name  = data.get("session_name", "Session")
+        session_name = data.get("session_name", "Session")
 
         if not source_folder:
-            return jsonify({"success": False, "error": "source_folder is required"}), 400
+            return (
+                jsonify({"success": False, "error": "source_folder is required"}),
+                400,
+            )
 
         # Resume the latest session for this folder if one exists on disk,
         # so culling decisions survive an app restart.
         # ...but only a session made from these photos: the next card in
         # the same reader slot has the same paths and often the same names.
-        current_files = list(iter_images(source_folder)) if os.path.isdir(source_folder) else []
-        existing = None if data.get("new") else find_latest_session(
-            ctx.sessions_root, source_folder, current_files)
+        current_files = (
+            list(iter_images(source_folder)) if os.path.isdir(source_folder) else []
+        )
+        existing = (
+            None
+            if data.get("new")
+            else find_latest_session(ctx.sessions_root, source_folder, current_files)
+        )
 
         if existing:
             session_dir, session_data = existing
@@ -1098,24 +1256,36 @@ def api_session_create():
             register_paths(session_data, current_files)
             save_session(session_dir, session_data)
 
-        ctx.state["session"]     = session_data
+        ctx.state["session"] = session_data
         ctx.state["session_dir"] = session_dir
 
-        logger.info(f"Session created: {session_data['session_id']} "
-                    f"({len(session_data['assets'])} assets)")
+        logger.info(
+            f"Session created: {session_data['session_id']} "
+            f"({len(session_data['assets'])} assets)"
+        )
 
-        return jsonify({
-            "success":     True,
-            "resumed":     bool(existing),
-            "session_id":  session_data["session_id"],
-            "session_dir": session_dir,
-            "decisions":   get_decisions(session_data),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "resumed": bool(existing),
+                "session_id": session_data["session_id"],
+                "session_dir": session_dir,
+                "decisions": get_decisions(session_data),
+            }
+        )
 
     except Exception:
         # Full traceback goes to the log only, never to the page
         logger.exception("session/create failed")
-        return jsonify({"success": False, "error": "Couldn't start a culling session (see the log)."}), 500
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Couldn't start a culling session (see the log).",
+                }
+            ),
+            500,
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -1163,14 +1333,14 @@ def api_session_status():
 @app.route("/api/session/select", methods=["POST"])
 def api_session_select():
     try:
-        session     = ctx.state.get("session")
+        session = ctx.state.get("session")
         session_dir = ctx.state.get("session_dir")
 
         if not session:
             return jsonify({"success": False, "error": "No active session"}), 400
 
-        data      = request.json or {}
-        asset_id  = data.get("asset_id")
+        data = request.json or {}
+        asset_id = data.get("asset_id")
 
         if not asset_id:
             return jsonify({"success": False, "error": "asset_id is required"}), 400
@@ -1180,7 +1350,7 @@ def api_session_select():
             set_asset_decision(session, asset_id, data["decision"])
         else:
             set_asset_selected(session, asset_id, bool(data.get("selected", True)))
-        save_session(session_dir, session)   # persist every cull — cheap + resumable
+        save_session(session_dir, session)  # persist every cull — cheap + resumable
 
         return jsonify({"success": True})
 
@@ -1205,14 +1375,14 @@ def api_session_select():
 @app.route("/api/session/register-asset", methods=["POST"])
 def api_session_register_asset():
     try:
-        session     = ctx.state.get("session")
+        session = ctx.state.get("session")
         ctx.state.get("session_dir")
 
         if not session:
             return jsonify({"success": False, "error": "No active session"}), 400
 
-        data       = request.json or {}
-        asset_id   = data.get("asset_id")
+        data = request.json or {}
+        asset_id = data.get("asset_id")
         raw_source = data.get("raw_source")
         jpg_source = data.get("jpg_source")
 
@@ -1263,11 +1433,10 @@ def api_session_selected():
 # -----------------------------------------------------------------------------
 @app.route("/api/session/close", methods=["POST"])
 def api_session_close():
-    ctx.state["session"]     = None
+    ctx.state["session"] = None
     ctx.state["session_dir"] = None
     logger.info("Session closed")
     return jsonify({"success": True})
-
 
 
 # -----------------------------------------------------------------------------
@@ -1291,27 +1460,39 @@ def api_session_copy():
             if not session:
                 return jsonify({"success": False, "error": "No active session"}), 400
             if ctx.progress.get("active"):
-                return jsonify({"success": False, "error": "Operation already in progress"}), 409
+                return (
+                    jsonify(
+                        {"success": False, "error": "Operation already in progress"}
+                    ),
+                    409,
+                )
 
             from photo_core.pre_import.session_state import get_selected_assets
+
             keepers = get_selected_assets(session)
             if not keepers:
-                return jsonify({"success": False, "error": "No assets selected — cull your photos first"}), 400
+                return (
+                    jsonify(
+                        {
+                            "success": False,
+                            "error": "No assets selected — cull your photos first",
+                        }
+                    ),
+                    400,
+                )
 
             return jsonify({"success": False, "error": "Copy could not start"}), 500
 
         from photo_core.pre_import.session_state import get_selected_assets
+
         keepers = get_selected_assets(ctx.state["session"])
-        return jsonify({
-            "success": True,
-            "message": f"Copy started — {len(keepers)} assets queued"
-        })
+        return jsonify(
+            {"success": True, "message": f"Copy started — {len(keepers)} assets queued"}
+        )
 
     except Exception as e:
         logger.exception("session/copy failed")
         return jsonify({"success": False, "error": str(e)}), 500
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -1347,6 +1528,7 @@ def api_open_folder():
 def _open_folder_in_explorer(path: str):
     """Open a folder in the OS native file explorer."""
     import subprocess
+
     try:
         if platform.system() == "Windows":
             os.startfile(path)
@@ -1406,8 +1588,9 @@ def start_api_server(app_ctx, open_browser=True) -> threading.Thread:
         threading.Timer(1.0, open_ui).start()
 
     server = threading.Thread(
-        target=lambda: app.run(host=HOST, port=PORT, debug=False,
-                               use_reloader=False, threaded=True),
+        target=lambda: app.run(
+            host=HOST, port=PORT, debug=False, use_reloader=False, threaded=True
+        ),
         daemon=True,
         name="flask",
     )

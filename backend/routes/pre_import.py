@@ -10,6 +10,7 @@ from photo_core.pre_import.pre_import_flow import (
     PreImportError,
 )
 
+
 def api_preview_directory(ctx):
     """
     Preview the resolved destination directory.
@@ -19,38 +20,63 @@ def api_preview_directory(ctx):
     template = payload.get("template")
 
     if not template:
-        return jsonify({
-            "success": False,
-            "error": "Template is required",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Template is required",
+                }
+            ),
+            400,
+        )
 
     if not template:
-        return jsonify({
-            "success": False,
-            "error": "Template is required",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Template is required",
+                }
+            ),
+            400,
+        )
 
     if not ctx.output_dir:
-        return jsonify({
-            "success": False,
-            "error": "Output destination not selected yet.",
-        }), 409
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Output destination not selected yet.",
+                }
+            ),
+            409,
+        )
 
     if not ctx.session or not ctx.session.title or not ctx.session.shoot_date:
-        return jsonify({
-            "success": False,
-            "error": "Session metadata not ready. Run Analyze Card first."
-        }), 409
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Session metadata not ready. Run Analyze Card first.",
+                }
+            ),
+            409,
+        )
 
     try:
         title = ctx.state.get("title")
         shoot_date = ctx.state.get("shoot_date")
 
         if not title or not shoot_date:
-            return jsonify({
-                "success": False,
-                "error": "Session metadata not ready. Run Analyze Card first."
-            }), 409
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Session metadata not ready. Run Analyze Card first.",
+                    }
+                ),
+                409,
+            )
 
         preview = preview_destination(
             output_root=Path(ctx.output_dir),
@@ -59,15 +85,23 @@ def api_preview_directory(ctx):
             shoot_date=shoot_date,
         )
     except PreImportError as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(e),
+                }
+            ),
+            400,
+        )
 
-    return jsonify({
-        "success": True,
-        "preview": str(preview),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "preview": str(preview),
+        }
+    )
+
 
 def api_set_output_destination(ctx):
     """
@@ -77,18 +111,26 @@ def api_set_output_destination(ctx):
     path = payload.get("output_root")
 
     if not path:
-        return jsonify({
-            "success": False,
-            "error": "output_root is required",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "output_root is required",
+                }
+            ),
+            400,
+        )
 
     # Normalise & store
     ctx.output_dir = str(Path(path))
 
-    return jsonify({
-        "success": True,
-        "output_root": ctx.output_dir,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "output_root": ctx.output_dir,
+        }
+    )
+
 
 def api_confirm_pre_import(ctx):
     payload = request.json or {}
@@ -97,10 +139,15 @@ def api_confirm_pre_import(ctx):
     input_files = payload.get("input_files")
 
     if not resolved or input_files is None:
-        return jsonify({
-            "success": False,
-            "error": "resolved_destination and input_files are required",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "resolved_destination and input_files are required",
+                }
+            ),
+            400,
+        )
 
     # ✅ v2.8: confirmation only (no freezing yet)
     return jsonify({"success": True})
@@ -118,8 +165,10 @@ def api_update_session_metadata(ctx):
     if shoot_date is not None:
         ctx.state["shoot_date"] = date.fromisoformat(shoot_date)
 
-    return jsonify({
-        "success": True,
-        "title": ctx.state.get("title"),
-        "shoot_date": ctx.state.get("shoot_date").isoformat()
-    })
+    return jsonify(
+        {
+            "success": True,
+            "title": ctx.state.get("title"),
+            "shoot_date": ctx.state.get("shoot_date").isoformat(),
+        }
+    )

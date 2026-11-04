@@ -97,6 +97,7 @@ error_count = 0
 # Helpers
 # =============================================================================
 
+
 def get_meta(meta, key):
     """Return EXIF value handling ExifTool namespaces."""
     return (
@@ -125,7 +126,7 @@ def _register_pairs_into_session(paths: list[str], ctx) -> None:
 
     Safe to call with no active session — silently skips.
     """
-    session     = ctx.state.get("session")
+    session = ctx.state.get("session")
     session_dir = ctx.state.get("session_dir")
 
     if not session or not session_dir:
@@ -145,6 +146,7 @@ def _register_pairs_into_session(paths: list[str], ctx) -> None:
 # =============================================================================
 # Worker
 # =============================================================================
+
 
 def exif_scanner_worker(ctx):
     """
@@ -257,7 +259,7 @@ def exif_scanner_worker(ctx):
                     "datetime": extract_exif_datetime(path),
                     "camera_model": extract_camera_model(path),
                     "lens": extract_lens_model(path),
-                    "gps": gps
+                    "gps": gps,
                 }
 
                 records.append(record)
@@ -266,7 +268,7 @@ def exif_scanner_worker(ctx):
 
             except Exception as e:
                 error_count += 1
-                if error_count <= 3:   # enough to diagnose, without flooding
+                if error_count <= 3:  # enough to diagnose, without flooding
                     print(f"⚠️ EXIF failed for {path}: {type(e).__name__}: {e}")
 
         # ✅ Store results
@@ -280,7 +282,7 @@ def exif_scanner_worker(ctx):
 
         else:
             print("⚠️ No EXIF records found")
-            ctx.exif_cache[cache_key] = signature   # don't rescan an empty folder
+            ctx.exif_cache[cache_key] = signature  # don't rescan an empty folder
 
         if error_count > 0:
             print(f"⚠️ EXIF errors: {error_count} files")

@@ -68,7 +68,9 @@ def resolve_destination(
 
     for root in protected:
         if root and is_within(destination, root):
-            raise DestinationError("The destination can't be on the card or inside the folder being imported.")
+            raise DestinationError(
+                "The destination can't be on the card or inside the folder being imported."
+            )
 
     title = (title or "").strip()
     if not title:
@@ -79,12 +81,14 @@ def resolve_destination(
             shoot_date = date.fromisoformat(shoot_date)
         except ValueError:
             raise DestinationError(
-                f"Shoot date isn't a valid date: {shoot_date}") from None
+                f"Shoot date isn't a valid date: {shoot_date}"
+            ) from None
     shoot_date = shoot_date or date.today()
 
     try:
         relative = resolve_directory_template(
-            template or DEFAULT_TEMPLATE, title=title, shoot_date=shoot_date)
+            template or DEFAULT_TEMPLATE, title=title, shoot_date=shoot_date
+        )
     except TemplateError as e:
         raise DestinationError(f"Folder layout: {e}") from e
 

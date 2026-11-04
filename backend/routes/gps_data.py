@@ -66,7 +66,6 @@
 import logging
 from flask import jsonify, request
 
-
 logger = logging.getLogger("gps")
 
 
@@ -95,10 +94,7 @@ def api_gps_data(ctx):
 
     # ✅ No EXIF data yet → normal startup / before analyse
     if not records:
-        return jsonify({
-            "points": [],
-            "exif_ready": False
-        })
+        return jsonify({"points": [], "exif_ready": False})
 
     # ✅ ✅ ✅ Build GPS points
     points = []
@@ -114,25 +110,23 @@ def api_gps_data(ctx):
         if lat is None or lon is None:
             continue
 
-        points.append({
-            "path": r.get("path"),
-            "lat": lat,
-            "lon": lon,
-            "quality": "exif"
-        })
+        points.append(
+            {"path": r.get("path"), "lat": lat, "lon": lon, "quality": "exif"}
+        )
 
     # ✅ pipeline info (used by frontend)
     working_files = ctx.state.get("working_files", [])
     file_count = len(working_files)
     exif_count = len(records)
 
-    return jsonify({
-        "points": points,
-        "exif_ready": exif_ready,
-        "current_active_folder": active,
-
-        # ✅ pipeline status
-        "copy_complete": ctx.state.get("copy_complete", False),
-        "file_count": file_count,
-        "exif_count": exif_count
-    })
+    return jsonify(
+        {
+            "points": points,
+            "exif_ready": exif_ready,
+            "current_active_folder": active,
+            # ✅ pipeline status
+            "copy_complete": ctx.state.get("copy_complete", False),
+            "file_count": file_count,
+            "exif_count": exif_count,
+        }
+    )

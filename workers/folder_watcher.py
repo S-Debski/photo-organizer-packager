@@ -3,6 +3,7 @@
 # workers/folder_watcher.py
 import time
 
+
 def folder_watcher_worker(ctx):
     """
     SD CARD SAFE VERSION:
@@ -12,4 +13,4 @@ def folder_watcher_worker(ctx):
     - Prevents Windows metadata touches from causing resets
     """
     while not ctx.shutdown_event.is_set():
-        time.sleep(60)   # idle  (just prevent thread exit)
+        time.sleep(60)  # idle  (just prevent thread exit)

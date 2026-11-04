@@ -8,6 +8,7 @@ Starts the Flask backend in a background thread and keeps the main thread
 for the tray / menu-bar icon (Open, Quit). Falls back to running headless
 until Ctrl+C when no tray is available (e.g. Linux without a status tray).
 """
+
 import os
 import sys
 import socket
@@ -95,6 +96,7 @@ def _probe(port: int) -> str:
     try:
         import json
         import urllib.request
+
         url = f"http://{api_server.HOST}:{port}/api/whoami"
         with urllib.request.urlopen(url, timeout=1.5) as resp:
             if json.load(resp).get("app") == api_server.APP_ID:
@@ -125,8 +127,13 @@ def _run_tray(ctx) -> bool:
     """Run the tray icon on the main thread. False if unavailable."""
     try:
         from tray.tray_icon import run_tray
-        run_tray(ctx, RESOURCE_DIR / "assets" / "icon.png", api_server.open_ui,
-                 title=f"{APP_NAME} {APP_VERSION}")
+
+        run_tray(
+            ctx,
+            RESOURCE_DIR / "assets" / "icon.png",
+            api_server.open_ui,
+            title=f"{APP_NAME} {APP_VERSION}",
+        )
         return True
     except Exception as e:
         logger.warning(f"Tray icon unavailable ({e}); running without it")
@@ -158,7 +165,9 @@ def main():
     if exiftool:
         logger.info(f"ExifTool: {exiftool}")
     else:
-        logger.warning("ExifTool not found — EXIF dates, camera and GPS will be missing")
+        logger.warning(
+            "ExifTool not found — EXIF dates, camera and GPS will be missing"
+        )
 
     ctx = AppContext()
     api_server.start_api_server(ctx)

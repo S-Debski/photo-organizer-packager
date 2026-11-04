@@ -12,6 +12,7 @@ from photo_core.mapping.exif_dates import (
     extract_lens_model,
 )
 
+
 def analyze_card(sd_root):
     """
     Analyze folder structure and basic camera/lens signals for an SD card.
@@ -79,20 +80,26 @@ def analyze_card(sd_root):
         # Build display name relative to DCIM to handle collisions:
         # DCIM/929_FUJI/Medburn → "929_FUJI/Medburn"
         # DCIM/105_PANA         → "105_PANA"
-        rel = os.path.relpath(folder, dcim_root) if os.path.isdir(dcim_root) else os.path.basename(folder)
+        rel = (
+            os.path.relpath(folder, dcim_root)
+            if os.path.isdir(dcim_root)
+            else os.path.basename(folder)
+        )
         display_name = rel.replace(os.sep, "/")
 
-        folders.append({
-            "name": display_name,
-            "path": folder,
-            "photo_count": jpeg_count + raw_count,
-            "jpeg_count": jpeg_count,
-            "raw_count": raw_count,
-            "camera_model": model,
-            "lens": lens,
-            "raw_only": raw_only,
-            "sample": sample,  # ✅ ALWAYS a single string or None
-        })
+        folders.append(
+            {
+                "name": display_name,
+                "path": folder,
+                "photo_count": jpeg_count + raw_count,
+                "jpeg_count": jpeg_count,
+                "raw_count": raw_count,
+                "camera_model": model,
+                "lens": lens,
+                "raw_only": raw_only,
+                "sample": sample,  # ✅ ALWAYS a single string or None
+            }
+        )
 
     # Outside the loop: a card with no image folders must report zeros,
     # not raise UnboundLocalError.
@@ -102,9 +109,5 @@ def analyze_card(sd_root):
 
     return {
         "folders": folders,
-        "counts": {
-            "total": total_images,
-            "raw": total_raw,
-            "jpg": total_jpg
-        }
+        "counts": {"total": total_images, "raw": total_raw, "jpg": total_jpg},
     }

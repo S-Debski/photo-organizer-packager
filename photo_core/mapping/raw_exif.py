@@ -24,10 +24,4 @@ def extract_raw_exif(path):
     except Exception:
         pass
 
-    return {
-        "make": None,
-        "model": None,
-        "lens": None,
-        "datetime": None,
-        "gps": None
-    }
+    return {"make": None, "model": None, "lens": None, "datetime": None, "gps": None}

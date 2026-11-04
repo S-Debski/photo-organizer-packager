@@ -61,6 +61,7 @@ EXCLUDE_DIRS = {
     "__pycache__",
     "dist",
     "build",
+    ".eggs",
 }
 
 CONTRACT_DOC = Path("docs/Stability Contract.md")
@@ -68,6 +69,7 @@ CONTRACT_DOC = Path("docs/Stability Contract.md")
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def get_comment_prefix(path: Path) -> str | None:
     return COMMENT_STYLES.get(path.suffix.lower())
@@ -90,6 +92,7 @@ def should_consider_path(path: Path) -> bool:
 # =============================================================================
 # Core processing
 # =============================================================================
+
 
 def process_file(
     path: Path,
@@ -139,7 +142,11 @@ def process_file(
 
         print("  EXPECTED:", expected_header)
 
-        if has_header and current_header and current_header.strip() == expected_header.strip():
+        if (
+            has_header
+            and current_header
+            and current_header.strip() == expected_header.strip()
+        ):
             print("  STATUS  : ✅ OK")
         else:
             print("  STATUS  : ❌ MISMATCH")
@@ -152,8 +159,11 @@ def process_file(
     # more than one package, so the map can't be the authority).
     if check:
         header = (current_header or "").strip()
-        if not (has_header and header.endswith("(see Stability Contract)")
-                and len(header) > len(f"{comment} Role: (see Stability Contract)")):
+        if not (
+            has_header
+            and header.endswith("(see Stability Contract)")
+            and len(header) > len(f"{comment} Role: (see Stability Contract)")
+        ):
             missing.append(path)
         return
 
@@ -180,6 +190,7 @@ def process_file(
 # =============================================================================
 # Scanning
 # =============================================================================
+
 
 def scan_explicit_files(
     root: Path,
@@ -237,6 +248,7 @@ def scan_stable_directories(
 # CLI
 # =============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Annotate files with Role headers")
 
@@ -253,15 +265,15 @@ def main():
     mode = (
         "REPORT"
         if args.report
-        else "CHECK"
-        if args.check
-        else "FIX+APPLY"
-        if args.fix and args.apply
-        else "FIX"
-        if args.fix
-        else "APPLY"
-        if args.apply
-        else "DRY-RUN"
+        else (
+            "CHECK"
+            if args.check
+            else (
+                "FIX+APPLY"
+                if args.fix and args.apply
+                else "FIX" if args.fix else "APPLY" if args.apply else "DRY-RUN"
+            )
+        )
     )
 
     print("Role annotation")

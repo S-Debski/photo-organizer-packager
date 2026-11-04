@@ -35,13 +35,11 @@ from photo_core.pre_import.session_state import (
 
 logger = logging.getLogger("copy_worker")
 
-# Recognised extensions — used to decide subfolder inside session
-from photo_core.pre_import.session_state import RAW_EXTENSIONS, JPG_EXTENSIONS  # noqa: E402,F401
-
 
 # =============================================================================
 # Public API — called from api_server
 # =============================================================================
+
 
 def start_copy_worker(ctx) -> bool:
     """
@@ -54,7 +52,7 @@ def start_copy_worker(ctx) -> bool:
         True  if copy thread started
         False if no active session, nothing selected, or copy already running
     """
-    session     = ctx.state.get("session")
+    session = ctx.state.get("session")
     session_dir = ctx.state.get("session_dir")
 
     if not session or not session_dir:
@@ -85,6 +83,7 @@ def start_copy_worker(ctx) -> bool:
 # Worker thread
 # =============================================================================
 
+
 def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
     """
     Background thread: copies selected RAW/JPG pairs into the session folder.
@@ -107,15 +106,27 @@ def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
 
     if total_files == 0:
         logger.info("copy_worker: all selected assets already copied, nothing to do")
-        _set_progress(ctx, stage="idle", total=0, done=0, active=False,
-                      message="Already up to date")
+        _set_progress(
+            ctx,
+            stage="idle",
+            total=0,
+            done=0,
+            active=False,
+            message="Already up to date",
+        )
         return
 
     # ------------------------------------------------------------------
     # Initialise progress
     # ------------------------------------------------------------------
-    _set_progress(ctx, stage="copy", total=total_files, done=0, active=True,
-                  message=f"Copying {total_files} files…")
+    _set_progress(
+        ctx,
+        stage="copy",
+        total=total_files,
+        done=0,
+        active=True,
+        message=f"Copying {total_files} files…",
+    )
 
     # ------------------------------------------------------------------
     # Create output subfolders
@@ -125,14 +136,14 @@ def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(jpg_dir, exist_ok=True)
 
-    done       = 0
+    done = 0
     error_count = 0
 
     for task in file_tasks:
-        src_path  = task["src"]
-        dst_path  = task["dst"]
-        asset_id  = task["asset_id"]
-        filetype  = task["filetype"]    # "raw" or "jpg"
+        src_path = task["src"]
+        dst_path = task["dst"]
+        asset_id = task["asset_id"]
+        filetype = task["filetype"]  # "raw" or "jpg"
 
         try:
             # Skip if destination already exists (safe re-run)
@@ -140,8 +151,7 @@ def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
                 logger.debug(f"Skip (exists): {dst_path}")
                 mark_asset_copied(session, asset_id, filetype, dst_path)
                 done += 1
-                _set_progress(ctx, done=done,
-                              message=f"Copying {done}/{total_files}…")
+                _set_progress(ctx, done=done, message=f"Copying {done}/{total_files}…")
                 continue
 
             # Ensure destination directory exists
@@ -154,8 +164,7 @@ def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
             mark_asset_copied(session, asset_id, filetype, dst_path)
 
             done += 1
-            _set_progress(ctx, done=done,
-                          message=f"Copying {done}/{total_files}…")
+            _set_progress(ctx, done=done, message=f"Copying {done}/{total_files}…")
 
             logger.debug(f"Copied: {src_path} → {dst_path}")
 
@@ -181,18 +190,22 @@ def _copy_worker_thread(ctx, session: dict, session_dir: str, keepers: dict):
     else:
         msg = f"Copy complete — {done} files ready for editing."
 
-    _set_progress(ctx, stage="idle", total=total_files, done=done,
-                  active=False, message=msg)
+    _set_progress(
+        ctx, stage="idle", total=total_files, done=done, active=False, message=msg
+    )
 
     # Signal UI that copy is complete (existing gate used by /api/thumbs)
     ctx.state["copy_complete"] = True
 
-    logger.info(f"Copy worker finished: {done}/{total_files} files, {error_count} errors")
+    logger.info(
+        f"Copy worker finished: {done}/{total_files} files, {error_count} errors"
+    )
 
 
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def _build_file_tasks(keepers: dict, session_dir: str) -> list[dict]:
     """
@@ -226,22 +239,26 @@ def _build_file_tasks(keepers: dict, session_dir: str) -> list[dict]:
         # RAW task
         if raw_src and not copied.get("raw"):
             filename = Path(raw_src).name
-            tasks.append({
-                "asset_id": asset_id,
-                "filetype": "raw",
-                "src":      raw_src,
-                "dst":      os.path.join(raw_dir, filename),
-            })
+            tasks.append(
+                {
+                    "asset_id": asset_id,
+                    "filetype": "raw",
+                    "src": raw_src,
+                    "dst": os.path.join(raw_dir, filename),
+                }
+            )
 
         # JPG task
         if jpg_src and not copied.get("jpg"):
             filename = Path(jpg_src).name
-            tasks.append({
-                "asset_id": asset_id,
-                "filetype": "jpg",
-                "src":      jpg_src,
-                "dst":      os.path.join(jpg_dir, filename),
-            })
+            tasks.append(
+                {
+                    "asset_id": asset_id,
+                    "filetype": "jpg",
+                    "src": jpg_src,
+                    "dst": os.path.join(jpg_dir, filename),
+                }
+            )
 
     return tasks
 

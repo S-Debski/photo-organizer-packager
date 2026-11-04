@@ -22,7 +22,7 @@ def extract_exif_datetime(path):
         "ExifIFD:DateTimeOriginal",
         "DateTimeOriginal",
         "CreateDate",
-        "IFD0:ModifyDate"
+        "IFD0:ModifyDate",
     )
 
 

@@ -44,7 +44,9 @@ def resolve_adb() -> str | None:
     exe = "adb.exe" if os.name == "nt" else "adb"
     candidates = [
         os.path.join(r"C:\Users\Public\Tools\platform-tools", exe),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk", "platform-tools", exe),
+        os.path.join(
+            os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk", "platform-tools", exe
+        ),
         os.path.join(home, "Library", "Android", "sdk", "platform-tools", exe),
         "/opt/homebrew/bin/adb",
         "/usr/local/bin/adb",
@@ -83,20 +85,24 @@ def list_devices(adb: str) -> list[dict]:
         if len(parts) < 2:
             continue
         info = dict(p.split(":", 1) for p in parts[2:] if ":" in p)
-        devices.append({
-            "serial": parts[0],
-            "state": parts[1],
-            "model": info.get("model", "").replace("_", " ") or "Android phone",
-        })
+        devices.append(
+            {
+                "serial": parts[0],
+                "state": parts[1],
+                "model": info.get("model", "").replace("_", " ") or "Android phone",
+            }
+        )
     return devices
 
 
 def pick_files(folder: str, include_raw: bool) -> list[str]:
     """Photos in the imported folder to send (JPG, plus RAW if asked)."""
     from utils.fs_utils import IMAGE_EXTS_RAW
+
     exts = JPG_EXTS + (tuple(IMAGE_EXTS_RAW) if include_raw else ())
     return sorted(
-        os.path.join(folder, n) for n in os.listdir(folder)
+        os.path.join(folder, n)
+        for n in os.listdir(folder)
         if n.lower().endswith(exts) and os.path.isfile(os.path.join(folder, n))
     )
 
@@ -104,8 +110,13 @@ def pick_files(folder: str, include_raw: bool) -> list[str]:
 def phone_files(adb: str, serial: str, folder: str = PHONE_FOLDER) -> dict[str, int]:
     """{name: size} of what's already in the phone folder."""
     _run(adb, "-s", serial, "shell", f"mkdir -p {shlex.quote(folder)}")
-    proc = _run(adb, "-s", serial, "shell",
-                f"stat -c '%n|%s' {shlex.quote(folder)}/* 2>/dev/null")
+    proc = _run(
+        adb,
+        "-s",
+        serial,
+        "shell",
+        f"stat -c '%n|%s' {shlex.quote(folder)}/* 2>/dev/null",
+    )
     existing = {}
     for line in proc.stdout.splitlines():
         if "|" not in line:
@@ -118,7 +129,9 @@ def phone_files(adb: str, serial: str, folder: str = PHONE_FOLDER) -> dict[str, 
     return existing
 
 
-def plan_names(files: list[str], existing: dict[str, int]) -> list[tuple[str, str | None]]:
+def plan_names(
+    files: list[str], existing: dict[str, int]
+) -> list[tuple[str, str | None]]:
     """
     [(local path, phone name or None to skip)]. Never overwrites: a name
     already on the phone with the same size is the same photo (skip);
@@ -143,8 +156,14 @@ def plan_names(files: list[str], existing: dict[str, int]) -> list[tuple[str, st
     return plan
 
 
-def send_folder(adb: str, serial: str, folder: str, include_raw: bool = False,
-                progress=None, phone_folder: str = PHONE_FOLDER) -> dict:
+def send_folder(
+    adb: str,
+    serial: str,
+    folder: str,
+    include_raw: bool = False,
+    progress=None,
+    phone_folder: str = PHONE_FOLDER,
+) -> dict:
     """
     Push a folder's photos to the phone. `progress(done, total, message)`
     is called after each file. Returns a summary dict.
@@ -156,19 +175,29 @@ def send_folder(adb: str, serial: str, folder: str, include_raw: bool = False,
 
     for i, (path, name) in enumerate(to_send, 1):
         remote = f"{phone_folder}/{name}"
-        proc = _run(adb, "-s", serial, "push", os.path.abspath(path), remote, timeout=600)
+        proc = _run(
+            adb, "-s", serial, "push", os.path.abspath(path), remote, timeout=600
+        )
         if proc.returncode == 0:
             sent.append(remote)
         else:
-            failed.append(f"{os.path.basename(path)}: {(proc.stderr or proc.stdout).strip()[:200]}")
+            failed.append(
+                f"{os.path.basename(path)}: {(proc.stderr or proc.stdout).strip()[:200]}"
+            )
         if progress:
             progress(i, len(to_send), f"Sending to phone {i}/{len(to_send)}…")
 
     # Let the gallery and Google Photos see the new files straight away
     for remote in sent:
-        _run(adb, "-s", serial, "shell",
-             "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "
-             + shlex.quote("file://" + remote), timeout=30)
+        _run(
+            adb,
+            "-s",
+            serial,
+            "shell",
+            "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "
+            + shlex.quote("file://" + remote),
+            timeout=30,
+        )
 
     return {
         "sent": len(sent),

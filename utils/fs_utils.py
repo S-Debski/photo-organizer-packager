@@ -13,34 +13,38 @@ import os
 # ✅ Define extensions ONCE
 IMAGE_EXTS_JPEG = (".jpg", ".jpeg")
 IMAGE_EXTS_RAW = (
-    ".raf",                 # Fuji ✅
-    ".cr2", ".cr3", ".crw", # Canon ✅ (incl 5D classic era)
-    ".nef", ".nrw",         # Nikon ✅ (future-safe)
-    ".arw", ".sr2", ".srf", # Sony ✅
-    ".orf",                 # Olympus ✅ (E-500)
-    ".pef",                 # Pentax ✅ (K10D)
-    ".rw2",                 # Panasonic ✅
-    ".dng"                  # Adobe ✅
+    ".raf",  # Fuji ✅
+    ".cr2",
+    ".cr3",
+    ".crw",  # Canon ✅ (incl 5D classic era)
+    ".nef",
+    ".nrw",  # Nikon ✅ (future-safe)
+    ".arw",
+    ".sr2",
+    ".srf",  # Sony ✅
+    ".orf",  # Olympus ✅ (E-500)
+    ".pef",  # Pentax ✅ (K10D)
+    ".rw2",  # Panasonic ✅
+    ".dng",  # Adobe ✅
 )
 
 IMAGE_EXTS_ALL = IMAGE_EXTS_JPEG + IMAGE_EXTS_RAW
 DEBUG_COPY = False
 
+
 # -----------------------------------------------------------------------------
 # Working directory default
 # -----------------------------------------------------------------------------
 def get_default_working_base():
-    return os.path.join(
-        os.path.expanduser("~"),
-        "PhotoOrganizer",
-        "sessions"
-    )
+    return os.path.join(os.path.expanduser("~"), "PhotoOrganizer", "sessions")
 
 
 # -----------------------------------------------------------------------------
 # Core iterator (ALL images)
 # -----------------------------------------------------------------------------
 """Yield ALL supported images (JPG + RAW)."""
+
+
 def iter_images(folder):
     for root, _, files in os.walk(folder):
         for f in files:
@@ -148,7 +152,7 @@ def list_candidate_folders(sd_root):
     dcim = os.path.join(sd_root, "DCIM")
 
     # Collect all candidate (path, display_name) pairs first
-    candidates = []   # list of (path, display_name)
+    candidates = []  # list of (path, display_name)
     # Track which simple names appear more than once
     name_count = {}
 

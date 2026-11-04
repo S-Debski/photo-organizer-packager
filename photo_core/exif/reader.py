@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # ✅ GPS EXTRACTOR (clean + safe)
 # =============================================================================
 
+
 def get_exif_gps(path):
     try:
         img = Image.open(path)
@@ -110,6 +111,7 @@ def get_exif_gps(path):
 # ✅ EXIFTOOL SUPPORT
 # =============================================================================
 
+
 class ExifToolError(RuntimeError):
     pass
 
@@ -144,8 +146,11 @@ def resolve_exiftool_cmd() -> str | None:
     if found:
         return found
 
-    for candidate in ("/opt/homebrew/bin/exiftool", "/usr/local/bin/exiftool",
-                      "/usr/bin/exiftool"):
+    for candidate in (
+        "/opt/homebrew/bin/exiftool",
+        "/usr/local/bin/exiftool",
+        "/usr/bin/exiftool",
+    ):
         if os.path.isfile(candidate):
             return candidate
 
@@ -184,8 +189,11 @@ def prefetch_exif(paths) -> int:
     """
     cmd = resolve_exiftool_cmd()
     # Absolute paths: an argument-file line starting with "-" would be an option
-    todo = [os.path.abspath(str(p)) for p in paths
-            if _PREFETCHED.get(_key(p), (None,))[0] != _stamp(p)]
+    todo = [
+        os.path.abspath(str(p))
+        for p in paths
+        if _PREFETCHED.get(_key(p), (None,))[0] != _stamp(p)
+    ]
     if not cmd or not todo:
         return 0
 
@@ -194,13 +202,23 @@ def prefetch_exif(paths) -> int:
 
     loaded = 0
     for i in range(0, len(todo), _BATCH_SIZE):
-        batch = todo[i:i + _BATCH_SIZE]
+        batch = todo[i : i + _BATCH_SIZE]
         try:
             # File names go through stdin (-@ -) to avoid Windows'
             # command-line length limit.
             proc = subprocess.run(
-                [cmd, "-charset", "filename=utf8", "-json", "-n", "-G1", "-a",
-                 "-s", "-@", "-"],
+                [
+                    cmd,
+                    "-charset",
+                    "filename=utf8",
+                    "-json",
+                    "-n",
+                    "-G1",
+                    "-a",
+                    "-s",
+                    "-@",
+                    "-",
+                ],
                 input="\n".join(batch),
                 capture_output=True,
                 text=True,
@@ -254,7 +272,7 @@ def _read_exif_single(path: str, stamp=None) -> dict:
             # A windowed build has no valid stdin handle; inheriting it
             # raises "The handle is invalid" on Windows.
             stdin=subprocess.DEVNULL,
-            timeout=5
+            timeout=5,
         )
     except FileNotFoundError:
         return {}

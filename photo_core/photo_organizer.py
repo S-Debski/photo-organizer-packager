@@ -24,9 +24,15 @@ except ImportError:
 
 # Folders to skip
 SKIP_FOLDERS = {
-    'venv','env','__pycache__',
-    'lib','site-packages',
-    'debug','dist','build','pip'
+    "venv",
+    "env",
+    "__pycache__",
+    "lib",
+    "site-packages",
+    "debug",
+    "dist",
+    "build",
+    "pip",
 }
 
 
@@ -69,7 +75,7 @@ def get_lens_model(path: str) -> str:
         exif = img._getexif()
         if exif:
             for tag, value in exif.items():
-                if TAGS.get(tag) in ("LensModel","Lens","LensSpecification"):
+                if TAGS.get(tag) in ("LensModel", "Lens", "LensSpecification"):
                     return str(value)
     except Exception:
         pass
@@ -99,7 +105,16 @@ class PhotoOrganizer:
 
     def _is_photo(self, path: Path) -> bool:
         return path.suffix.lower() in {
-            ".jpg",".jpeg",".png",".arw",".nef",".cr2",".cr3",".raf",".rw2",".orf"
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".arw",
+            ".nef",
+            ".cr2",
+            ".cr3",
+            ".raf",
+            ".rw2",
+            ".orf",
         }
 
     def find_photo_files(self, folder: str):
@@ -128,7 +143,7 @@ class PhotoOrganizer:
                 continue
             if folder.name.lower() in SKIP_FOLDERS:
                 continue
-            if folder.name.startswith('.'):
+            if folder.name.startswith("."):
                 continue
 
             photos = self.find_photo_files(str(folder))
@@ -139,27 +154,25 @@ class PhotoOrganizer:
             cam = get_camera_model(first)
             lens = get_lens_model(first)
 
-            results.append({
-                "name": folder.name,
-                "path": str(folder),
-                "photo_count": len(photos),
-                "photos": photos,
-                "camera_model": cam,
-                "lens": lens
-            })
+            results.append(
+                {
+                    "name": folder.name,
+                    "path": str(folder),
+                    "photo_count": len(photos),
+                    "photos": photos,
+                    "camera_model": cam,
+                    "lens": lens,
+                }
+            )
 
             total += len(photos)
 
-        return {
-            "success": True,
-            "folders": results,
-            "total_photos": total
-        }
+        return {"success": True, "folders": results, "total_photos": total}
 
     # -----------------------------------------------------------------
     # ✅ THIS WAS MISSING IN YOUR VERSION
     # -----------------------------------------------------------------
-    def create_camera_folder(self, camera_name: str, event_name: str=None):
+    def create_camera_folder(self, camera_name: str, event_name: str = None):
         safe_cam = camera_name.replace(" ", "_") if camera_name else "Unknown"
 
         if event_name:

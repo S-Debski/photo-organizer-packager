@@ -31,7 +31,6 @@ if os.name == "nt":
         pythoncom = None
 
 
-
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
@@ -45,11 +44,12 @@ CAMERA_FOLDERS = {
     "100MEDIA",
 }
 
-MIN_SD_SIZE = 512 * 1024 * 1024                 # 0.5 GB
-MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024     # 2 TB
+MIN_SD_SIZE = 512 * 1024 * 1024  # 0.5 GB
+MAX_SD_SIZE = 2 * 1024 * 1024 * 1024 * 1024  # 2 TB
 
-#Debug section
-DEBUG = False   # 🔁 flip to True when debugging drive detection
+# Debug section
+DEBUG = False  # 🔁 flip to True when debugging drive detection
+
 
 # ------------------------------------------------------------
 # Shared helpers
@@ -98,18 +98,19 @@ def detect_windows_volumes():
             label, fs = None, None
 
         try:
-            sectors, bytes_per_sector, _, total_clusters = \
-                win32file.GetDiskFreeSpace(d)
+            sectors, bytes_per_sector, _, total_clusters = win32file.GetDiskFreeSpace(d)
             size = sectors * bytes_per_sector * total_clusters
         except Exception:
             size = 0
 
-        volumes.append({
-            "path": d.rstrip("\\"),
-            "label": label,
-            "filesystem": fs,
-            "size_bytes": size,
-        })
+        volumes.append(
+            {
+                "path": d.rstrip("\\"),
+                "label": label,
+                "filesystem": fs,
+                "size_bytes": size,
+            }
+        )
 
     return volumes
 
@@ -216,13 +217,15 @@ def detect_macos_volumes():
             continue
 
         fs, size, internal = get_macos_disk_info(vol)
-        results.append({
-            "path": str(vol),
-            "label": vol.name,
-            "filesystem": fs,
-            "size_bytes": size,
-            "internal": internal,
-        })
+        results.append(
+            {
+                "path": str(vol),
+                "label": vol.name,
+                "filesystem": fs,
+                "size_bytes": size,
+                "internal": internal,
+            }
+        )
 
     return results
 
@@ -232,9 +235,10 @@ def get_macos_disk_info(path: Path):
     try:
         import subprocess
         import plistlib
-        info = plistlib.loads(subprocess.check_output(
-            ["diskutil", "info", "-plist", str(path)]
-        ))
+
+        info = plistlib.loads(
+            subprocess.check_output(["diskutil", "info", "-plist", str(path)])
+        )
         return info.get("FilesystemType"), info.get("TotalSize"), info.get("Internal")
     except Exception:
         return None, None, None
@@ -270,12 +274,14 @@ def detect_linux_volumes():
 
     for path in mounts:
         fs, size = get_linux_disk_info(path)
-        results.append({
-            "path": str(path),
-            "label": path.name,
-            "filesystem": fs,
-            "size_bytes": size,
-        })
+        results.append(
+            {
+                "path": str(path),
+                "label": path.name,
+                "filesystem": fs,
+                "size_bytes": size,
+            }
+        )
 
     return results
 
@@ -326,7 +332,7 @@ _CARD_FS = {"FAT", "FAT32", "EXFAT", "MSDOS"}
 
 
 # STORAGE_BUS_TYPE values that mean "plugged in from outside"
-_EXTERNAL_BUSES = {4, 7, 12, 13}        # 1394, USB, SD, MMC
+_EXTERNAL_BUSES = {4, 7, 12, 13}  # 1394, USB, SD, MMC
 _IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400
 
 
@@ -338,19 +344,26 @@ def _windows_bus_type(drive: str) -> int | None:
     Needs no admin rights. None if it can't be read (e.g. network drives).
     """
     import struct
+
     letter = drive.rstrip("\\")[:2]
     try:
         handle = win32file.CreateFile(
-            "\\\\.\\" + letter, 0,
+            "\\\\.\\" + letter,
+            0,
             win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
-            None, win32file.OPEN_EXISTING, 0, None)
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None,
+        )
     except Exception:
         return None
     try:
         # STORAGE_PROPERTY_QUERY: StorageDeviceProperty, PropertyStandardQuery
         out = win32file.DeviceIoControl(
-            handle, _IOCTL_STORAGE_QUERY_PROPERTY, struct.pack("<III", 0, 0, 0), 1024)
-        return struct.unpack_from("<I", out, 28)[0]     # STORAGE_DEVICE_DESCRIPTOR.BusType
+            handle, _IOCTL_STORAGE_QUERY_PROPERTY, struct.pack("<III", 0, 0, 0), 1024
+        )
+        return struct.unpack_from("<I", out, 28)[0]  # STORAGE_DEVICE_DESCRIPTOR.BusType
     except Exception:
         return None
     finally:
@@ -380,37 +393,55 @@ def list_all_sources():
     out = []
 
     if system == "Windows":
-        cards = {c["path"].rstrip("\\").upper() for c in filter_windows_sd_cards()
-                 if not c.get("is_virtual")}
+        cards = {
+            c["path"].rstrip("\\").upper()
+            for c in filter_windows_sd_cards()
+            if not c.get("is_virtual")
+        }
         for d in win32api.GetLogicalDriveStrings().split("\x00"):
             if not d:
                 continue
             dtype = win32file.GetDriveType(d)
-            if dtype not in (win32file.DRIVE_REMOVABLE, win32file.DRIVE_FIXED,
-                             win32file.DRIVE_REMOTE):
+            if dtype not in (
+                win32file.DRIVE_REMOVABLE,
+                win32file.DRIVE_FIXED,
+                win32file.DRIVE_REMOTE,
+            ):
                 continue
             try:
                 label, _, _, _, fs = win32api.GetVolumeInformation(d)
             except Exception:
-                continue                      # empty slot / disconnected share
+                continue  # empty slot / disconnected share
             path = d.rstrip("\\")
             if dtype == win32file.DRIVE_REMOTE:
                 kind = "network"
             elif path.upper() in cards:
                 kind = "card"
-            elif dtype == win32file.DRIVE_REMOVABLE or _windows_bus_type(d) in _EXTERNAL_BUSES:
+            elif (
+                dtype == win32file.DRIVE_REMOVABLE
+                or _windows_bus_type(d) in _EXTERNAL_BUSES
+            ):
                 kind = "external"
             else:
                 kind = "disk"
-            out.append({"path": path, "label": label, "filesystem": fs,
-                        "size_bytes": _windows_total_bytes(d), "kind": kind})
+            out.append(
+                {
+                    "path": path,
+                    "label": label,
+                    "filesystem": fs,
+                    "size_bytes": _windows_total_bytes(d),
+                    "kind": kind,
+                }
+            )
 
     elif system == "Darwin":
         for v in detect_macos_volumes():
             fs = (v.get("filesystem") or "").lower()
             if fs in _MAC_NETWORK_FS:
                 kind = "network"
-            elif fs.upper() in _CARD_FS and size_within_sd_range(v.get("size_bytes") or 0):
+            elif fs.upper() in _CARD_FS and size_within_sd_range(
+                v.get("size_bytes") or 0
+            ):
                 kind = "card"
             elif v.get("internal") is False:
                 kind = "external"

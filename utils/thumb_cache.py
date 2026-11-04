@@ -80,7 +80,7 @@ def build_thumb(cache_dir, img_path, size=320) -> str | None:
         return tp
 
     with _DECODE_SLOTS:
-        if os.path.isfile(tp):   # built by another request while waiting
+        if os.path.isfile(tp):  # built by another request while waiting
             return tp
 
         if img_path.lower().endswith(JPEG_EXTS):

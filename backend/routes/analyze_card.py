@@ -26,10 +26,9 @@ def derive_title_from_card(sd_root: str) -> str:
                 continue
 
             for name in os.listdir(candidate):
-                if name.lower().endswith((
-                    ".jpg", ".jpeg", ".png",
-                    ".arw", ".cr2", ".nef"
-                )):
+                if name.lower().endswith(
+                    (".jpg", ".jpeg", ".png", ".arw", ".cr2", ".nef")
+                ):
                     return entry
 
     # Fallback: drive / root name
@@ -70,6 +69,6 @@ def api_analyze_card(ctx, payload):
         "analysis": analysis,
         "session": {
             "title": ctx.state["title"],
-            "shoot_date": ctx.state["shoot_date"].isoformat()
-        }
+            "shoot_date": ctx.state["shoot_date"].isoformat(),
+        },
     }

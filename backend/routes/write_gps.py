@@ -40,7 +40,7 @@ def is_source_path(ctx, path) -> bool:
         try:
             if os.path.commonpath([p, root]) == root:
                 return True
-        except ValueError:   # different drives
+        except ValueError:  # different drives
             continue
     return False
 
@@ -62,7 +62,7 @@ def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
             f"-GPSLatitudeRef={lat}",
             f"-GPSLongitude={abs(float(lon))}",
             f"-GPSLongitudeRef={lon}",
-            os.path.abspath(str(path)),   # never starts with "-"
+            os.path.abspath(str(path)),  # never starts with "-"
         ],
         capture_output=True,
         text=True,
@@ -81,9 +81,12 @@ def write_gps_sidecar(raw_path, lat, lon) -> subprocess.CompletedProcess:
     XMP stores signed decimal coordinates, so no N/S/E/W ref tags.
     """
     cmd = resolve_exiftool_cmd() or "exiftool"
-    raw_path = os.path.abspath(str(raw_path))      # never starts with "-"
+    raw_path = os.path.abspath(str(raw_path))  # never starts with "-"
     sidecar = os.path.splitext(raw_path)[0] + ".xmp"
-    tags = [f"-XMP-exif:GPSLatitude={float(lat)}", f"-XMP-exif:GPSLongitude={float(lon)}"]
+    tags = [
+        f"-XMP-exif:GPSLatitude={float(lat)}",
+        f"-XMP-exif:GPSLongitude={float(lon)}",
+    ]
 
     if os.path.isfile(sidecar):
         args = [cmd, "-q", "-overwrite_original", *tags, sidecar]
@@ -117,11 +120,7 @@ def api_write_gps(ctx, payload):
     deferred = []
 
     # ✅ INIT progress state
-    ctx.write_progress = {
-        "total": len(files),
-        "done": 0,
-        "active": True
-    }
+    ctx.write_progress = {"total": len(files), "done": 0, "active": True}
 
     print(f"📡 Starting GPS write for {len(files)} files")
 
@@ -163,14 +162,18 @@ def api_write_gps(ctx, payload):
             finally:
                 ctx.write_progress["done"] += 1
 
-    print(f"✅ GPS write complete: {updated} updated, {len(deferred)} deferred to import, "
-          f"{len(failed)} failed")
+    print(
+        f"✅ GPS write complete: {updated} updated, {len(deferred)} deferred to import, "
+        f"{len(failed)} failed"
+    )
     ctx.write_progress["active"] = False
 
-    return jsonify({
-        "success": (updated > 0 or bool(deferred)) and not failed,
-        "updated": updated,
-        "deferred": len(deferred),
-        "skipped": skipped,
-        "failed": failed
-    })
+    return jsonify(
+        {
+            "success": (updated > 0 or bool(deferred)) and not failed,
+            "updated": updated,
+            "deferred": len(deferred),
+            "skipped": skipped,
+            "failed": failed,
+        }
+    )

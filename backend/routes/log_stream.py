@@ -2,6 +2,7 @@
 
 import time
 
+
 def api_log_stream(ctx):
     def gen():
         # ✅ MUST BE BYTES

@@ -8,6 +8,7 @@
 
 from datetime import datetime
 
+
 def get_exif_value(record, *keys):
     """
     Try multiple EXIF keys and return the first valid value.
@@ -18,14 +19,17 @@ def get_exif_value(record, *keys):
             return val
     return None
 
+
 def _safe_float(value):
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
 
+
 def has_gps(record):
-        return get_gps(record) is not None
+    return get_gps(record) is not None
+
 
 def get_datetime(record):
     raw = get_exif_value(
@@ -46,6 +50,7 @@ def get_datetime(record):
     except Exception:
         return None
 
+
 def get_gps(record):
     lat = get_exif_value(record, "EXIF:GPSLatitude")
     lon = get_exif_value(record, "EXIF:GPSLongitude")
@@ -60,6 +65,7 @@ def get_gps(record):
         "source": "exif",
     }
 
+
 def get_camera(record):
     make = record.get("EXIF:Make")
     model = record.get("EXIF:Model")
@@ -69,6 +75,7 @@ def get_camera(record):
 
     return model or make
 
+
 def get_lens(record):
     return get_exif_value(
         record,
@@ -76,12 +83,14 @@ def get_lens(record):
         "EXIF:LensInfo",
     )
 
+
 def get_iso(record):
     iso = record.get("EXIF:ISO")
     try:
         return int(iso) if iso else None
     except ValueError:
         return None
+
 
 def normalize_exif(record):
     dt = get_datetime(record)
@@ -93,9 +102,3 @@ def normalize_exif(record):
         "lens": get_lens(record),
         "iso": get_iso(record),
     }
-
-
-
-
-
-

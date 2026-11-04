@@ -64,7 +64,6 @@ def classify_gps_quality(record):
 # =============================================================================
 
 
-
 def get_base_name(path):
     if not path:
         return None
@@ -106,12 +105,7 @@ def extract_gps_points(records, mode="logical"):
         for base, gps in gps_by_base.items():
             lat, lon = gps
 
-            points.append({
-                "path": base,
-                "lat": lat,
-                "lon": lon,
-                "quality": "exif"
-            })
+            points.append({"path": base, "lat": lat, "lon": lon, "quality": "exif"})
 
         return points
 
@@ -130,12 +124,9 @@ def extract_gps_points(records, mode="logical"):
 
                 lat, lon = gps
 
-                points.append({
-                    "path": display,
-                    "lat": lat,
-                    "lon": lon,
-                    "quality": "exif"
-                })
+                points.append(
+                    {"path": display, "lat": lat, "lon": lon, "quality": "exif"}
+                )
 
             except Exception:
                 continue

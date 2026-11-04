@@ -80,7 +80,10 @@ MANIFEST_VERSION = 1
 # Session Creation
 # =========================================================
 
-def create_session(base_dir: str, source_folder: str, session_name: str) -> tuple[str, dict]:
+
+def create_session(
+    base_dir: str, source_folder: str, session_name: str
+) -> tuple[str, dict]:
     """
     Create a new timestamped ingest session.
 
@@ -113,7 +116,7 @@ def create_session(base_dir: str, source_folder: str, session_name: str) -> tupl
         "created_at": timestamp,
         "source_folder": str(source_folder),
         "session_dir": session_dir,
-        "assets": {}
+        "assets": {},
         # assets schema per entry:
         # "<asset_id>": {
         #     "asset_id":    str,
@@ -136,6 +139,7 @@ def create_session(base_dir: str, source_folder: str, session_name: str) -> tupl
 # =========================================================
 # Manifest I/O
 # =========================================================
+
 
 def load_session(session_dir: str) -> dict:
     """
@@ -160,7 +164,9 @@ def load_session(session_dir: str) -> dict:
         with open(manifest_path, "r", encoding="utf-8") as f:
             session_data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        raise ValueError(f"Failed to load session manifest: {manifest_path} — {e}") from e
+        raise ValueError(
+            f"Failed to load session manifest: {manifest_path} — {e}"
+        ) from e
 
     _validate_manifest(session_data)
     logger.info(f"Session loaded: {manifest_path}")
@@ -187,7 +193,11 @@ def same_photos(session_data: dict, current_files) -> bool:
         return False
 
     assets = session_data.get("assets", {})
-    recorded = {name: size for a in assets.values() for name, size in (a.get("sizes") or {}).items()}
+    recorded = {
+        name: size
+        for a in assets.values()
+        for name, size in (a.get("sizes") or {}).items()
+    }
 
     if recorded:
         present = [n for n in recorded if n in current]
@@ -205,7 +215,9 @@ def same_photos(session_data: dict, current_files) -> bool:
     return overlap >= 0.9 * len(stems_now) and overlap >= 0.9 * len(stems_then)
 
 
-def find_latest_session(base_dir: str, source_folder: str, current_files=None) -> tuple[str, dict] | None:
+def find_latest_session(
+    base_dir: str, source_folder: str, current_files=None
+) -> tuple[str, dict] | None:
     """
     Find the most recently created session for `source_folder`, so culling
     can resume when the same card/folder is opened again.
@@ -281,6 +293,7 @@ def save_session(session_dir: str, session_data: dict) -> None:
 # Asset Registration
 # =========================================================
 
+
 def register_asset(
     session_data: dict,
     asset_id: str,
@@ -310,7 +323,7 @@ def register_asset(
             "asset_id": asset_id,
             "raw_source": None,
             "jpg_source": None,
-            "decision": None,    # default: not yet culled
+            "decision": None,  # default: not yet culled
             "selected": False,
             "copied": {
                 "raw": None,
@@ -331,7 +344,9 @@ def register_asset(
     for src in (raw_source, jpg_source):
         if src:
             try:
-                entry.setdefault("sizes", {})[os.path.basename(str(src)).upper()] = os.path.getsize(src)
+                entry.setdefault("sizes", {})[os.path.basename(str(src)).upper()] = (
+                    os.path.getsize(src)
+                )
             except OSError:
                 pass
 
@@ -388,6 +403,7 @@ def register_paths(session_data: dict, paths) -> int:
 # =========================================================
 # Selection / Culling
 # =========================================================
+
 
 def set_asset_selected(
     session_data: dict,
@@ -509,6 +525,7 @@ def get_unculled_assets(session_data: dict) -> dict:
 # Copy Tracking
 # =========================================================
 
+
 def mark_asset_copied(
     session_data: dict,
     asset_id: str,
@@ -526,7 +543,9 @@ def mark_asset_copied(
     """
     filetype = filetype.lower()
     if filetype not in ("raw", "jpg"):
-        raise ValueError(f"mark_asset_copied: filetype must be 'raw' or 'jpg', got '{filetype}'")
+        raise ValueError(
+            f"mark_asset_copied: filetype must be 'raw' or 'jpg', got '{filetype}'"
+        )
 
     assets = session_data.get("assets", {})
     if asset_id not in assets:
@@ -537,7 +556,9 @@ def mark_asset_copied(
         register_asset(session_data, asset_id)
 
     assets[asset_id].setdefault("copied", {})[filetype] = str(working_path)
-    logger.debug(f"Asset '{asset_id}' {filetype.upper()} marked copied → {working_path}")
+    logger.debug(
+        f"Asset '{asset_id}' {filetype.upper()} marked copied → {working_path}"
+    )
 
 
 def is_asset_fully_copied(session_data: dict, asset_id: str) -> bool:
@@ -565,6 +586,7 @@ def is_asset_fully_copied(session_data: dict, asset_id: str) -> bool:
 # =========================================================
 # Session Summary / Diagnostics
 # =========================================================
+
 
 def session_summary(session_data: dict) -> dict:
     """
@@ -605,6 +627,7 @@ def session_summary(session_data: dict) -> dict:
 # =========================================================
 # Internal Helpers
 # =========================================================
+
 
 def _sanitize_name(name: str) -> str:
     """Strip characters unsafe for directory names."""
