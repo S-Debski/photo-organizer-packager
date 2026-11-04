@@ -178,3 +178,12 @@ build/
 flist*.txt
 
 .claude/settings.local.json
+
+# Local scratch / build leftovers (never commit)
+*.dmg
+*.lock
+log.txt
+diff.txt
+tree.txt
+newflist.txt
+folder_structure.txt

@@ -178,8 +178,19 @@ tests/                       Pipeline tests
 LICENSE
 ------------------------------------------------------------
 
-All rights reserved by the project author.
-Free for personal or internal organizational use.
+MIT License — see LICENSE. Copyright (c) 2026 Steve Debski.
+
+Third-party software, each under its own licence:
+    ExifTool (Phil Harvey)       — bundled in app builds; Perl licence
+                                   (Artistic / GPL), https://exiftool.org
+    Bootstrap, Bootstrap Icons   — MIT
+    Leaflet                      — BSD 2-Clause
+    Map tiles © OpenStreetMap contributors (ODbL)
+    Python packages: Flask (BSD), Pillow (MIT-CMU), pystray (LGPL),
+                     pywin32 (PSF), PyInstaller (GPL with bootloader
+                     exception)
+    Android SDK Platform-Tools (adb) — not included; installed by the
+                                   user under Google's terms
 
 ------------------------------------------------------------
 VERSION
