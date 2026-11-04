@@ -61,7 +61,7 @@ def write_gps_tags(path, lat, lon) -> subprocess.CompletedProcess:
             f"-GPSLatitudeRef={lat}",
             f"-GPSLongitude={abs(float(lon))}",
             f"-GPSLongitudeRef={lon}",
-            str(path),
+            os.path.abspath(str(path)),   # never starts with "-"
         ],
         capture_output=True,
         text=True,
@@ -80,13 +80,14 @@ def write_gps_sidecar(raw_path, lat, lon) -> subprocess.CompletedProcess:
     XMP stores signed decimal coordinates, so no N/S/E/W ref tags.
     """
     cmd = resolve_exiftool_cmd() or "exiftool"
-    sidecar = os.path.splitext(str(raw_path))[0] + ".xmp"
+    raw_path = os.path.abspath(str(raw_path))      # never starts with "-"
+    sidecar = os.path.splitext(raw_path)[0] + ".xmp"
     tags = [f"-XMP-exif:GPSLatitude={float(lat)}", f"-XMP-exif:GPSLongitude={float(lon)}"]
 
     if os.path.isfile(sidecar):
         args = [cmd, "-q", "-overwrite_original", *tags, sidecar]
     else:
-        args = [cmd, "-q", "-o", sidecar, *tags, str(raw_path)]
+        args = [cmd, "-q", "-o", sidecar, *tags, raw_path]
 
     return subprocess.run(
         args,

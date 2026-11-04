@@ -183,7 +183,8 @@ def prefetch_exif(paths) -> int:
     keep it for read_exif(). Returns the number of records loaded.
     """
     cmd = resolve_exiftool_cmd()
-    todo = [str(p) for p in paths
+    # Absolute paths: an argument-file line starting with "-" would be an option
+    todo = [os.path.abspath(str(p)) for p in paths
             if _PREFETCHED.get(_key(p), (None,))[0] != _stamp(p)]
     if not cmd or not todo:
         return 0
@@ -242,7 +243,7 @@ def _read_exif_single(path: str, stamp=None) -> dict:
 
     try:
         proc = subprocess.run(
-            [cmd, "-json", "-n", "-G1", "-a", "-s", path],
+            [cmd, "-json", "-n", "-G1", "-a", "-s", os.path.abspath(path)],
             capture_output=True,
             text=True,
             # exiftool emits UTF-8 JSON; the Windows default (cp1252) fails to

@@ -115,6 +115,46 @@ ctx: AppContext | None = None
 
 
 # -----------------------------------------------------------------------------
+# Local-only guard
+# -----------------------------------------------------------------------------
+# The app listens on 127.0.0.1, but a web page could still reach it through
+# DNS rebinding (a hostile domain that resolves to 127.0.0.1). Such requests
+# carry the attacker's host name, so only accept requests addressed to this
+# machine by name.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+# File types the photo endpoints may read or hand to other apps
+PHOTO_EXTS = {*IMAGE_EXTS_ALL, ".png", ".tif", ".tiff", ".xmp"}
+
+
+def is_photo_file(path: str) -> bool:
+    return bool(path) and os.path.splitext(path)[1].lower() in PHOTO_EXTS \
+        and os.path.isfile(path)
+
+
+def _host_name(host: str) -> str:
+    """'127.0.0.1:5000' → '127.0.0.1'; '[::1]:5000' → '[::1]'."""
+    host = (host or "").lower()
+    if host.startswith("["):
+        return host[: host.find("]") + 1]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+@app.before_request
+def _only_local_requests():
+    if _host_name(request.host) not in LOCAL_HOSTS:
+        return jsonify({"success": False, "error": "Forbidden"}), 403
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers["X-Content-Type-Options"] = "nosniff"     # JSON is never sniffed as HTML
+    resp.headers["X-Frame-Options"] = "DENY"               # no embedding in other sites
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+# -----------------------------------------------------------------------------
 # Activity tracking
 # -----------------------------------------------------------------------------
 def touch_activity():
@@ -777,10 +817,22 @@ def get_write_progress():
 # -----------------------------------------------------------------------------
 # Photo proxy
 # -----------------------------------------------------------------------------
+def _photo_arg(raw):
+    """Absolute path of a photo file from a request, or None (never other files)."""
+    if not raw:
+        return None
+    # Flask has already URL-decoded query values; absolute paths also mean
+    # a value can never start with "-" and be read as a tool's option
+    path = os.path.abspath(os.path.normpath(raw))
+    return path if is_photo_file(path) else None
+
+
 @app.route("/api/photo-proxy")
 def photo_proxy():
     touch_activity()
-    path = request.args.get("path")
+    path = _photo_arg(request.args.get("path"))
+    if not path:
+        return jsonify({"success": False, "error": "Photo not found"}), 404
     return api_photo_proxy(ctx, path)
 
 # -----------------------------------------------------------------------------
@@ -805,18 +857,18 @@ def exif_records():
 def file_action():
     import subprocess
     data = request.json or {}
-    path = os.path.normpath(data.get("path") or "")
+    path = _photo_arg(data.get("path"))
     action = data.get("action")
 
-    if not os.path.isfile(path) or \
-            os.path.splitext(path)[1].lower() not in {*IMAGE_EXTS_ALL, ".xmp", ".png", ".tif", ".tiff"}:
+    if not path:
         return jsonify({"success": False, "error": "Not a photo file"}), 400
 
     system = platform.system()
     try:
         if action == "reveal":
             if system == "Windows":
-                subprocess.Popen(f'explorer /select,"{path}"')
+                # Argument list, not a command string; path is a validated photo
+                subprocess.Popen(["explorer", "/select,", path])
             elif system == "Darwin":
                 subprocess.Popen(["open", "-R", path])
             else:
@@ -877,7 +929,7 @@ def _fmt_num(v, fmt="{:g}"):
 
 @app.route("/api/photo-info")
 def photo_info():
-    paths = [p for p in request.args.getlist("path") if p and os.path.isfile(p)]
+    paths = [p for p in (_photo_arg(r) for r in request.args.getlist("path")) if p]
     if not paths:
         return jsonify({"success": False, "error": "Photo not found"}), 404
 
@@ -944,7 +996,10 @@ def photo_info():
 # -----------------------------------------------------------------------------
 @app.route("/api/thumb")
 def thumb():
-    return api_thumb(ctx, request.args.get("path"), request.args.get("size", "grid"))
+    path = _photo_arg(request.args.get("path"))
+    if not path:
+        return jsonify({"success": False, "error": "Photo not found"}), 404
+    return api_thumb(ctx, path, request.args.get("size", "grid"))
 
 # -----------------------------------------------------------------------------
 # Full image
@@ -952,7 +1007,9 @@ def thumb():
 @app.route("/api/full-image")
 def full_image():
     touch_activity()
-    path = request.args.get("path")
+    path = _photo_arg(request.args.get("path"))
+    if not path:
+        return jsonify({"success": False, "error": "Photo not found"}), 404
     return api_full_image(ctx, path)
 
 # -----------------------------------------------------------------------------
@@ -1055,10 +1112,10 @@ def api_session_create():
             "decisions":   get_decisions(session_data),
         })
 
-    except Exception as e:
+    except Exception:
+        # Full traceback goes to the log only, never to the page
         logger.exception("session/create failed")
-        import traceback
-        return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()}), 500
+        return jsonify({"success": False, "error": "Couldn't start a culling session (see the log)."}), 500
 
 
 # -----------------------------------------------------------------------------

@@ -56,7 +56,7 @@ def _raw_preview(path) -> Image.Image | None:
         return None
     for tag in ("-JpgFromRaw", "-PreviewImage", "-ThumbnailImage"):
         proc = subprocess.run(
-            [cmd, "-b", tag, path],
+            [cmd, "-b", tag, os.path.abspath(path)],
             capture_output=True,
             stdin=subprocess.DEVNULL,
             creationflags=NO_WINDOW,

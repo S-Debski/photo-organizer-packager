@@ -156,7 +156,7 @@ def send_folder(adb: str, serial: str, folder: str, include_raw: bool = False,
 
     for i, (path, name) in enumerate(to_send, 1):
         remote = f"{phone_folder}/{name}"
-        proc = _run(adb, "-s", serial, "push", path, remote, timeout=600)
+        proc = _run(adb, "-s", serial, "push", os.path.abspath(path), remote, timeout=600)
         if proc.returncode == 0:
             sent.append(remote)
         else:

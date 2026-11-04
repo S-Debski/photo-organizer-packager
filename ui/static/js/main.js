@@ -639,7 +639,8 @@ function _toneOf(msg) {
     if (/^(⏳|📦|📊|📸|🔄)/u.test(t)) return "busy";
 
     // No symbol: judge by wording
-    const text = t.replace(/<[^>]+>/g, "").trim();
+    // Plain text of any markup (parsed, never rendered or run)
+    const text = (new DOMParser().parseFromString(t, "text/html").body.textContent || "").trim();
     if (/^(failed|error|could not|cannot)/i.test(text)) return "error";
     if (/…\s*$|\.\.\.\s*$|^(loading|detecting|reading|scanning|preparing|extracting|writing|copying)/i.test(text)) return "busy";
     if (/^(no |select |please |load )/i.test(text)) return "warning";
