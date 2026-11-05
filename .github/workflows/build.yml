@@ -2,7 +2,8 @@ name: Build desktop apps
 
 # Builds the standalone Windows and macOS apps.
 #   Run from the Actions tab -> workflow artifacts only (for testing).
-#   Push a v* tag            -> also publishes a GitHub Release with both
+#   Push a v* tag            -> also publishes a GitHub Release (Windows zip
+#                               first, Mac zip added when built), with both
 #                               zips attached (tags with a "-", e.g.
 #                               v3.0.0-beta.2, are marked pre-release).
 on:
@@ -65,17 +66,22 @@ jobs:
           name: PhotoOrganizer-windows
           path: dist/Photo Organizer/
 
+  # The release goes up as soon as Windows is built; the Mac zip is added
+  # by release-mac whenever the macOS job gets a runner (GitHub's Apple
+  # Silicon pool can be short for hours). If macOS fails, "Re-run failed
+  # jobs" on the tag's run retries it and then adds the zip.
   release:
     name: Publish release
-    needs: [macos, windows]
+    needs: windows
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # only this job can create the release
+      contents: write          # only the release jobs can write
     steps:
       - uses: actions/download-artifact@v6
-        # -> PhotoOrganizer-mac/PhotoOrganizer-mac.zip
-        #    PhotoOrganizer-windows/<contents of dist/Photo Organizer>
+        with:
+          name: PhotoOrganizer-windows
+          path: PhotoOrganizer-windows   # contents of dist/Photo Organizer
       - name: Zip the Windows app
         run: |
           mv PhotoOrganizer-windows "Photo Organizer"
@@ -85,6 +91,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # Re-runs: the release already exists, just replace the zip
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              PhotoOrganizer-windows.zip
+            exit 0
+          fi
           cat > notes.md <<'EOF'
           ## Download
 
@@ -100,6 +112,8 @@ jobs:
             `xattr -dr com.apple.quarantine "/Applications/Photo Organizer.app"`
 
           ExifTool is included. See readme.txt for details.
+          If the Mac zip isn't listed yet, its build is still waiting
+          for a GitHub Mac runner; it's added here when it finishes.
           EOF
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
@@ -107,5 +121,23 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Photo Organizer $TAG" \
             --notes-file notes.md --generate-notes $prerelease \
-            PhotoOrganizer-windows.zip \
-            PhotoOrganizer-mac/PhotoOrganizer-mac.zip
+            PhotoOrganizer-windows.zip
+
+  release-mac:
+    name: Add Mac zip to release
+    needs: [macos, release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: PhotoOrganizer-mac
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            PhotoOrganizer-mac.zip
